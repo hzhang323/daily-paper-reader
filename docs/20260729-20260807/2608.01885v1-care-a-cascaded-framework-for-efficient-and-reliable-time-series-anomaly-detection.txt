@@ -1,0 +1,1335 @@
+Title: CARE: A Cascaded Framework for Efficient and Reliable Time Series Anomaly Detection
+
+URL Source: https://arxiv.org/pdf/2608.01885v1
+
+Published Time: Tue, 04 Aug 2026 02:02:19 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# CARE: A Cascaded Framework for Efficient and Reliable Time Series Anomaly Detection 
+
+Zemin Chao, Qianhui Xu, Jianhe Cen, Guangzhi Ge, Xiao Chen, Hongzhi Wang ∗
+
+Massive Data Computing Lab, Harbin Institute of Technology 
+
+chaozm@hit.edu.cn wangzh@hit.edu.cn 
+
+Abstract 
+
+While deep learning models have achieved state-of-the-art performance in time series anomaly detection, their complex architectures incur substantial inference overhead. Existing methods typically apply a uniform inference strategy across all data points, which is inefficient given that anomalies are inherently scarce and the vast majority of temporal data consists of predictable normal patterns. To mitigate this bottleneck, we propose CARE, a model-agnostic cascaded inference framework that integrates a Lightweight Pre-filter Model (LPM) with an existing high-capacity Complex Detection Model (CDM). The LPM rapidly filters high-confidence normal samples using a Residual MLP AutoEncoder and a Normality-Conditioned Gating mechanism. Crucially, we introduce a Structure Attention module to explicitly capture channel-wise anomaly contributions, and optimize the gating network via a confidence-guided selective routing objective that learns reliable routing decisions to reduce unnecessary CDM invocations. Extensive experiments across eight real-world benchmarks demonstrate that CARE effectively isolates high-confidence normal samples. By routing only uncertain samples to the CDM, our framework achieves 2.7× to 4.8× inference speedup compared to the most accurate SOTA approaches, while still maintaining competitive detection quality. 
+
+1 Introduction 
+
+Time series anomalies serve as critical early indicators of underlying faults and emerging risks in modern cyber-physical systems [ 1, 2, 3 ]. Consequently, Time Series Anomaly Detection (TSAD) has emerged as a crucial research frontier in data mining, driving essential real-world applications such as fraud detection [ 4 ], healthcare monitoring [ 5], and urban management [ 6 ]. Although early traditional methods [ 7, 8, 9] laid the groundwork for identifying basic outliers, they generally struggle to capture the highly complex, non-linear temporal dependencies pervasive in real-world data streams [10]. Deep learning has since transformed TSAD by enabling automated feature extraction and the mod-eling of intricate temporal dynamics. To capture the complex dynamics of real-world data, re-cent methodologies have increasingly relied on sophisticated, high-capacity architectures, such as Transformer-based models for long-term dependencies [ 11 , 12 ], contrastive learning for latent normal patterns [ 13 , 14 ], and frequency-domain analysis for multi-view relationships [ 15 , 16 ]. However, this continuous pursuit of superior detection quality via architectural complexity comes at a steep compu-tational price. Consequently, deploying these deep TSAD models in practical, efficiency-sensitive scenarios exposes critical limitations. 
+
+Limitation 1: Severe inference bottlenecks in quality-leading detection models. While increasing model complexity generally yields superior detection quality, it inherently introduces substantial inference overhead. As depicted in Figure 1a, sota methods (e.g., DCdetector and GPT4TS) exhibit 
+
+> ∗Corresponding author. 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2608.01885v1 [cs.LG] 3 Aug 2026 Simple Model P* ( PatchTST )
+
+All Normal Sample (97%) 
+
+5% 
+
+P* Only 
+
+15% 
+
+D* Only 
+
+79% 
+
+P*  ∩ D*       
+
+> Complex Model D* ( DCdetector )
+> 𝐏 ∗∩𝐃 ∗/𝑫 ∗=𝟖𝟒% Conditional Coverage :
+
+NYC Dataset 
+
+Anomalies (3%) 
+
+> Simple Model P* ( PatchTST )
+
+Inference Time (s)            
+
+> 00.5 1.0 1.5 2.0 2.5
+> 𝒚 =𝟎 .𝟎𝟏𝟑 𝒙 +𝟎 .𝟔𝟓𝟒
+> 2021
+> 2022
+> 2023
+> 2024
+> 2025
+> Publication Year
+> CARE (Ours)
+> 0.694 0.184s
+> Anomaly Trans
+> 0.665 1.075s TranAD
+> 0.661 0.441s
+> PatchTST
+> 0.658 0.323s
+> TimesNet
+> 0.662 1.663s
+> DCdetector
+> 0.690 1.938s
+> GPT4TS
+> 0.688 2.058s
+> iTransformer
+> 0.673 1.505s
+> MLPMixer
+> 0.664 0.762s
+> CrossAD
+> 0.675 0.501s
+> CATCH
+> 0.668 0.914s
+> CALF
+> 0.657 0.829s
+> Affiliated -F1
+> 0.65
+> 0.66
+> 0.67
+> 0.68
+> 0.69
+> 0.70
+
+(a) Model performance comparison on NYC. Simple Model P* ( PatchTST )
+
+All Normal Sample (97%) 
+
+5% 
+
+P* Only 
+
+15% 
+
+D* Only 
+
+79% 
+
+P*  ∩ D*       
+
+> Complex Model D* ( DCdetector )
+> 𝐏 ∗∩𝐃 ∗/𝑫 ∗=𝟖𝟒% Conditional Coverage :
+
+NYC Dataset 
+
+Anomalies (3%) 
+
+> Simple Model P* ( PatchTST )
+
+Inference Time (s)             
+
+> 00.5 1.0 1.5 2.0 2.5
+> 𝒚 =𝟎 .𝟎𝟏𝟑 𝒙 +𝟎 .𝟔𝟓𝟒
+> 2021
+> 2022
+> 2023
+> 2024
+> 2025
+> Publication Year
+> CARE (Ours)
+> 0.694 0.184s
+> Anomaly Trans
+> 0.665 1.075s TranAD
+> 0.661 0.441s
+> PatchTST
+> 0.658 0.323s
+> TimesNet
+> 0.662 1.663s
+> DCdetector
+> 0.690 1.938s
+> GPT4TS
+> 0.688 2.058s
+> iTransformer
+> 0.673 1.505s
+> MLPMixer
+> 0.664 0.762s
+> CrossAD
+> 0.675 0.501s
+> CATCH
+> 0.668 0.914s
+> CALF
+> 0.657 0.829s
+> Affiliated -F1
+> 0.65
+> 0.66
+> 0.67
+> 0.68
+> 0.69
+> 0.70
+
+(b) Normal coverage overlap between models. 
+
+Figure 1: Motivation of the proposed CARE framework. (a) The trade-off between detection performance and inference cost among existing methods. CARE explicitly bridges this gap, delivering state-of-the-art accuracy with exceptionally low latency. (b) Over 84% of the normal samples identified by the high-capacity model (DCdetector) are also successfully captured by the lightweight model (PatchTST), indicating most of the candidates can be detected with simple models. prohibitively high inference costs [ 17 ]. Conversely, lightweight models (e.g., TranAD and PatchTST) offer desirable low-latency inference but at the expense of competitive detection accuracy. Unfor-tunately, TSAD methodologies that explicitly co-optimize for inference acceleration and detection quality remain insufficiently explored, leaving a critical gap in deploying these models at scale. 
+
+Limitation 2: Uniform complex inference on predominantly normal patterns. Due to the inherent scarcity of anomalous events [ 18 , 19 ], real-world temporal data is dominated by normal samples. A substantial portion of these normal instances exhibits stable, predictable patterns that can be effectively captured by relatively simple architectures. As illustrated in Figure 1b, simple architectures (e.g., PatchTST) can accurately identify the vast majority of normal temporal patterns alongside high-capacity models, indicating that most data is trivial enough to be processed without complex inference. Despite this, existing TSAD frameworks typically adopt a rigid, uniform inference strategy, indiscriminately applying complex models to all data points. This forces trivial normal samples to undergo costly and redundant inference procedures, leading to unnecessary overhead. To address these aforementioned limitations, we propose a CA scaded framework for Reliable and 
+
+Efficient time series anomaly detection (CARE), which rethinks the inference process by seamlessly integrating a Lightweight Pre-filter Model (LPM) with a high-capacity Complex Detection Model (CDM). Operating as an efficient front-end, the LPM employs a Residual MLP-based AutoEncoder coupled with a Normality-Conditioned Gating Module. This gating mechanism rapidly assesses the normality confidence of incoming temporal windows: high-confidence normal instances are safely intercepted and evaluated locally with the fast LPM model, while uncertain, high-risk samples are routed to the CDM for refined but more expensive analysis. To ensure reliable routing without compromising detection quality, the gating network utilizes a structure attention mechanism that captures channel-wise anomaly contributions. It is optimized via a confidence-guided objective that learns reliable routing to reduce unnecessary CDM invocations while maintaining detection quality. Therefore, the proposed approach breaks the traditional performance-efficiency trade-off, achieving efficient and reliable anomaly judgment. Our main contributions are: • We propose CARE, the first cascaded inference framework tailored for efficient time series anomaly detection. By fundamentally rethinking the uniform complex inference paradigm, CARE serves as a versatile, model-agnostic architecture that seamlessly integrates with, and substantially accelerates, existing high-capacity anomaly detectors. • We design a Lightweight Pre-filter Model (LPM) equipped with a novel structure attention mechanism to explicitly capture channel-wise anomaly contributions. Furthermore, we introduce a confidence-guided selective routing strategy to optimize the gating network, en-abling reliable routing decisions that reduce unnecessary CDM invocations while preserving detection quality. 2• Extensive experiments across eight diverse real-world benchmarks demonstrate that CARE effectively isolates trivial normal samples, breaking the traditional performance-efficiency bottleneck. Notably, CARE achieves a speedup of inference by 2.7× to 4.8× while main-taining, and in several cases even surpassing, state-of-the-art detection quality. 
+
+2 Related Work 
+
+Recent advancements in deep learning have significantly improved Time Series Anomaly Detection (TSAD). State-of-the-art methodologies, including forecasting-based, reconstruction-based, and representation-based models, as well as recent adaptations of Large Language Models (LLMs), have achieved remarkable detection accuracy [ 13 , 15 , 20 , 21 ]. However, this continuous pursuit of accuracy frequently relies on highly complex architectures (e.g., Transformers or multi-view fusions). While effective, these methods incur prohibitive inference latency, rendering them computationally expensive and impractical for latency-sensitive practical deployments. To balance performance and efficiency, cascaded inference models have been extensively explored in domains such as computer vision and natural language processing [ 22 , 23 ]. The core principle is to process straightforward samples with lightweight models while strategically reserving high-capacity architectures for complex cases. In the context of TSAD, anomalous events are inherently scarce, meaning the vast majority of normal samples can be accurately identified without invoking complex neural architectures [ 18 , 19 ]. Despite this, existing TSAD frameworks typically adopt a rigid, uniform inference strategy. Our CARE framework bridges this gap by introducing a cascaded paradigm tailored for time series, effectively circumventing redundant computations. 
+
+Due to space constraints, an extended and comprehensive review of the related literature is provided in Appendix A. 
+
+3 Methodology 
+
+Given an unlabeled multivariate time series X = {x1, x 2, . . . , x T } ∈ RT ×C , where T denotes the sequence length and C represents the number of feature channels, the objective of TSAD is to assign an anomaly score AS (xt) ∈ [0 , 1] to each observation, with higher scores reflecting greater anomalous probabilities. 
+
+Cascaded Time Series Anomaly Detection. Given a pre-trained, high-capacity and complex anomaly detection model CDM along with its inferred anomaly scores AS train c on the training set 
+
+Xtrain , we introduce a lightweight pre-filter model LPM, which is trained using Xtrain and guided by the prior knowledge AS train c . The objective of LPM is to generate a coarse-grained anomaly score AS l(xt) ∈ [0 , 1] and estimate a normality confidence score P (xt) ∈ [0 , 1] for any observation 
+
+xt ∈ Xtest .During inference, the evaluation path of xt is dynamically routed based on P (xt). A high P (xt)
+
+indicates a high-confidence normal sample, allowing the final anomaly score AS (xt) to be efficiently derived directly from AS l. Conversely, uncertain samples are forwarded to CDM for a refined, albeit computationally heavier, evaluation. 
+
+3.1 Overall Architecture of CARE 
+
+The proposed CARE framework cascades a Lightweight Pre-filter Model (LPM) with a Complex Detection Model (CDM). The LPM rapidly filters predictable normal samples and routes challenging instances to the CDM, significantly enhancing efficiency without compromising detection quality. Since CARE aims to accelerate existing high-capacity detectors, it only assumes the backend CDM provides deterministic continuous anomaly scores, a standard property of most TSAD models. Consequently, we focus on the architectural design of the LPM, which consists of three principal components as illustrated in Figure 2: 
+
+Time Series Preprocessing. We apply standard Z-score normalization to mitigate distribution shifts [ 10 ]. The normalized sequence is then partitioned into fixed-length sliding windows (using prefix padding for initial steps) to serve as model inputs. Specifically, the input at time step t is formulated 3Preprocessing     
+
+> Confident 𝑷
+> Cascaded
+> with CDM
+> ෢𝓦 ∈ℝ𝑻 ×𝑳 ×𝑪
+> Reconstructed
+> Aggregation
+> C
+> Output 𝑨𝑺
+
+,                                     
+
+> (b) Normality -Conditional Gating (NCG)
+> 𝑧 𝑡
+> Encoder Decoder Code
+> 𝑤 𝑡 ∈𝒲 ෝ𝑤 𝑡 ∈෡𝒲
+> Softmax 𝒲 −෡𝒲 ⨀𝒲 −෡𝒲
+> Learnable
+> Channel Attention
+> Channel Matrix 𝑀 𝑐 𝜖 ℝ𝑇 ×𝐶
+> NCG -Structure Attention
+> Temporal
+> Pooling
+> (a) Residual MLP -based AutoEncoder (RMA)
+> Yes
+> (c) Cascaded Strategy
+> Confident 𝑃 (𝑥 𝑡 )
+> 𝑃 (𝑥 𝑡 )>𝑄 𝜏 ?
+> AS𝑥 𝑡 is LPM score
+> CDM inference and
+> AS𝑥 𝑡 is CDM score
+> MLE -based
+> score alignment
+> 𝜏 ∈0,1,𝑄 𝜏 is the
+> 𝜏 quantile of 𝑃 .
+> Residual connection
+> Filter
+> 𝓦 ∈ℝ𝑻 ×𝑳 ×𝑪
+> MLP
+> (RELU)
+> MLP
+> (Sigmoid)
+> Input 𝑿
+> Lightweight Pre -filter Model (LPM)
+> Structure
+> Attention
+> Residual MLP -based
+> AutoEncoder
+
+Figure 2: The overall architecture of the proposed CARE framework. (a) The Residual AutoEncoder performs lightweight and rapid input reconstruction. (b) The Normality-Conditioned Gating network fuses aggregated reconstruction deviations with structural features (channel-wise anomaly) to dynam-ically estimate a normality confidence score for each window. (c)The Cascaded Inference Strategy leverages the confidence score to safely bypass trivial normal samples, selectively invoking the CDM only for hard anomalies to guarantee both inference efficiency and detection reliability. as wt ∈ RL×C , encompassing the most recent L observations of the time series. This yields the complete window set W = {w1, . . . , w T } ∈ RT ×L×C for all T time steps. 
+
+Residual MLP-based AutoEncoder (RMA). To enable efficient anomaly inference, LPM adopts an MLP-based structure for time series reconstruction. The preprocessed windows W =
+
+{w1, . . . , w T } are fed into the encoder to capture underlying normal patterns, where residual con-nections are introduced to enhance feature representation. The resulting latent embeddings are subsequently passed to a decoder to reconstruct the original sequence. 
+
+Normality-Conditioned Gating (NCG). NCG is designed to rapidly identify and filter out trivial, unequivocally normal samples, thereby preventing them from undergoing complex inference. To achieve this, we incorporate a confidence gating network based on a structure attention mechanism. This module extracts multi-granularity reconstruction errors to capture the deviations of the current observation from established normal patterns. Subsequently, these multi-granularity deviation features are concatenated with the structural anomaly features to form a comprehensive joint representation. Ultimately, this fused representation is projected into a normalized confidence score through the gating network, which directly dictates the downstream routing decision in the cascaded framework. 
+
+3.2 Residual MLP-based AutoEncoder (RMA) 
+
+To enable rapid and computationally efficient anomaly inference, the RMA adopts a pure Multilayer Perceptron (MLP) autoencoder architecture, deliberately avoiding computationally expensive self-attention mechanisms. Specifically, the encoder maps flattened sliding windows through an initial MLP layer, followed by a residual block to effectively capture complex temporal dynamics without heavy parameterization. The decoder then reconstructs the sequence to obtain the reconstructed window set ˆW ∈ RT ×L×C via two consecutive MLP layers and a reshaping operation. The formal expression of RMA is detailed in Appendix B. 
+
+3.3 Normality-Conditioned Gating (NCG) 
+
+As the core decision component of the LPM, the Normality-Conditioned Gating (NCG) identifies high-confidence normal samples using the reconstruction outputs from Section 3.2. To guarantee 4reliable routing, NCG introduces a structure attention mechanism as its key module that explicitly models channel-wise anomaly contributions, thereby enhancing decision reliability. 
+
+Structure Attention. In practice, sensor channels exhibit varying sensitivities for anomaly detection, with certain channels being inherently more fault-prone [ 24 ]. However, standard MLP-based feature fusion typically performs implicit and uniform aggregation, failing to explicitly capture this channel-specific importance. To address this, CARE introduces a structure attention mechanism that explicitly quantifies channel-wise anomaly contributions. Specifically, to extract the anomaly severity per channel, we compute the squared reconstruction deviation for each window and apply temporal average pooling as a channel matrix, which quantifies the anomaly contribution of each individual channel for a given sample. To adaptively scale these contributions, we introduce a learnable channel attention vector v ∈ RC , normalized via a softmax function. Finally, the channel-wise deviations are then weighted and aggregated using this attention vector to yield the structural anomaly feature fst , which serves as a vital auxiliary signal for the subsequent gating network. Formally, this process is defined as: 
+
+fst = TemporalPool(( W − ˆW) ⊙ (W − ˆW)) · softmax( v), (1) where fst ∈ RT ×1 is the structural anomaly feature, ⊙ denotes the Hadamard (element-wise) product, and TemporalPool( ·) denotes the average pooling operation along the window length dimension L
+
+(the temporal axis). 
+
+Confidence Gating Network In the final stage of the LPM, we design an MLP-based gating network to estimate the normality confidence of each sample. To capture reconstruction quality at multiple granularities, we extract both window-level ( fwin ) and point-level ( fpot ) features by applying global and channel-wise average pooling over the squared reconstruction errors, respectively. These features are then concatenated with the structural anomaly feature fst to form a comprehensive joint representation. Finally, a two-layer MLP projects this fused representation into a normalized confidence score P, which directly dictates whether the sample requires further refined evaluation by the CDM. The process can be formally defined as follows: 
+
+fwin = WindowPool(( W − ˆW) ⊙ (W − ˆW)) 
+
+fpot = ChannelPool(( W:,L, : − ˆW:,L, :) ⊙ (W:,L, : − ˆW:,L, :)) 
+
+F = Concat( fwin , fpot , fst )
+
+P = 1 − Sigmoid((ReLU( FW (g)1 + b(g)1 )W(g)2 ) + b(g)2 )
+
+(2) where W(g)1 ∈ R3×Dg , W(g)2 ∈ RDg ×1 are learnable weight matrices, and b(g)1 ∈ RDg and b(g)2 ∈ R
+
+are their corresponding bias terms. Dg denotes the hidden dimension size. fwin , fpot ∈ RT ×1 represent the window-level and point-level reconstruction features, F ∈ RT ×3 is the joint representation, and 
+
+P ∈ RT ×1 is the ultimate confidence score. WindowPool( ·) denotes the global average pooling across both the temporal and channel dimensions, while ChannelPool( ·) computes the average over channels at any time step. 
+
+3.4 Cascaded Model Training and Inference 
+
+This section details how the aforementioned Lightweight Pre-filter Model (LPM) is trained and the efficient cascaded inference process of CARE framework. The corresponding pseudocode of CARE is summarized in Appendix C. 
+
+Two-stage LPM Training. To prevent the gating objective from distorting the underlying temporal representations (i.e., semantic drift), we decouple the optimization process into a two-stage training strategy. In Stage 1, the RMA is optimized only with the sequence reconstruction loss. This guarantees that the RMA focuses exclusively on capturing intrinsic normal temporal patterns, independent of any downstream routing decisions. The loss function is formulated as: 
+
+Lrecon = ∥W − ˆW∥ 22 (3) 5In Stage 2, both the RMA (trained in Stage 1) and the pre-trained CDM are frozen to provide stable prior knowledge. The NCG is then optimized to partition the input space into high-confidence and uncertain subsets. To train the gating network, we utilize the anomaly scores inferred by the CDM on the training set ( AS c) as supervisory signals. A fundamental challenge in unsupervised TSAD, however, is that raw anomaly scores lack inherent physical interpretability and exhibit severe scale variations across datasets. Consequently, directly optimizing the network NCG against absolute AS c values is prone to yield unreliable routing decisions. To circumvent this, we exploit the robust relative ranking preserved within AS c. Guided by the intrinsic prior that normal patterns dominate the data distribution, we introduce a quantile-based risk threshold to robustly partition the training instances. Specifically, samples with an AS c falling below this quantile are designated as high-confidence safe instances, whereas those exceeding it are strictly identified as high-risk. The gating optimization is further formalized as a Quantile-Anchored Margin Loss, composed of the following two principal components: 
+
+Bipartite Loss. This component explicitly enforces a margin-based separation, ensuring that desig-nated safe samples consistently yield higher normality confidences than their high-risk counterparts. By penalizing ranking violations, it robustly preserves the global relative ordering between the two disjoint subsets. Formally, it is defined as: 
+
+Lbipartite = Exi,x j ∼Xtrain 
+
+h
+
+Irisk (xi)(1 − Irisk (xj )) · max  0, ξ 1 − (P (xj ) − P (xi)) i
+
+(4) where Irisk (xt) = I(AS c(xt) > Q risk ) denotes a binary indicator function, and Qrisk represents the predefined risk quantile threshold established over the AS c distribution, and ξ1 is a predefined margin hyperparameter enforcing the separation between the two subsets. 
+
+Boundary Loss. To resolve ambiguity near the decision threshold, we enforce localized hinge constraints on samples immediately adjacent to the risk boundary. This explicitly penalizes incorrect local orderings within the most uncertain data region. Formally, it is expressed as: 
+
+Lboundary = Exi,x j ∼Xtrain 
+
+h
+
+Ihigh risk (xi)Ilow risk (xj ) · max  0, ξ 2 − (P (xj ) − P (xi)) i
+
+(5) where Ihigh risk (xt) = I Qrisk < AS c(xt) ≤ Qrisk + w and Ilow risk (xt) = I Qrisk − w ≤ AS c(xt) ≤ Qrisk 
+
+
+
+act as binary indicators capturing instances strictly above and below the boundary, respectively, with 
+
+w denoting a predefined margin width, and ξ2 serving as the predefined margin hyperparameter for this localized constraint. To further stabilize the optimization and encourage the network to output high confidences unless restricted by the ranking margins, we incorporate a penalty regularization (1 − P (xt)) 2. Combining these components, the overall training objective for the gating network is formalized as: 
+
+Lgate = Lbipartite + λLboundary + αExt∼Xtrain 
+
+(1 − P (xt)) 2 (6) 
+
+Cascaded CARE Inference. As illustrated in Figure 2, the raw time series X is preprocessed into a set of sliding windows W. For any observation xt, its corresponding window wt is first evaluated by the LPM to rapidly generate a normality confidence score P (xt). Governed by a predefined filter threshold τ , the framework dynamically partitions the input space into two mutually exclusive subsets: a high-confidence normal set N and an uncertain set U. Specifically, if P (xt) ≥ Qτ , xt ∈ N and safely bypasses the CDM; conversely, if P (xt) < Q τ , xt ∈ U and is routed to the CDM for refined evaluation, where Qτ is the τ quantile of P .
+
+MLE-based Score Alignment. Since the raw anomaly scores from LPM ( AS l) and CDM ( AS c)reside in heterogeneous scale spaces, they cannot be directly unified. Motivated by the em-pirically observed right-skewed distributions of anomaly scores, we employ Maximum Like-lihood Estimation (MLE) on the training set to fit log-normal distributions for both models: 
+
+AS train  
+
+> l
+
+∼ LogNormal( μl, σ 2 
+
+> l
+
+) and AS train  
+
+> c
+
+∼ LogNormal( μc, σ 2 
+
+> c
+
+). During inference, we project the raw scores into a unified probabilistic domain using their respective cumulative distribution functions (CDFs, denoted as Fl and Fc). The analysis of this score alignment strategy are provided in Appendix F. The statistically aligned final score is: 
+
+AS (xt) = 
+
+− log  1 − Fl(AS l(xt)) , xt ∈ N ,
+
+− log  1 − Fc(AS c(xt)) , xt ∈ U . (7) 64 Experiments 
+
+Datasets We evaluate the performance of the CARE framework on 8 real-world datasets. The datasets span diverse application scenarios, such as spacecraft, server machines, and water treat-ment systems and include CalIt2 [ 25 ], NYC [ 26 ], GECCO [ 27 ], MSL [ 28 ], PSM [ 29 ], ECG [ 30 ], SMAP [28] and KDD21 [17]. More details about the datasets are provided in Appendix D.1. 
+
+Baselines CARE is systematically compared with 14 baselines, covering representative meth-ods and recent advances in TSAD. Specifically, these baselines include the classical methods: OCSVM [ 9], Autoencoder (AE) [ 31 ], LSTMED [ 32 ]; the recent representative deep learning methods: Anomaly Transformer (ATrans) [ 33 ], TranAD [ 24 ], DCdetector (DC) [ 34 ], MLP-Mixer (Mixer) [ 13 ], CATCH [ 10 ], CrossAD (Cross) [ 12 ]; the approaches adapted from general time series analysis: TimesNet (TsNet) [ 35 ], iTransformer (iTrans) [ 20 ], PatchTST (Patch) [ 36 ]; and the large language model-based methods: GPT4TS (GS) [ 21 ], CALF [ 37 ]. Among them, CrossAD, MLP-Mixer, and TranAD are regarded as representative state-of-the-art methods in TSAD. 
+
+Setup To demonstrate the effectiveness of the proposed CARE, we evaluate it from two perspectives: detection quality and inference efficiency. For detection quality, we adopt the label-based metric Affiliated-F1 (Aff-F) and the ranking-based metric Area Under the Precision-Recall Curve (A-P) as the primary evaluation metrics. For inference efficiency, we use average inference time (Time) as the core metric. In addition, we report comprehensive results for all metrics in Appendix L. To ensure a strong and up-to-date backbone, we employ the SOTA CrossAD as the CDM. Notably, CARE is model-agnostic, and the CDM can be replaced with any existing method. Experimental results in Section 4.4 demonstrate this point. More implementation details are presented in the Appendix D.3. 
+
+4.1 Main Results 
+
+We conducted a comprehensive evaluation of the proposed CARE on 8 datasets, comparing it against 14 baselines as shown in Table 1. For detection quality, CARE achieves SOTA performance in terms of Aff-F1 and AUC-PR on 6 and 5 datasets, respectively. On the remaining datasets, it ranked second, with most deviating from the best by no more than 1%. This result is mainly attributed to the structure attention-enhanced NCG, which identifies high-confidence normal samples early and avoids CDM-induced false positives. In terms of inference efficiency, CARE reached SOTA performance across all datasets. The substantial inference speedup is strongly correlated with the LPM’s filtering ratio. As demonstrated by the latency reductions, the gating mechanism effectively reduces CDM invocations and lowers the overall inference cost. Overall, CARE achieves significant gains in inference efficiency while maintaining high detection quality. 
+
+4.2 Ablation Study 
+
+Given that NCG is the core component of CARE, we replaced it with two alternative routing strategies, including random routing and RMA-based routing, under the same CDM invocation rate for a fair comparison. We further evaluate the contributions of structure attention, individual loss terms in Lgate ,and the two-stage training strategy. Based on the ablation results presented in Table 2, we derive the following observations: First , replacing NCG with random or RMA-based routing leads to consistent performance degradation, demonstrating the superiority of confidence-guided routing under the same inference budget. Second , removing structure attention significantly degrades detection quality, indicating its importance in capturing channel-wise anomaly contributions for gating. Third , all three loss terms complement each other, enabling NCG to achieve optimal decision-making. Notably, the bipartite loss being the most critical for separating normal and uncertain samples. Finally , end-to-end training reduces detection quality, as RMA tends to learn features that favor gating decisions rather than capturing the underlying normal temporal patterns. 
+
+4.3 Parameter Sensitivity 
+
+The filtering threshold τ is the most critical parameter, significantly affecting both inference efficiency and detection quality. As shown in Figure 3a, decreasing τ substantially improves inference efficiency by filtering out the majority of samples during the LPM stage, thereby reducing CDM invocations. However, both excessively high and low values of τ degrade detection quality. When τ is too large, 7Table 1: Average Aff-F (Affiliated-F1), A-P (AUC-PR) and Inference time across 8 real-world datasets. The best results are in bold, while the second-best results are underlined. 
+
+Dataset Metric CARE Cross CATCH Mixer DC TranAD ATrans CALF GS Patch iTrans TsNet LSTM AE OCSVM CalIt2 Aff-F 0.787 0.788 0.780 0.779 0.673 0.780 0.673 0.755 0.783 0.782 0.761 0.747 0.782 0.786 0.788 A-P 0.100 0.099 0.094 0.097 0.029 0.052 0.030 0.048 0.087 0.093 0.094 0.079 0.078 0.081 0.095 
+
+Time 0.091 0.312 0.583 0.252 0.877 0.265 0.713 0.522 1.016 0.213 0.222 0.572 0.474 0.472 0.259 
+
+NYC Aff-F 0.694 0.675 0.668 0.664 0.690 0.661 0.665 0.657 0.689 0.658 0.673 0.662 0.670 0.688 0.667 
+
+A-P 0.090 0.086 0.048 0.024 0.041 0.027 0.026 0.051 0.034 0.032 0.040 0.033 0.047 0.043 0.020 
+
+Time 0.184 0.501 0.914 0.762 1.938 0.441 1.074 0.829 2.058 0.323 0.751 1.663 0.834 0.557 3.622 
+
+GECCO Aff-F 0.938 0.884 0.863 0.379 0.669 0.166 0.669 0.783 0.907 0.844 0.820 0.908 0.351 0.392 0.468 
+
+A-P 0.624 0.596 0.331 0.310 0.011 0.191 0.011 0.321 0.295 0.347 0.154 0.479 0.284 0.277 0.039 
+
+Time 3.889 11.98 23.64 15.20 22.79 9.520 17.03 15.22 26.01 6.121 4.654 17.44 17.77 9.712 291.6 
+
+MSL Aff-F 0.770 0.761 0.769 0.768 0.679 0.763 0.679 0.699 0.768 0.759 0.762 0.760 0.470 0.689 0.688 
+
+A-P 0.266 0.272 0.228 0.247 0.108 0.188 0.098 0.178 0.225 0.201 0.213 0.207 0.193 0.144 0.153 
+
+Time 3.087 6.862 11.56 7.111 24.80 7.276 17.71 14.75 27.51 6.009 4.292 18.31 17.56 10.73 114.7 
+
+ECG Aff-F 0.813 0.800 0.773 0.786 0.728 0.663 0.728 0.754 0.700 0.789 0.741 0.709 0.790 0.793 0.790 
+
+A-P 0.529 0.503 0.505 0.495 0.147 0.272 0.157 0.486 0.506 0.490 0.483 0.412 0.500 0.478 0.480 
+
+Time 6.750 32.59 71.86 38.31 29.72 7.050 15.04 24.55 21.19 7.693 6.823 14.12 14.18 8.786 145.5 
+
+PSM Aff-F 0.744 0.764 0.699 0.729 0.694 0.715 0.694 0.694 0.694 0.696 0.699 0.705 0.693 0.694 0.693 
+
+A-P 0.569 0.465 0.381 0.438 0.278 0.380 0.290 0.344 0.379 0.370 0.377 0.394 0.433 0.476 0.418 
+
+Time 9.057 30.56 72.60 35.70 36.81 13.50 24.06 32.78 33.33 10.86 9.365 23.45 23.81 14.86 537.0 
+
+SMAP Aff-F 0.721 0.712 0.704 0.680 0.680 0.682 0.679 0.680 0.692 0.706 0.679 0.703 0.681 0.683 0.679 
+
+A-P 0.133 0.132 0.124 0.133 0.136 0.110 0.124 0.109 0.124 0.140 0.114 0.134 0.103 0.109 0.101 
+
+Time 16.71 38.46 67.94 40.98 152.4 42.33 101.7 80.23 164.9 35.88 22.67 108.6 187.6 155.7 1423 
+
+KDD21 Aff-F 0.716 0.712 0.693 0.714 0.669 0.714 0.695 0.715 0.709 0.696 0.707 0.683 0.698 0.708 0.704 
+
+A-P 0.047 0.044 0.042 0.046 0.009 0.033 0.040 0.058 0.023 0.025 0.042 0.021 0.023 0.030 0.028 
+
+Time 2.354 7.101 13.055 4.162 11.265 6.108 10.729 8.330 23.534 3.396 2.957 18.519 9.861 8.409 38.392 
+
+Avg Aff-F 0.781 0.769 0.751 0.684 0.688 0.633 0.684 0.718 0.748 0.748 0.734 0.742 0.634 0.675 0.682 
+
+A-P 0.330 0.308 0.245 0.249 0.107 0.174 0.105 0.219 0.236 0.239 0.211 0.248 0.234 0.230 0.187 
+
+Time 5.681 17.32 35.58 19.76 38.48 11.48 25.34 24.13 39.44 9.585 6.967 26.31 37.46 28.68 359.4 
+
+Table 2: Ablation studies for CARE. Aff-F and A-P are the Affiliated-F1 and AUC-PR, higher is better. All variants are evaluated under the same CDM invocation rate (approximately 20%) for fair comparison. The best values are highlighted in bold. 
+
+Variations NYC GECCO ECG PSM Avg Aff-F A-P Aff-F A-P Aff-F A-P Aff-F A-P Aff-F A-P Model Components 
+
+w/o NCG (Random routing) 0.658 0.056 0.873 0.329 0.804 0.509 0.713 0.514 0.762 0.352 w/o NCG (RMA routing) 0.678 0.082 0.514 0.353 0.810 0.521 0.709 0.391 0.678 0.337 w/o structure attention 0.662 0.055 0.937 0.614 0.803 0.497 0.708 0.390 0.778 0.389 
+
+Optimization Objectives 
+
+w/o Lgate Bipartite loss 0.692 0.089 0.574 0.297 0.813 0.528 0.744 0.543 0.706 0.365 w/o Lgate Boundary loss 0.693 0.087 0.938 0.623 0.812 0.523 0.709 0.380 0.788 0.404 w/o Lgate Regular Loss 0.677 0.071 0.872 0.480 0.809 0.521 0.740 0.517 0.775 0.398 
+
+Training w/o Two-stage Strategy 0.694 0.083 0.934 0.621 0.799 0.517 0.715 0.411 0.786 0.408 
+
+CARE (ours) 0.694 0.090 0.938 0.624 0.813 0.529 0.744 0.569 0.798 0.453 
+
+excessive samples are routed to the CDM, weakening the cascaded mechanism and increasing false positives. A low τ causes CARE to effectively rely solely on LPM, making it difficult to identify hard samples, as illustrated in Figure 3b. Overall, a τ value in the range of 0.1-0.3 strikes a balance between stability and efficiency. We also analyze λ and α in the confidence-guided optimization function (Eq.(6)) of CARE, which respectively control the influence of the boundary constraints and the regularization term on NCG decisions. As depicted in Figures 3c and 3d, λ is stable and easily tunable in the range of 0.5-1, while α performs best within the range of 0.05-0.1. Additional hyperparameter analyses are provided in Appendix G. 
+
+4.4 Adaptability of CARE to Diverse Detection Models 
+
+In this subsection, we demonstrate the versatility of the cascaded framework CARE by evaluating different existing models as the CDM. As shown in Table 3, we use CrossAD, MLPMixer, TranAD, and ATrans as backend models for CARE and compare their detection results with the original models. On three of four datasets, CARE outperforms the original models, achieving up to 20.9% relative improvement in detection performance. This improvement suggests that the lightweight pre-filtering mechanism effectively filters normal temporal patterns. By intercepting instances that 80.5 0.4 0.3 0.2 0.1 0   
+
+> Filter threshold
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> Inference time (s)
+> NYC GECCO ECG PSM
+
+(a) Inference time with τ0.5 0.4 0.3 0.2 0.1 0    
+
+> Filter threshold
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(b) Affiliated-F1 with τ0.01 0.05 0.1 0.2 0.5 1
+
+Loss parameter     
+
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(c) Loss parameter λ0.01 0.05 0.1 0.2 0.5 1
+
+Loss parameter     
+
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(d) Loss parameter α
+
+Figure 3: Parameter sensitivity studies of main hyper-parameters in CARE. CDM CARE CDM CARE CDM CARE CDM CARE    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(a) NYC CDM CARE CDM CARE CDM CARE CDM CARE     
+
+> 0
+> 5
+> 10
+> 15
+> 20
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(b) GECCO CDM CARE CDM CARE CDM CARE CDM CARE     
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(c) ECG CDM CARE CDM CARE CDM CARE CDM CARE     
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(d) PSM 
+
+Figure 4: Inference time comparison of CARE with various CDM backbones. complex models might otherwise over-interpret, CARE reduces false positives and potential over-fitting, thereby enhancing overall detection reliability. Simultaneously, CARE significantly improves detection efficiency on all datasets, with a maximum speedup of 5.47x. Figure 4 illustrates this improvement by decomposing the computational cost of the LPM and CDM stages: under the current settings, the minimal decision overhead of LPM substantially reduces the number of CDM invocations. These results validate the generality of CARE: it can be combined with diverse TSAD models to achieve efficient and reliable anomaly detection across different datasets and scenarios. Additional Adaptability analyses are provided in Appendix H. Table 3: The generality of CARE with different CDM models. Aff-F, Time, and S× are Affiliated F1-score, Inference time, and Speedup, respectively. The best ones are in bold. 
+
+Method NYC GECCO ECG PSM Avg Aff-F Time S× Aff-F Time S× Aff-F Time S× Aff-F Time S× Aff-F Time S×
+
+CrossAD 0.675 0.501 1.000 0.884 11.98 1.000 0.800 32.59 1.000 0.764 30.56 1.000 0.781 18.91 1.000 
+
+CARE (CrossAD as CDM) 0.694 0.184 2.723 0.938 3.889 3.081 0.813 6.750 4.828 0.744 9.057 3.375 0.797 4.970 3.502 MLPMixer 0.664 0.762 1.000 0.379 15.20 1.000 0.786 38.31 1.000 0.729 35.70 1.000 0.640 22.49 1.000 
+
+CARE (MLPMixer as CDM) 0.665 0.257 2.970 0.437 4.575 3.323 0.792 6.996 5.476 0.720 11.02 3.241 0.654 5.71 1 3.752 TranAD 0.661 0.441 1.000 0.166 9.520 1.000 0.663 7.050 1.000 0.715 13.50 1.000 0.551 7.627 1.000 
+
+CARE (TranAD as CDM) 0.663 0.147 3.001 0.166 2.789 3.414 0.801 2.840 2.483 0.729 4.626 2.918 0.590 2.600 2.954 ATrans 0.665 1.074 1.000 0.669 17.03 1.000 0.728 15.04 1.000 0.694 24.06 1.000 0.689 14.30 1.000 
+
+CARE (Atrans as CDM) 0.676 0.275 3.910 0.669 4.726 3.603 0.835 5.114 2.941 0.697 8.808 2.732 0.719 4.731 3.296 
+
+5 Conclusion 
+
+In this paper, we propose a novel cascaded inference framework, CARE, which accelerates inference efficiency while maintaining reliable time series anomaly detection. To this end, we propose a lightweight pre-filter model for efficiently learning normal patterns and gating decisions. A structure attention mechanism is introduced to enhance anomaly representation capabilities. A confidence-guided selective routing strategy is designed to separate high-confidence normal samples from uncertain samples, reducing complex model calls and overall computational cost. Extensive experi-ments on real-world datasets demonstrate the superiority and generality of CARE. As future work, we will investigate adaptive routing strategies for evolving time series environments, where continuously changing data distributions may require dynamic updates of routing decisions. 9References 
+
+[1] Zahra Zamanzadeh Darban, Geoffrey I Webb, Shirui Pan, Charu Aggarwal, and Mahsa Salehi. Deep learning for time series anomaly detection: A survey. ACM Computing Surveys , 57(1):1– 42, 2024. [2] D. M. Hawkins. Identification of Outliers . Monographs on Applied Probability and Statistics. Springer, 1980. [3] Ane Blázquez-García, Angel Conde, Usue Mori, and Jose A Lozano. A review on out-lier/anomaly detection in time series data. ACM computing surveys (CSUR) , 54(3):1–33, 2021. [4] Chang Yu, Yongshun Xu, Jin Cao, Ye Zhang, Yixin Jin, and Mengran Zhu. Credit card fraud detection using advanced transformer model. In 2024 IEEE international conference on metaverse computing, networking, and applications (MetaCom) , pages 343–350. IEEE, 2024. [5] Moumita Roy, Sukanta Majumder, Anindya Halder, and Utpal Biswas. Ecg-net: A deep lstm autoencoder for detecting anomalous ecg. Engineering Applications of Artificial Intelligence ,124:106484, 2023. [6] Shaoyu Dou, Kai Yang, Yang Jiao, Chengbo Qiu, and Kui Ren. Anomaly detection in event-triggered traffic time series via similarity learning. IEEE Transactions on Dependable and Secure Computing , 22(2):888–902, 2024. [7] Markus M Breunig, Hans-Peter Kriegel, Raymond T Ng, and Jörg Sander. Lof: identifying density-based local outliers. In Proceedings of the 2000 ACM SIGMOD international conference on Management of data , pages 93–104, 2000. [8] Fei Tony Liu, Kai Ming Ting, and Zhi-Hua Zhou. Isolation forest. In 2008 eighth ieee international conference on data mining , pages 413–422. IEEE, 2008. [9] Bernhard Schölkopf, Robert C Williamson, Alex Smola, John Shawe-Taylor, and John Platt. Support vector method for novelty detection. Advances in neural information processing systems , 12, 1999. [10] Mengxuan Li, Ke Liu, Hongyang Chen, Jiajun Bu, Hongwei Wang, and Haishuai Wang. Tsinr: capturing temporal continuity via implicit neural representations for time series anomaly detection. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 1 , pages 671–682, 2025. [11] Zhihao Dai, Ligang He, Shuang-Hua Yang, and Matthew Leeke. Sarad: Spatial association-aware anomaly detection and diagnosis for multivariate time series. Advances in Neural Information Processing Systems , 37:48371–48410, 2024. [12] Beibu Li, Qichao Shentu, Yang Shu, Hui Zhang, Ming Li, Ning Jin, Bin Yang, and Chenjuan Guo. Crossad: Time series anomaly detection with cross-scale associations and cross-window modeling. arXiv preprint arXiv:2510.12489 , 2025. [13] Qideng Tang, Chaofan Dai, Yahui Wu, and Haohao Zhou. Mlp-mixer based masked autoen-coders are effective, explainable and robust for time series anomaly detection. Proceedings of the VLDB Endowment , 18(3):798–811, 2024. [14] Zhihao Zhuang, Yingying Zhang, Kai Zhao, Chenjuan Guo, Bin Yang, Qingsong Wen, and Lunting Fan. Noise matters: Cross contrastive learning for flink anomaly detection. Proceedings of the VLDB Endowment , 18(4):1159–1168, 2024. [15] Yuchen Fang, Jiandong Xie, Yan Zhao, Lu Chen, Yunjun Gao, and Kai Zheng. Temporal-frequency masked autoencoders for time series anomaly detection. In 2024 IEEE 40th interna-tional conference on data engineering (ICDE) , pages 1228–1241. IEEE, 2024. [16] Xingjian Wu, Xiangfei Qiu, Zhengyu Li, Yihang Wang, Jilin Hu, Chenjuan Guo, Hui Xiong, and Bin Yang. Catch: Channel-aware multivariate time series anomaly detection via frequency patching. arXiv preprint arXiv:2410.12261 , 2024. 10 [17] Xiangfei Qiu, Zhe Li, Wanghui Qiu, Shiyan Hu, Lekui Zhou, Xingjian Wu, Zhengyu Li, Chenjuan Guo, Aoying Zhou, Zhenli Sheng, et al. Tab: Unified benchmarking of time series anomaly detection methods. Proceedings of the VLDB Endowment , 18(9):2775–2789, 2025. [18] Charu C Aggarwal. An introduction to outlier analysis. In Outlier analysis , pages 1–34. Springer, 2016. [19] Sebastian Schmidl, Phillip Wenig, and Thorsten Papenbrock. Anomaly detection in time series: a comprehensive evaluation. Proceedings of the VLDB Endowment , 15(9):1779–1797, 2022. [20] Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. itransformer: Inverted transformers are effective for time series forecasting. The Twelfth International Conference on Learning Representations (ICLR) , 2024. [21] Tian Zhou, Peisong Niu, Liang Sun, Rong Jin, et al. One fits all: Power general time series analysis by pretrained lm. Advances in neural information processing systems , 36:43322–43355, 2023. [22] Yizeng Han, Gao Huang, Shiji Song, Le Yang, Honghui Wang, and Yulin Wang. Dynamic neural networks: A survey. IEEE transactions on pattern analysis and machine intelligence ,44(11):7436–7456, 2021. [23] Lingjiao Chen, Matei Zaharia, and James Zou. Frugalgpt: How to use large language models while reducing cost and improving performance. Trans. Mach. Learn. Res. , 2024. [24] Shreshth Tuli, Giuliano Casale, and Nicholas R Jennings. Tranad: Deep transformer networks for anomaly detection in multivariate time series data. Proc. VLDB Endow. , 15(6):1201–1214, 2022. [25] Arthur Asuncion and David Newman. Uci machine learning repository, 2007. [26] Yuwei Cui, Chetan Surpur, Subutai Ahmad, and Jeff Hawkins. A comparative study of htm and other neural network models for online sequence learning with streaming data. In 2016 International joint conference on neural networks (IJCNN) , pages 1530–1538. IEEE, 2016. [27] S Moritz, F Rehbach, S Chandrasekaran, M Rebolledo, and T Bartz-Beielstein. Gecco industrial challenge 2018 dataset. Tech. Rep. , 2018. [28] Kyle Hundman, Valentino Constantinou, Christopher Laporte, Ian Colwell, and Tom Soderstrom. Detecting spacecraft anomalies using lstms and nonparametric dynamic thresholding. In 
+
+Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining , pages 387–395, 2018. [29] Ahmed Abdulaal, Zhuanghua Liu, and Tomer Lancewicki. Practical approach to asynchronous multivariate time series anomaly detection and localization. In Proceedings of the 27th ACM SIGKDD conference on knowledge discovery & data mining , pages 2485–2494, 2021. [30] Susik Yoon, Jae-Gil Lee, and Byung Suk Lee. Ultrafast local outlier detection from a data stream with stationary region skipping. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining , pages 1181–1191, 2020. [31] Aadyot Bhatnagar, Paul Kassianik, Chenghao Liu, Tian Lan, Wenzhuo Yang, Rowan Cassius, Doyen Sahoo, Devansh Arpit, Sri Subramanian, Gerald Woo, et al. Merlion: A machine learning library for time series. arXiv preprint arXiv:2109.09265 , 2021. [32] Mayu Sakurada and Takehisa Yairi. Anomaly detection using autoencoders with nonlinear dimensionality reduction. In Proceedings of the MLSDA 2014 2nd workshop on machine learning for sensory data analysis , pages 4–11, 2014. [33] Jiehui Xu, Haixu Wu, Jianmin Wang, and Mingsheng Long. Anomaly transformer: Time series anomaly detection with association discrepancy. In The Tenth International Conference on Learning Representations (ICLR) . OpenReview.net, 2022. 11 [34] Yiyuan Yang, Chaoli Zhang, Tian Zhou, Qingsong Wen, and Liang Sun. Dcdetector: Dual attention contrastive representation learning for time series anomaly detection. In Proceedings of the 29th ACM SIGKDD conference on knowledge discovery and data mining , pages 3033–3045, 2023. [35] Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. Timesnet: Temporal 2d-variation modeling for general time series analysis. In The Eleventh International Conference on Learning Representations (ICLR) . OpenReview.net, 2023. [36] Yuqi Nie, Nam H Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In The Eleventh International Conference on Learning Representations (ICLR) . OpenReview.net, 2023. [37] Peiyuan Liu, Hang Guo, Tao Dai, Naiqi Li, Jigang Bao, Xudong Ren, Yong Jiang, and Shu-Tao Xia. Calf: Aligning llms for time series forecasting via cross-modal fine-tuning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 18915–18923, 2025. [38] Ailin Deng and Bryan Hooi. Graph neural network-based anomaly detection in multivariate time series. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 4027–4035, 2021. [39] Haotian Si, Changhua Pei, Zhihan Li, Yadong Zhao, Jingjing Li, Haiming Zhang, Zulong Diao, Jianhui Li, Gaogang Xie, and Dan Pei. Beyond sharing: Conflict-aware multivariate time series anomaly detection. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering , pages 1635–1645, 2023. [40] Ya Su, Youjian Zhao, Chenhao Niu, Rong Liu, Wei Sun, and Dan Pei. Robust anomaly detection for multivariate time series through stochastic recurrent neural network. In Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining , pages 2828–2837, 2019. [41] Julien Audibert, Pietro Michiardi, Frédéric Guyard, Sébastien Marti, and Maria A Zuluaga. Usad: Unsupervised anomaly detection on multivariate time series. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining , pages 3395–3404, 2020. [42] Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. Are transformers effective for time series forecasting? In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 11121–11128, 2023. [43] Yuxuan Wang, Haixu Wu, Jiaxiang Dong, Guo Qin, Haoran Zhang, Yong Liu, Yunzhong Qiu, Jianmin Wang, and Mingsheng Long. Timexer: Empowering transformers for time series forecasting with exogenous variables. Advances in Neural Information Processing Systems ,37:469–498, 2024. [44] Paul Viola and Michael J Jones. Robust real-time face detection. International journal of computer vision , 57(2):137–154, 2004. [45] Zhaowei Cai and Nuno Vasconcelos. Cascade r-cnn: Delving into high quality object detection. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 6154–6162, 2018. [46] Dingyuan Zhang, Dingkang Liang, Zichang Tan, Xiaoqing Ye, Cheng Zhang, Jingdong Wang, and Xiang Bai. Make your vit-based multi-view 3d detectors faster via token compression. In 
+
+European Conference on Computer Vision , pages 56–72. Springer, 2024. [47] Shuhao Chen, Weisen Jiang, Baijiong Lin, James Kwok, and Yu Zhang. Routerdc: Query-based router by dual contrastive learning for assembling large language models. Advances in Neural Information Processing Systems , 37:66305–66328, 2024. [48] Youhe Jiang, Fangcheng Fu, Wanru Zhao, Stephan Rabanser, Nicholas D Lane, and Binhang Yuan. Cascadia: A cascade serving system for large language models. arXiv e-prints , pages arXiv–2506, 2025. 12 [49] Zixuan Zhou, Xuefei Ning, Ke Hong, Tianyu Fu, Jiaming Xu, Shiyao Li, Yuming Lou, Luning Wang, Zhihang Yuan, Xiuhong Li, et al. A survey on efficient inference for large language models. arXiv preprint arXiv:2404.14294 , 2024. [50] Dong Chen, Yueting Zhuang, Shuo Zhang, Jinfeng Liu, Su Dong, and Siliang Tang. Data shunt: Collaboration of small and large models for lower costs and better performance. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 11249–11257, 2024. [51] Mei-Ling Shyu, Shu-Ching Chen, Kanoksri Sarinnapakorn, and LiWu Chang. A novel anomaly detection scheme based on principal component classifier. 2003. 13 A Extended Related Work 
+
+A.1 Deep Time Series Anomaly Detection 
+
+Deep learning-based TSAD utilizes neural networks to learn feature representations or anomaly scores, outperforming traditional methods in many complex scenarios [ 1 ]. Existing approaches can be broadly categorized into three paradigms. Forecasting-based methods [ 31 , 38 , 39 ] detect anomalies by measuring deviations between predicted and observed future steps. Reconstruction-based methods, predominantly relying on AutoEncoders and Transformers [ 13 , 15 , 32 , 40 , 41 , 33 ], identify anomalies through reconstruction errors, with recent advancements incorporating adversarial training [ 24 ] or channel fusion [ 10 ]. Alternatively, representation-based approaches [ 34 , 35 ] focus on learning discriminative temporal representations in the latent space. Beyond dedicated TSAD models, general time series forecasting architectures [ 20 , 42 , 36 , 43 ] and recent pre-trained large language models [21, 37] have also been adapted for anomaly detection. Despite their architectural diversity, a common limitation unites these methodologies: a predominant focus on maximizing detection quality (e.g. accuracy or precision) through increasingly complex networks. This continuous pursuit of accuracy rarely incorporates explicit designs for inference efficiency, rendering them computationally expensive for latency-sensitive practical deployments. 
+
+A.2 Cascaded Inference Models 
+
+Cascaded inference models optimize the adaptive allocation of computational resources by integrating models of varying complexity [ 22 ]. The fundamental principle is to process straightforward samples with lightweight, low-cost models, strategically reserving high-capacity architectures for complex cases. These models have been extensively explored across domains such as computer vision [44 , 45 , 46 ] and natural language processing [ 23 , 47 , 48 , 49 ]. The core mechanism typically involves leveraging the prediction confidence of a smaller model to dynamically route uncertain samples to a larger model [ 50 ]. This strategy significantly reduces inference latency without sacrificing overall performance. In the domain of time series anomaly detection, anomalous events are inherently scarce, resulting in highly skewed data distributions dominated by normal patterns [ 18 , 19 ]. Consequently, the vast majority of normal samples can be accurately identified without invoking complex neural architectures. This intrinsic data characteristic naturally motivates our adoption of a cascaded inference framework to circumvent redundant computations, enabling highly efficient yet reliable anomaly detection. 
+
+B Formal Definition of RMA 
+
+This section presents a formal representation of the proposed Residual MLP Autoencoder (RMA), providing a structured complement to the preceding model description. Following its architectural design, we describe the model separately from the encoder and decoder perspectives. Specifically, the encoding process can be formally stated as: 
+
+h = GELU((Flatten( W)) W(e)1 + b(e)1 )
+
+r = GELU((GELU( hW (e)2 + b(e)2 )W(e)3 ) + b(e)3 )
+
+z = ( h + r)W(e)4 + b(e)4
+
+(8) where W(e)1 ∈ R(LC )×Dh , W(e)2 ∈ RDh×2Dh , W(e)3 ∈ R2Dh×Dh , and W(e)4 ∈ RDh×Dz . h, r ∈
+
+RT ×Dh and z ∈ RT ×Dz are the hidden representations. Dh and Dz denote the hidden dimensions of the encoder. The decoding process can be formally expressed as: 
+
+ˆh = GELU( zW (d)1 + b(d)1 )ˆW = Reshape( ˆhW (d)2 + b(d)2 ) (9) 14 where W(d)1 ∈ RDz ×Dh , W(d)2 ∈ RDh×(LC ) are learnable weight matrices, and b(d)1 ∈ RDh and 
+
+b(d)2 ∈ RLC are their corresponding bias terms. ˆh ∈ RT ×Dh and ˆW ∈ RT ×L×C denote the hidden representations of the decoder and the set of reconstruction windows, respectively. 
+
+C Detailed Algorithm of CARE 
+
+Algorithm 1 CARE - Overall Architecture. 
+
+Require: Input time series X = {x1, x 2, . . . , x T } ∈ RT ×C ; input length T ; window size L; filter threshold τ .
+
+Ensure: Anomaly Score AS . 
+
+> 1:
+
+▷ Input time series is processed into a sliding window set.  
+
+> 2:
+
+W ← Windowing(ZScore( X)) ▷ W ∈ RT ×L×C 
+
+> 3:
+
+▷ Residual MLP-based AutoEncoder is applied to reconstruct the window.  
+
+> 4:
+
+z ← Encoder( W) ▷ z ∈ RT ×Dz 
+
+> 5:
+
+ˆW ← Decoder( z) ▷ ˆW ∈ RT ×L×C 
+
+> 6:
+
+▷ Normality-Conditioned Gating is utilized to generate confidence score.  
+
+> 7:
+
+P, AS l ← Normality-Conditioned Gating (W, ˆW) 
+
+> 8:
+
+▷ Filter samples based on threshold τ . 
+
+> 9:
+
+U ← Filtering (P, X, τ ) 
+
+> 10:
+
+if U is empty then  
+
+> 11:
+
+AS ← AS l 
+
+> 12:
+
+else  
+
+> 13:
+
+▷ Uncertain sample anomaly scores are calculated by CDM.  
+
+> 14:
+
+AS c ← CDM( U) ▷ AS c ∈ R|U|× 1 
+
+> 15:
+
+▷ Anomaly scores are aligned based on MLE.  
+
+> 16:
+
+AS ← Aligner( AS l, AS c) ▷ AS ∈ RT ×1 
+
+> 17:
+
+return AS ▷ Return the anomaly score.  
+
+> 18:
+
+procedure NORMALITY -C ONDITIONED GATING (W, ˆW) 
+
+> 19:
+
+e ← (W − ˆW) ⊙ (W − ˆW) ▷ e ∈ RT ×L×C 
+
+> 20:
+
+fst ← TemporalPool( e) · softmax( v⊤) ▷ fst ∈ RT ×1 
+
+> 21:
+
+fwin ← WindowPool( e) ▷ fwin ∈ RT ×1 
+
+> 22:
+
+fpot ← ChannelPool( e:,L, :) ▷ fpot ∈ RT ×1 
+
+> 23:
+
+F ← Concat( fwin , fpot , fst ) ▷ F ∈ RT ×3 
+
+> 24:
+
+P ← 1 − MLP Sigmoid (MLP ReLU (F)) ▷ P ∈ RT ×1 
+
+> 25:
+
+AS l ← fpot  
+
+> 26:
+
+return P, AS l Return the confidence score.  
+
+> 27:
+
+procedure FILTERING (P, X, τ ) 
+
+> 28:
+
+for t = 1 , . . . , T do  
+
+> 29:
+
+if Pt ≥ τ quantile of P then  
+
+> 30:
+
+Add xt to N ▷ N is the set of high-confidence normal samples.  
+
+> 31:
+
+else  
+
+> 32:
+
+Add xt to U ▷ U is the set of uncertain samples.  
+
+> 33:
+
+return U ▷ N is filtered and only return U.15 D Experimental Details 
+
+D.1 Datasets 
+
+To verify the effectiveness of the proposed framework, we conduct extended experiments on several publicly available real-world datasets, which are described in detail below: • CalIt2 [25 ] is a visitor flow rate dataset that records building entry and exit counts over 15 weeks to detect event-related anomalies. • NYC [ 26 ] is a transportation dataset that records passenger counts from New York City taxi rides at 30-minute intervals. • GECCO [27] is a water quality dataset published in the GECCO Industrial Challenge. • MSL [28 ] is a spacecraft telemetry dataset that contains incident and anomaly data from the Mars Science Laboratory rover, Curiosity. • PSM [ 29 ] is a server metrics dataset that records key performance indicators from servers on an online shopping platform. • ECG [30 ] is a medical dataset containing features extracted from electrocardiogram signals, where abnormal heartbeats are labeled as anomalies. • SMAP [28] is a spacecraft telemetry dataset that contains soil moisture measurements and telemetry information from the Soil Moisture Active Passive satellite. • KDD21 [17 ] is a multi-domain dataset comprising time-series entities from diverse areas, including healthcare, sports, industry, and robotics. These datasets span multiple application domains and are highly diverse and representative. Specifi-cally, the feature dimensionality ranges from 1 to 32, the average length of the test sequences ranges from 2,520 to 427,617, and the anomaly ratio ranges from 0.57% to 16.27%. Such diversity in data characteristics provides a comprehensive and reliable basis for evaluating the performance of CARE. More detailed statistics are reported in Table 4. Table 4: Statistics of the datasets. (AR: anomaly ratio)                                                       
+
+> Dataset Domain Dimension Avg Train Length Avg Val Length Avg Test Length Avg AR (%)
+> CalIt2 Visitors flowrate 22016 504 2520 4.09 NYC Transport 314016 3504 4416 0.57 GECCO Water treatment 955408 13852 69261 1.25 MSL Spacecraft 146653 11663 73730 5.88 ECG Health 32 44883 11221 56105 16.27 PSM Server Machine 25 105984 26497 87841 11.07 SMAP Spacecraft 1108146 27037 427617 9.72 KDD21 Multiple 114886 3721 47294 0.58
+
+D.2 Metrics 
+
+Since CARE aims to improve inference efficiency while maintaining detection quality, we categorize the evaluation metrics into two groups: detection-quality metrics and inference-efficiency metrics. The detection-quality metrics include Precision (P), Recall (R), F1-score (F1), Affiliated Precision (Aff-P), Affiliated Recall (Aff-R), Affiliated F1-score (Aff-F1), the Area Under the Precision-Recall Curve (A-P), the Area Under the Receiver Operating Characteristic Curve (A-R), the Range-based Area Under the Precision-Recall Curve (R-A-P), the Range-based Area Under the Receiver Operating Characteristic Curve (R-A-R), the Volume Under the Precision-Recall Surface (V-PR), and the Volume Under the Receiver Operating Characteristic Surface (V-ROC). For inference efficiency, we report the average inference time (Time), per-sample latency (PSL), and throughput (Thr.). Specifically, Time is computed as the average elapsed time over three 16 complete inference runs on each dataset, PSL denotes the average inference time required to process a single sample, and Thr. measures the number of windows processed per unit time under the same experimental settings. 
+
+D.3 Implementation Details 
+
+In our experiments, the dimension of hidden states ( Dh) and the dimension of latent states ( Dz ) of RMA are set to 16 and 5, respectively. For NCG, the dimension of hidden states is set to 5. RMA and NCG are trained for 10 epochs and 20 epochs, respectively. All models are trained using the Adam optimizer with an initial learning rate of 10 −4, and a fixed batch size of 64. The sliding-window size is set to be consistent with that of the cascaded complex model by default to ensure semantic consistency. During the optimization of NCG with the confidence-guided selective inference loss, 
+
+ξ1 and ξ2 are both set to 0.01, the regularization coefficient α is set to 0.05, the boundary constraint coefficient λ is set to 1.0, the quantile threshold risk is set to 0.7, and the fixed width w is set to 0.1. The filtering threshold τ used in the cascaded inference process is set to 0.2. Before formal timing, we perform three batches of warm-up forward passes to reduce cold-start effects and improve the stability of time measurements. All experiments are implemented in PyTorch with Python 3.8 and conducted on an NVIDIA RTX A6000 GPU with 48 GB of memory. −500          
+
+> −250
+> 0
+> 250
+> Input Time Series
+> KDD 071 KDD 120 KDD 145 KDD 119
+> 0
+> 200
+> 400
+> CrossAD
+> Time
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> CARE
+> Time Time Time
+> Input Time Series CrossAD Score CARE Score Anomaly Threshold
+
+Figure 5: Visualization of anomalies detected by CARE and CrossAD on the KDD21 dataset. 
+
+E Visualization of Anomaly Scores 
+
+We conducted a comparative visualization analysis of the proposed CARE against its corresponding CDM model, CrossAD, to demonstrate the effectiveness of the cascaded framework. As illustrated in Figure 5, four anomalous subsequences are selected from the KDD21 dataset, where the raw time series and the anomaly scores produced by two methods are reported. The results show that CARE and CrossAD exhibit similar sensitivity to anomalous regions. This indicates that CARE largely preserves the anomaly detection capability of CDM while introducing cascaded inference. This is because CARE filters out most high-confidence normal samples through LPM and forwards high-risk samples to CrossAD for further evaluation. For normal regions, the anomaly score distributions of the two methods differ to some extent. This is mainly because the scores of normal samples in CARE are partially produced by LPM, and the score alignment between LPM and CDM further affects the final score distribution. As a result, CARE and CrossAD maintain similar anomaly sensitivity and ranking behavior, while their absolute score values may differ. Moreover, the pre-filtering mechanism of 17 0.5 1.0 1.5 2.0 2.5 
+
+> Score
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(a) NYC (LPM) 0.5 1.0 1.5 2.0  
+
+> Score
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(b) GECCO (LPM) 1 2 3 4 
+
+> Score
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(c) ECG (LPM) 0.5 1.0 1.5 2.0 2.5 3.0  
+
+> Score
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(d) PSM (LPM) 1 2 3 4 5
+
+> Score
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(e) NYC (CDM) 0.5 1.0 1.5  
+
+> Score
+> 0
+> 1
+> 2
+> 3
+> 4
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(f) GECCO (CDM) 1 2 3 4 5 
+
+> Score
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(g) ECG (CDM) 1 2 3 4 
+
+> Score
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> 4.0
+> Density
+> Empirical Distribution
+> Fitted LogNormal PDF
+
+(h) PSM (CDM) 
+
+Figure 6: Empirical distributions of training anomaly scores and their fitted log-normal PDFs on representative datasets. For readability, each subplot displays scores up to the 99th percentile of the corresponding training distribution. CARE can also help reduce false positives. As shown in the visualization on KDD120 and KDD119, CrossAD incorrectly identifies a normal segment as anomalous, whereas CARE alleviates this issue. This suggests that CARE may achieve more robust detection performance in certain scenarios, in addition to improving inference efficiency. Table 5: Comparison of different score alignment strategies in CARE. All variants use the same trained models and evaluation protocol, with only the score alignment module replaced. All alignment mappings are estimated exclusively from training anomaly scores and remain fixed during testing. The best result in each column is highlighted in bold. 
+
+Alignment method NYC GECCO ECG PSM Avg Aff-F A-P Aff-F A-P Aff-F A-P Aff-F A-P Aff-F A-P No Alignment 0.690 0.085 0.914 0.604 0.805 0.522 0.743 0.566 0.788 0.444 
+
+Gaussian MLE 0.697 0.088 0.927 0.621 0.810 0.526 0.744 0.568 0.795 0.451 
+
+Empirical CDF 0.699 0.086 0.934 0.622 0.808 0.524 0.744 0.569 0.796 0.450 
+
+Log-normal MLE (Ours) 0.694 0.090 0.938 0.623 0.813 0.529 0.744 0.569 0.797 0.453 
+
+F Analysis of MLE-based Score Alignment 
+
+To assess the score alignment strategy, we visualize the training anomaly scores generated by LPM and CDM in Figure 6. Across all four datasets, the scores exhibit pronounced right-skewness and long tails. Despite local irregularities, the fitted log-normal PDFs capture their overall trends, providing a reasonable parametric approximation for score alignment. We further compare the proposed log-normal MLE Alignment strategy with no alignment, Gaussian MLE, and empirical CDF. As shown in Table 5, all three aligned variants achieve better average performance than the unaligned variant, demonstrating the benefit of mapping the heterogeneous LPM and CDM scores into a comparable probability space. Log-normal MLE achieves the best average Aff-F and AUC-PR and obtains the strongest results on GECCO and ECG. Meanwhile, Gaussian MLE and empirical CDF remain competitive, indicating that CARE does not critically depend on a specific distributional assumption. Together with the observed right-skewed score distributions, these results support log-normal MLE as a reasonable and stable choice for score alignment. 18 G Additional Hyperparameter Sensitivity Analysis 
+
+Key hyperparameters affecting anomaly detection performance include the ratio risk and boundary width w in the confidence-guided selective inference loss function. During NCG optimization, risk controls the proportion of training samples, determining the boundary between high-confidence normal samples and high-risk samples. Both excessively large and small risk values negatively impact boundary learning, thus reducing detection quality. When the risk is too large, more anomaly samples may be misclassified as high-confidence normal samples, increasing the risk of missed detections; when risk is too small, many normal samples may be misclassified as high-risk samples, making it difficult for the model to obtain reliable training targets. As shown in Figure 7c, risk remains stable and easily adjustable within the range of 0.7-0.8. The boundary width w determines the range of samples involved in fine-grained ranking near the risk threshold. As shown in Figure 7d, model performance gradually stabilizes when w exceeds 0.08. A smaller w covers only a limited number of boundary samples within each batch, making it difficult to effectively supplement the main loss, while appropriately increasing w introduces more threshold-adjacent samples, thereby improving the stability of boundary learning. Furthermore, we analyzed the impact of window size and batch size on model performance. Window size is a fundamental parameter in time series analysis. This paper primarily focuses on the window size of LPM, while the window size of CDM is roughly referenced from the original model. In our experiments, CDM adopts the SOTA model CrossAD, with window sizes of 192, 96, 48, and 192 for the NYC, GECCO, ECG, and PSM datasets, respectively, to suit the current datasets. As shown in Figure 7a, when the window size of LPM matches that of CDM, the model typically achieves stable or relatively superior detection performance, suggesting that consistent window sizes help enhance semantic alignment between LPM and CDM. Regarding batch size, experimental results indicate that a range of 32-64 is relatively stable, as shown in Figure 7b. 32 64 96 128 160 192    
+
+> Window size
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(a) Window size 16 32 48 64 96 128     
+
+> Batch size
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(b) Batch size 0.5 0.6 0.7 0.8 0.9 0.95     
+
+> Loss parameter risk
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(c) Loss parameter risk 0.01 0.05 0.08 0.1 0.15 0.2      
+
+> Loss parameter w
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> Aff-F
+> NYC GECCO ECG PSM
+
+(d) Loss parameter ω
+
+Figure 7: Additional parameter sensitivity studies of main hyperparameters in CARE. CDM CARE CDM CARE CDM CARE CDM CARE    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(a) CalIt2 CDM CARE CDM CARE CDM CARE CDM CARE     
+
+> 0
+> 5
+> 10
+> 15
+> 20
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(b) MSL CDM CARE CDM CARE CDM CARE CDM CARE     
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(c) SMAP CDM CARE CDM CARE CDM CARE CDM CARE     
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> Inference time (s)
+> CrossAD MLPMixer TranAD ATrans
+> LPM
+> CDM
+
+(d) KDD21 
+
+Figure 8: Additional inference time comparison of CARE with various CDM backbones. 
+
+H Additional Adaptability Analysis 
+
+Due to space limitations, we provide an additional generality analysis of CARE on the remaining four datasets in this section. As shown in Table 6, CARE consistently reduces inference time while maintaining competitive detection performance across different CDM models. Although the detection performance is not always superior to the original CDM, the degradation remains within 1% in terms of Aff-F1, demonstrating that CARE can effectively preserve detection quality under substantially 19 reduced inference costs. The corresponding inference time comparisons are presented in Figure 8. These results further demonstrate the generality of CARE as a cascaded inference framework for diverse TSAD models. Table 6: Additional analysis of CARE generality with different CDM models. Aff-F, Time, and S×
+
+are Affiliated F1-score, Inference time, and Speedup, respectively. The best ones are in bold.                                                                                                                                                
+
+> Method CalI2 MSL SMAP KDD21 Avg Aff-F Time S×Aff-F Time S×Aff-F Time S×Aff-F Time S×Aff-F Time S×
+> CrossAD 0.788 0.312 1.000 0.761 6.862 1.000 0.712 38.46 1.000 0.712 7.101 1.000 0.743 13.18 1.000
+> CARE (CrossAD as CDM) 0.787 0.091 3.429 0.770 2.587 2.653 0.721 15.71 2.448 0.716 2.354 3.016 0.748 5.185 2.886 MLPMixer 0.779 0.252 1.000 0.768 7.111 1.000 0.680 40.98 1.000 0.714 4.162 1.000 0.735 13.13 1.000
+> CARE (MLPMixer as CDM) 0.786 0.101 2.508 0.767 2.508 2.835 0.680 16.79 2.439 0.715 1.680 2.477 0.737 5.271 2.565 TranAD 0.780 0.265 1.000 0.763 7.267 1.000 0.682 42.33 1.000 0.714 6.108 1.000 0.734 13.99 1.000
+> CARE (TranAD as CDM) 0.788 0.102 2.588 0.758 2.314 3.139 0.680 13.37 3.165 0.707 1.379 4.426 0.733 4.293 3.329 ATrans 0.673 0.713 1.000 0.679 17.71 1.000 0.679 101.7 1.000 0.695 10.73 1.000 0.681 32.71 1.000
+> CARE (Atrans as CDM) 0.744 0.283 2.515 0.707 3.815 4.642 0.679 28.34 3.587 0.688 2.798 3.834 0.704 8.810 3.645
+
+I Stability Analysis 
+
+We further evaluated the stability of CARE on a representative dataset using different random seeds. We report the mean and standard deviation for both detection quality and inference efficiency metrics, as shown in Table 7. The results demonstrate that CARE maintains stable detection quality and inference efficiency across repeated runs. Table 7: Stability analysis of CARE over repeated runs with different random seeds. Each value is reported as mean ± standard deviation. 
+
+Metric NYC GECCO ECG PSM Avg Aff-F 0.694 ± 0.003 0.938 ± 0.005 0.813 ± 0.005 0.744 ± 0.003 0.797 ± 0.004 
+
+A-P 0.090 ± 0.004 0.624 ± 0.001 0.529 ± 0.004 0.569 ± 0.008 0.453 ± 0.004 
+
+Time 0.184 ± 0.014 3.889 ± 0.085 6.750 ± 0.143 9.057 ± 0.063 4.991 ± 0.076 
+
+PSL 0.042 ± 0.003 0.056 ± 0.001 0.120 ± 0.002 0.103 ± 0.001 0.081 ± 0.002 
+
+J Broader impacts 
+
+Time series anomaly detection is widely applied across diverse real-world scenarios. The efficient, reliable, and model-agnostic cascaded framework proposed in this paper can accelerate anomaly detection, reduce computational overhead, and facilitate deployment in resource-constrained or edge-computing environments. In addition, its model-agnostic design allows future advanced anomaly detection models to be seamlessly integrated, potentially further improving overall detection per-formance. Nevertheless, time series anomaly detection systems still cannot completely avoid false positives and false negatives in practical applications. False positives may increase manual inspection costs, while false negatives may cause critical anomalies to be missed. Therefore, detection results should be carefully evaluated in the context of specific deployment scenarios. 
+
+K Limitations 
+
+In this paper, we propose CARE, a novel cascaded framework for time-series anomaly detection. CARE introduces a lightweight filtering model to distinguish high-confidence normal samples from hard samples, thereby overcoming the limitation of existing methods that apply complex and uniform inference to all samples. In our current experiments, a unified filtering threshold is used across all datasets. However, the optimal threshold may vary with different data distributions and may require adaptation under evolving time series environments. Developing data-adaptive routing strategies that can dynamically adjust filtering thresholds under distribution shifts or concept drift is an important direction for future work. 20 L Full Experimental Results 
+
+Due to space limitations in the main text, this section presents the complete experimental results for CARE. Table 8 reports the full detection-efficiency results in terms of inference time, per-sample latency, and throughput. Tables 9-12 present the detection-quality results from different perspectives, including Precision, Recall, and F1-score; Affiliated Precision, Affiliated Recall, and Affiliated F1-score; AUC-PR, R-AUC-PR, and VUS-PR; and AUC-ROC, R-AUC-ROC, and VUS-ROC, respectively. Furthermore, we include the results of several classical anomaly detection methods, including IF (Isolation Forest) [ 8], LOF [ 7], and PCA [ 51 ]. These results further demonstrate that CARE significantly improves inference efficiency while maintaining competitive detection quality. Table 8: Average Time (Inference Time, s), PSL (Per-Sample Latency, ms) and Thr. (Throughput, windows/s) across all datasets. The best results are in bold, while the second-best results are underlined. 
+
+Dataset Metric CARE Cross CATCH Mixer DC TranAD ATrans CALF GS Patch iTrans TsNet LSTM AE OCSVM CalIt2 Time 0.091 0.312 0.583 0.252 0.877 0.265 0.713 0.522 1.016 0.213 0.222 0.572 0.474 0.472 0.259 
+
+PSL 0.036 0.124 0.231 0.100 0.348 0.105 0.283 0.207 0.403 0.085 0.088 0.227 0.188 0.187 0.103 
+
+Thr. 27679 11412 4578 10878 3103.3 10274 3744.8 5431.1 2673.2 13984 12701 4766.8 5324.8 5343.4 9740.4 
+
+NYC Time 0.184 0.501 0.914 0.762 1.938 0.441 1.074 0.829 2.058 0.323 0.751 1.663 0.834 0.557 3.622 
+
+PSL 0.042 0.113 0.207 0.173 0.439 0.100 0.243 0.188 0.466 0.073 0.170 0.377 0.189 0.126 0.103 
+
+Thr. 24014 9634.4 5034.7 6512.7 2370.4 10574 4300.4 6162.3 2652.6 14903 15871 5270.6 5302.6 7949.5 1219.2 
+
+GECCO Time 3.889 11.98 23.64 15.20 22.79 9.520 17.03 15.22 26.01 6.121 4.654 17.44 17.77 9.712 291.5 
+
+PSL 0.056 0.173 0.341 0.219 0.329 0.137 0.246 0.220 0.375 0.088 0.067 0.252 0.257 0.140 4.210 
+
+Thr. 17809 5805.8 2935.3 4569.4 3048.1 7306.8 4197.9 4575.1 2671.6 11384 17311 3983.7 3898.2 7136.5 237.54 
+
+MSL Time 3.087 6.862 11.56 7.111 24.79 7.276 17.71 14.75 27.50 6.009 4.292 18.31 17.56 10.73 114.6 
+
+PSL 0.042 0.093 0.157 0.096 0.336 0.099 0.240 0.200 0.373 0.082 0.058 0.248 0.238 0.145 1.555 
+
+Thr. 23880 10791 6397.8 11350 2978.2 10166 4197.4 5018.1 2687.6 12318 17281 4049.2 4199.2 6874.2 642.99 
+
+ECG Time 6.750 32.58 71.86 38.31 29.72 7.050 15.04 24.55 21.19 7.693 6.823 14.12 14.18 8.786 145.5 
+
+PSL 0.120 0.581 1.281 0.683 0.530 0.126 0.268 0.438 0.378 0.137 0.122 0.252 0.253 0.157 2.594 
+
+Thr. 8312.1 1767.5 782.09 1485.4 1919.8 8018.1 4015.0 2300.6 2658.4 7425.1 8201.8 4061.0 3969.5 6399.8 385.53 
+
+PSM Time 9.057 30.562 72.60 35.70 36.81 13.50 24.06 32.78 33.33 10.86 9.365 23.45 23.81 14.86 537.0 
+
+PSL 0.103 0.348 0.827 0.406 0.419 0.154 0.274 0.373 0.379 0.124 0.107 0.267 0.271 0.169 6.114 
+
+Thr. 9699.1 2883.6 1211.3 2470.1 2396.3 6632.8 3932.4 2688.4 2643.2 8236.8 9435.0 3757.6 3693.1 5918.0 163.56 
+
+SMAP Time 16.71 38.46 67.94 40.98 152.4 42.33 101.7 80.23 164.9 35.88 22.67 108.6 187.6 155.7 1423 
+
+PSL 0.039 0.090 0.159 0.096 0.356 0.099 0.238 0.188 0.386 0.084 0.053 0.254 0.439 0.364 3.328 
+
+Thr. 23848 11136 6353.5 10442 2808.1 10117 4216.2 5364.2 2593.3 12116 18919 3939.6 2279.1 2746.8 300.17 
+
+KDD21 Time 2.354 7.101 13.05 4.162 11.26 6.108 10.73 8.330 23.53 3.396 2.957 18.519 9.861 8.409 38.39 
+
+PSL 0.057 0.173 0.318 0.101 0.274 0.149 0.261 0.203 0.573 0.083 0.072 0.451 0.240 0.205 0.935 
+
+Thr. 19782 6248.7 3872.1 10035 3721.4 7198.7 3842.9 5365.5 1795.8 12557 14632 2430.3 4970.8 6189.6 7777.7 
+
+Avg Time 5.265 16.04 32.77 17.81 35.08 10.81 23.51 22.15 37.45 8.811 6.466 25.34 34.01 26.15 319.3 
+
+PSL 0.062 0.212 0.440 0.234 0.379 0.121 0.257 0.252 0.417 0.094 0.092 0.291 0.259 0.187 2.457 
+
+Thr. 19378 7460.1 3895.6 7218.1 2793.2 8786.3 4055.9 4613.2 2547.0 11615 14294 4032.4 4204.7 6069.8 2558.4 
+
+1st count 27 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+21 Table 9: Average P (Precision), R (Recall) and F1 (F1-score) across all datasets. The best results are in bold, while the second-best results are underlined. 
+
+Dataset Metric CARE Cross CATCH Mixer DC TranAD ATrans CALF GS Patch iTrans TsNet LSTM AE OCSVM IF LOF PCA CalIt2 P 0.105 0.106 0.120 0.114 0.029 0.089 0.029 0.096 0.103 0.108 0.114 0.097 0.104 0.102 0.114 0.029 0.056 0.096 
+
+R 0.608 0.568 0.432 0.473 1.000 0.284 1.000 0.149 0.324 0.365 0.324 0.432 0.527 0.604 0.324 1.000 0.149 0.568 
+
+F1 0.180 0.179 0.188 0.183 0.057 0.136 0.057 0.116 0.156 0.166 0.168 0.158 0.174 0.174 0.169 0.057 0.081 0.164 
+
+NYC P 0.095 0.082 0.055 0.029 0.045 0.046 0.051 0.117 0.080 0.045 0.061 0.035 0.078 0.052 0.022 0.022 0.024 0.070 
+
+R 0.384 0.495 0.212 0.828 0.121 0.162 0.081 0.152 0.091 0.293 0.253 0.465 0.192 0.343 1.000 0.998 0.525 0.192 
+
+F1 0.152 0.141 0.087 0.056 0.066 0.072 0.062 0.132 0.085 0.078 0.099 0.064 0.111 0.091 0.044 0.044 0.046 0.103 
+
+GECCO P 0.782 0.473 0.322 0.672 0.011 0.556 0.011 0.369 0.296 0.350 0.229 0.472 0.763 0.777 0.047 0.011 0.131 0.779 
+
+R 0.734 0.728 0.481 0.267 1.000 0.321 1.000 0.426 0.388 0.497 0.290 0.534 0.268 0.267 0.430 1.000 0.299 0.262 
+
+F1 0.758 0.573 0.386 0.382 0.021 0.407 0.021 0.396 0.336 0.411 0.256 0.501 0.397 0.398 0.085 0.021 0.182 0.392 
+
+MSL P 0.246 0.211 0.200 0.228 0.105 0.305 0.105 0.158 0.212 0.176 0.186 0.187 0.331 0.166 0.168 0.192 0.136 0.328 
+
+R 0.426 0.740 0.821 0.432 0.999 0.261 1.000 0.621 0.639 0.692 0.745 0.665 0.216 0.455 0.439 0.398 0.518 0.212 
+
+F1 0.312 0.329 0.322 0.299 0.191 0.281 0.191 0.251 0.319 0.281 0.298 0.292 0.262 0.243 0.243 0.259 0.216 0.257 
+
+ECG P 0.529 0.458 0.465 0.471 0.152 0.294 0.152 0.404 0.463 0.434 0.396 0.371 0.450 0.430 0.447 0.400 0.184 0.344 
+
+R 0.668 0.671 0.613 0.630 0.999 0.678 1.000 0.628 0.496 0.680 0.632 0.598 0.685 0.701 0.661 0.699 0.687 0.659 
+
+F1 0.590 0.545 0.529 0.539 0.263 0.410 0.263 0.491 0.479 0.530 0.487 0.458 0.543 0.533 0.533 0.509 0.291 0.452 
+
+PSM P 0.425 0.422 0.291 0.362 0.278 0.325 0.278 0.278 0.278 0.279 0.286 0.296 0.302 0.315 0.295 0.278 0.404 0.319 
+
+R 0.712 0.564 0.884 0.596 1.000 0.852 0.998 0.998 0.999 0.982 0.904 0.843 0.870 0.959 0.952 0.999 0.843 0.957 
+
+F1 0.532 0.483 0.438 0.451 0.435 0.471 0.435 0.435 0.435 0.435 0.435 0.438 0.448 0.474 0.451 0.435 0.546 0.479 
+
+SMAP P 0.160 0.166 0.162 0.128 0.128 0.129 0.128 0.128 0.139 0.152 0.128 0.161 0.130 0.134 0.128 0.128 0.213 0.131 
+
+R 0.688 0.841 0.804 1.000 0.999 0.969 0.998 0.999 0.691 0.922 1.000 0.685 0.978 0.891 0.999 0.998 0.436 0.918 
+
+F1 0.260 0.278 0.269 0.227 0.227 0.228 0.227 0.227 0.232 0.261 0.227 0.261 0.229 0.233 0.227 0.227 0.286 0.230 
+
+KDD21 P 0.125 0.119 0.080 0.133 0.017 0.112 0.075 0.104 0.090 0.079 0.093 0.078 0.096 0.107 0.083 0.102 0.057 0.065 
+
+R 0.631 0.624 0.583 0.533 0.692 0.641 0.645 0.514 0.603 0.622 0.511 0.607 0.670 0.618 0.612 0.491 0.571 0.632 
+
+F1 0.071 0.069 0.065 0.077 0.018 0.055 0.056 0.089 0.039 0.041 0.068 0.038 0.044 0.049 0.053 0.053 0.054 0.034 
+
+Avg P 0.309 0.255 0.212 0.267 0.096 0.232 0.103 0.207 0.208 0.203 0.187 0.212 0.282 0.260 0.163 0.145 0.151 0.267 
+
+R 0.606 0.654 0.604 0.595 0.851 0.521 0.840 0.561 0.529 0.632 0.582 0.604 0.551 0.605 0.677 0.823 0.503 0.550 
+
+F1 0.357 0.325 0.285 0.277 0.160 0.257 0.164 0.267 0.260 0.275 0.255 0.276 0.276 0.274 0.226 0.201 0.213 0.264 
+
+1st count 8 1 2 1 4 0 3 2 0 0 1 0 1 0 1 0 3 0
+
+Table 10: Average Aff-P (Affiliated-Precision), Aff-R (Affiliated-Recall) and Aff-F (Affiliated-F1-score) across all datasets. The best results are in bold, while the second-best results are underlined. 
+
+Dataset Metric CARE Cross CATCH Mixer DC TranAD ATrans CALF GS Patch iTrans TsNet LSTM AE OCSVM IF LOF PCA CalIt2 Aff-P 0.651 0.658 0.649 0.666 0.507 0.650 0.507 0.641 0.657 0.648 0.622 0.610 0.644 0.651 0.662 0.507 0.598 0.671 Aff-R 0.994 0.984 0.978 0.938 1.000 0.975 1.000 0.918 0.968 0.988 0.982 0.964 0.993 0.994 0.976 1.000 0.957 0.895 
+
+Aff-F 0.787 0.788 0.780 0.779 0.673 0.780 0.673 0.755 0.783 0.782 0.761 0.747 0.782 0.786 0.789 0.673 0.736 0.767 
+
+NYC Aff-P 0.532 0.510 0.502 0.497 0.528 0.494 0.499 0.489 0.526 0.491 0.508 0.495 0.505 0.525 0.500 0.500 0.490 0.525 
+
+Aff-R 0.998 0.999 0.997 1.000 0.995 0.997 0.993 0.999 0.996 0.998 0.997 0.998 0.996 0.998 1.000 0.999 0.999 0.996 
+
+Aff-F 0.694 0.675 0.668 0.664 0.690 0.661 0.665 0.657 0.689 0.658 0.673 0.662 0.670 0.688 0.667 0.667 0.658 0.687 
+
+GECCO Aff-P 0.886 0.809 0.767 0.560 0.502 0.983 0.502 0.762 0.838 0.752 0.706 0.844 0.696 0.700 0.484 0.502 0.602 0.802 
+
+Aff-R 0.997 0.974 0.988 0.286 1.000 0.091 1.000 0.806 0.990 0.960 0.978 0.981 0.235 0.272 0.453 1.000 0.354 0.146 
+
+Aff-F 0.938 0.884 0.863 0.379 0.669 0.166 0.669 0.783 0.908 0.844 0.820 0.908 0.351 0.392 0.468 0.669 0.446 0.248 
+
+MSL Aff-P 0.648 0.629 0.626 0.636 0.514 0.644 0.514 0.540 0.626 0.612 0.617 0.613 0.536 0.527 0.527 0.624 0.539 0.602 
+
+Aff-R 0.949 0.961 0.996 0.970 0.999 0.935 1.000 0.992 0.994 0.998 0.997 0.997 0.419 0.994 0.993 0.993 0.868 0.355 
+
+Aff-F 0.770 0.761 0.769 0.768 0.679 0.763 0.679 0.699 0.768 0.759 0.762 0.760 0.470 0.689 0.688 0.766 0.665 0.446 
+
+ECG Aff-P 0.834 0.791 0.773 0.794 0.572 0.616 0.572 0.703 0.758 0.764 0.689 0.660 0.846 0.774 0.787 0.687 0.561 0.610 
+
+Aff-R 0.793 0.809 0.773 0.778 1.000 0.716 0.999 0.814 0.650 0.816 0.801 0.764 0.796 0.812 0.792 0.907 0.855 0.599 
+
+Aff-F 0.813 0.800 0.773 0.786 0.728 0.663 0.728 0.754 0.700 0.789 0.741 0.709 0.790 0.793 0.790 0.782 0.677 0.605 
+
+PSM Aff-P 0.593 0.619 0.538 0.574 0.532 0.557 0.532 0.532 0.532 0.533 0.538 0.545 0.533 0.534 0.532 0.532 0.597 0.538 
+
+Aff-R 0.999 0.998 0.998 0.998 1.000 0.997 0.999 1.000 1.000 1.000 1.000 0.998 0.991 0.992 0.996 0.997 0.974 0.986 
+
+Aff-F 0.744 0.764 0.699 0.729 0.694 0.715 0.694 0.694 0.694 0.696 0.699 0.705 0.693 0.694 0.693 0.694 0.740 0.696 
+
+SMAP Aff-P 0.565 0.554 0.544 0.515 0.515 0.517 0.515 0.515 0.529 0.546 0.515 0.544 0.517 0.519 0.515 0.515 0.494 0.521 
+
+Aff-R 0.995 0.996 0.996 1.000 0.999 1.000 0.997 0.998 0.998 0.998 1.000 0.996 1.000 0.999 1.000 0.999 0.739 0.998 
+
+Aff-F 0.721 0.712 0.704 0.680 0.680 0.682 0.680 0.680 0.692 0.706 0.680 0.703 0.681 0.683 0.680 0.680 0.592 0.685 
+
+KDD21 Aff-P 0.565 0.560 0.538 0.570 0.503 0.564 0.539 0.563 0.557 0.540 0.552 0.524 0.544 0.557 0.548 0.554 0.546 0.553 
+
+Aff-R 0.999 0.997 0.997 0.996 0.997 0.996 0.997 0.999 0.995 0.993 0.995 0.994 0.998 0.998 0.997 0.996 0.999 0.992 
+
+Aff-F 0.716 0.712 0.693 0.714 0.669 0.714 0.695 0.715 0.709 0.696 0.707 0.683 0.698 0.708 0.704 0.708 0.702 0.707 
+
+Avg Aff-P 0.659 0.641 0.617 0.601 0.522 0.628 0.523 0.593 0.628 0.611 0.593 0.605 0.602 0.598 0.569 0.553 0.553 0.603 
+
+Aff-R 0.965 0.965 0.966 0.871 0.998 0.839 0.999 0.941 0.950 0.970 0.969 0.963 0.804 0.882 0.901 0.987 0.843 0.747 
+
+Aff-F 0.773 0.762 0.744 0.687 0.685 0.643 0.685 0.717 0.743 0.741 0.730 0.735 0.642 0.679 0.685 0.705 0.652 0.605 
+
+1st count 12 3 0 2 2 1 4 0 0 0 0 0 1 0 0 0 1 1
+
+22 Table 11: Average A-P (AUC-PR), R-A-P (R-AUC-PR) and V-PR (VUS-PR) across all datasets. The best results are in bold, while the second-best results are underlined. 
+
+Dataset Metric CARE Cross CATCH Mixer DC TranAD ATrans CALF GS Patch iTrans TsNet LSTM AE OCSVM IF LOF PCA CalIt2 A-P 0.100 0.099 0.094 0.097 0.029 0.052 0.030 0.048 0.087 0.093 0.094 0.079 0.078 0.081 0.095 0.029 0.035 0.073 
+
+R-A-P 0.114 0.121 0.117 0.113 0.028 0.059 0.056 0.065 0.093 0.105 0.112 0.092 0.091 0.104 0.109 0.120 0.062 0.106 
+
+V-PR 0.111 0.119 0.114 0.112 0.028 0.057 0.059 0.063 0.091 0.101 0.109 0.093 0.090 0.101 0.109 0.121 0.060 0.103 
+
+NYC A-P 0.090 0.086 0.048 0.024 0.041 0.027 0.026 0.051 0.034 0.032 0.040 0.033 0.047 0.043 0.020 0.022 0.020 0.046 
+
+R-A-P 0.081 0.075 0.063 0.042 0.056 0.052 0.038 0.075 0.049 0.055 0.058 0.051 0.076 0.102 0.333 0.121 0.053 0.076 
+
+V-PR 0.081 0.075 0.064 0.041 0.059 0.052 0.037 0.072 0.051 0.053 0.056 0.048 0.072 0.092 0.318 0.121 0.049 0.072 
+
+GECCO A-P 0.623 0.596 0.331 0.310 0.011 0.191 0.011 0.321 0.295 0.347 0.154 0.479 0.284 0.277 0.039 0.011 0.086 0.234 
+
+R-A-P 0.514 0.522 0.376 0.134 0.508 0.038 0.011 0.294 0.388 0.343 0.162 0.442 0.040 0.053 0.098 0.508 0.058 0.047 
+
+V-PR 0.509 0.528 0.363 0.136 0.508 0.038 0.011 0.294 0.385 0.343 0.159 0.441 0.040 0.053 0.101 0.508 0.058 0.046 
+
+MSL A-P 0.266 0.272 0.228 0.247 0.108 0.188 0.098 0.178 0.225 0.201 0.213 0.207 0.193 0.144 0.153 0.173 0.128 0.183 
+
+R-A-P 0.330 0.335 0.300 0.305 0.186 0.237 0.111 0.241 0.295 0.281 0.287 0.274 0.179 0.194 0.185 0.226 0.188 0.172 
+
+V-PR 0.323 0.329 0.296 0.300 0.186 0.236 0.111 0.238 0.291 0.277 0.284 0.271 0.179 0.193 0.185 0.224 0.187 0.172 
+
+ECG A-P 0.529 0.503 0.505 0.495 0.147 0.272 0.157 0.486 0.506 0.490 0.483 0.412 0.500 0.478 0.480 0.478 0.202 0.347 
+
+R-A-P 0.476 0.451 0.452 0.445 0.134 0.265 0.108 0.412 0.407 0.433 0.405 0.357 0.450 0.432 0.433 0.423 0.181 0.305 
+
+V-PR 0.505 0.485 0.489 0.480 0.153 0.300 0.121 0.453 0.447 0.467 0.448 0.404 0.470 0.464 0.466 0.465 0.209 0.343 
+
+PSM A-P 0.569 0.465 0.381 0.438 0.278 0.380 0.290 0.344 0.379 0.370 0.377 0.394 0.433 0.476 0.418 0.337 0.462 0.477 
+
+R-A-P 0.524 0.465 0.382 0.434 0.440 0.378 0.282 0.344 0.381 0.370 0.379 0.395 0.402 0.429 0.369 0.337 0.422 0.412 
+
+V-PR 0.524 0.467 0.383 0.435 0.440 0.379 0.283 0.344 0.382 0.371 0.380 0.397 0.402 0.430 0.370 0.337 0.423 0.413 
+
+SMAP A-P 0.133 0.132 0.124 0.133 0.136 0.110 0.124 0.109 0.124 0.140 0.114 0.134 0.103 0.109 0.101 0.129 0.183 0.109 
+
+R-A-P 0.160 0.155 0.147 0.159 0.166 0.127 0.134 0.127 0.144 0.168 0.137 0.159 0.120 0.162 0.152 0.147 0.191 0.129 
+
+V-PR 0.160 0.155 0.147 0.158 0.166 0.127 0.135 0.127 0.144 0.167 0.137 0.158 0.121 0.162 0.152 0.147 0.191 0.129 
+
+KDD21 A-P 0.047 0.044 0.042 0.046 0.009 0.033 0.040 0.058 0.023 0.025 0.042 0.021 0.023 0.030 0.028 0.029 0.024 0.019 
+
+R-A-P 0.038 0.034 0.026 0.049 0.017 0.029 0.052 0.063 0.025 0.026 0.038 0.023 0.022 0.026 0.028 0.027 0.031 0.021 
+
+V-PR 0.047 0.042 0.032 0.050 0.017 0.030 0.048 0.063 0.033 0.033 0.045 0.032 0.022 0.027 0.029 0.031 0.031 0.021 
+
+Avg A-P 0.295 0.275 0.219 0.224 0.095 0.157 0.097 0.199 0.209 0.212 0.190 0.220 0.208 0.205 0.167 0.151 0.143 0.186 
+
+R-A-P 0.280 0.270 0.233 0.210 0.192 0.148 0.099 0.203 0.223 0.223 0.197 0.224 0.173 0.188 0.213 0.239 0.148 0.158 
+
+V-PR 0.283 0.275 0.236 0.214 0.195 0.152 0.101 0.207 0.228 0.227 0.202 0.230 0.175 0.190 0.216 0.244 0.151 0.162 
+
+1st count 12 6 0 0 0 0 0 3 0 0 0 1 0 0 2 1 3 0
+
+Table 12: Average A-R (AUC-ROC), R-A-R (R-AUC-ROC) and V-ROC (VUS-ROC) across all datasets. The best results are in bold, while the second-best results are underlined. 
+
+Dataset Metric CARE Cross CATCH Mixer DC TranAD ATrans CALF GS Patch iTrans TsNet LSTM AE OCSVM IF LOF PCA CalIt2 A-R 0.817 0.830 0.775 0.787 0.474 0.500 0.505 0.567 0.735 0.765 0.783 0.741 0.674 0.727 0.804 0.500 0.494 0.790 
+
+R-A-R 0.848 0.856 0.814 0.821 0.465 0.527 0.499 0.652 0.774 0.812 0.813 0.770 0.722 0.788 0.840 0.503 0.546 0.796 
+
+V-ROC 0.838 0.845 0.799 0.808 0.465 0.519 0.500 0.627 0.762 0.797 0.806 0.762 0.710 0.772 0.828 0.503 0.519 0.786 
+
+NYC A-R 0.776 0.710 0.625 0.563 0.524 0.556 0.522 0.664 0.549 0.541 0.623 0.579 0.667 0.681 0.456 0.500 0.464 0.666 
+
+R-A-R 0.769 0.742 0.676 0.656 0.523 0.647 0.506 0.739 0.634 0.692 0.707 0.672 0.731 0.736 0.612 0.505 0.604 0.744 
+
+V-ROC 0.763 0.732 0.674 0.637 0.527 0.633 0.505 0.721 0.640 0.667 0.690 0.651 0.716 0.725 0.589 0.505 0.581 0.730 
+
+GECCO A-R 0.909 0.969 0.949 0.871 0.500 0.594 0.476 0.923 0.911 0.959 0.793 0.974 0.774 0.724 0.804 0.500 0.796 0.711 
+
+R-A-R 0.911 0.982 0.970 0.810 0.501 0.463 0.478 0.936 0.955 0.955 0.853 0.972 0.665 0.586 0.757 0.501 0.777 0.598 
+
+V-ROC 0.947 0.980 0.967 0.818 0.501 0.457 0.479 0.934 0.950 0.955 0.846 0.971 0.665 0.588 0.756 0.501 0.767 0.595 
+
+MSL A-R 0.732 0.759 0.755 0.685 0.514 0.562 0.397 0.619 0.730 0.709 0.725 0.723 0.541 0.529 0.524 0.600 0.551 0.508 
+
+R-A-R 0.788 0.800 0.795 0.748 0.536 0.630 0.434 0.693 0.782 0.768 0.787 0.774 0.563 0.601 0.594 0.657 0.608 0.539 
+
+V-ROC 0.779 0.793 0.790 0.742 0.535 0.625 0.434 0.685 0.775 0.762 0.780 0.769 0.558 0.597 0.590 0.653 0.598 0.532 
+
+ECG A-R 0.866 0.865 0.861 0.859 0.479 0.750 0.451 0.838 0.826 0.858 0.837 0.811 0.858 0.860 0.858 0.842 0.589 0.784 
+
+R-A-R 0.799 0.810 0.803 0.805 0.434 0.652 0.420 0.773 0.757 0.796 0.771 0.738 0.792 0.800 0.801 0.800 0.419 0.647 
+
+V-ROC 0.818 0.829 0.825 0.825 0.444 0.676 0.427 0.799 0.783 0.816 0.798 0.767 0.805 0.818 0.820 0.823 0.470 0.672 
+
+PSM A-R 0.721 0.665 0.595 0.633 0.500 0.647 0.500 0.569 0.579 0.574 0.587 0.605 0.634 0.660 0.619 0.545 0.720 0.667 
+
+R-A-R 0.698 0.662 0.595 0.629 0.501 0.611 0.480 0.565 0.580 0.571 0.585 0.603 0.577 0.597 0.530 0.547 0.639 0.573 
+
+V-ROC 0.696 0.662 0.596 0.629 0.501 0.611 0.480 0.563 0.580 0.572 0.586 0.605 0.578 0.598 0.532 0.545 0.641 0.576 
+
+SMAP A-R 0.535 0.526 0.504 0.493 0.509 0.418 0.477 0.420 0.485 0.526 0.447 0.551 0.396 0.426 0.359 0.508 0.619 0.423 
+
+R-A-R 0.596 0.592 0.552 0.543 0.520 0.457 0.483 0.469 0.520 0.590 0.502 0.595 0.432 0.455 0.396 0.522 0.533 0.437 
+
+V-ROC 0.594 0.580 0.548 0.541 0.520 0.455 0.483 0.466 0.520 0.586 0.498 0.591 0.431 0.454 0.395 0.523 0.535 0.435 
+
+KDD21 A-R 0.567 0.586 0.606 0.657 0.478 0.590 0.530 0.667 0.598 0.605 0.631 0.581 0.582 0.622 0.609 0.498 0.592 0.575 
+
+R-A-R 0.630 0.633 0.656 0.708 0.492 0.634 0.541 0.713 0.665 0.664 0.690 0.652 0.649 0.672 0.663 0.582 0.637 0.627 
+
+V-ROC 0.628 0.633 0.650 0.699 0.494 0.627 0.538 0.719 0.658 0.661 0.685 0.648 0.647 0.669 0.654 0.579 0.637 0.625 
+
+Avg A-R 0.740 0.739 0.709 0.694 0.497 0.577 0.482 0.658 0.677 0.692 0.678 0.696 0.641 0.654 0.629 0.562 0.603 0.641 
+
+R-A-R 0.755 0.760 0.733 0.715 0.497 0.578 0.480 0.693 0.708 0.731 0.713 0.722 0.641 0.655 0.649 0.577 0.595 0.620 
+
+V-ROC 0.758 0.757 0.731 0.712 0.498 0.575 0.481 0.689 0.708 0.727 0.711 0.720 0.639 0.653 0.646 0.579 0.594 0.619 
+
+1st count 11 11 0 0 0 0 0 3 0 0 0 1 0 0 0 0 1 0
+
+23

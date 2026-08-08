@@ -1,0 +1,819 @@
+Title: DBA-Bench: A Production-Fidelity Benchmark for LLM-Based Database Operations Agents
+
+URL Source: https://arxiv.org/pdf/2607.22165v1
+
+Published Time: Mon, 27 Jul 2026 00:43:50 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# DBA-Bench : A Production-Fidelity Benchmark for LLM-Based Database Operations Agents 
+
+# Junming Chen 
+
+University of Electronic Science and Technology of China Chengdu, China junmingchen@std.uestc.edu.cn 
+
+# Junyang Jiang 
+
+University of Electronic Science and Technology of China Chengdu, China junyangjiang@std.uestc.edu.cn 
+
+# Xu Chen 
+
+University of Electronic Science and Technology of China Chengdu, China xuchen@std.uestc.edu.cn 
+
+# Zibo Liang 
+
+University of Electronic Science and Technology of China Chengdu, China zbliang@std.uestc.edu.cn 
+
+# Kai Zheng 
+
+University of Electronic Science and Technology of China Chengdu, China zhengkai@uestc.edu.cn 
+
+## Abstract 
+
+LLM-based database agents show promise, but differing task scopes, testbeds, and metrics hinder comparison. We identify four gaps between evaluation and production operations: live-environment fidelity (multi-turn read–write interaction with a running database); 
+
+observation-space scale and complexity (causal diagnosis across thou-sands of time series, business logs, and concurrent activity); solution-space openness (multiple remediations with different operational trade-offs); and scenario complexity and coverage (faults cascading across internal mechanisms and operational domains). We present 
+
+DBA-Bench , a benchmark addressing these gaps through produc-tion fidelity , outcome-first evaluation , and controlled scenario repro-ducibility . It uses instrumented PostgreSQL environments with active workloads, persistent state, and multi-source observations; defines success by measurable recovery or fault elimination under safety constraints; and restores snapshots with scenario-specific checks before each run. The benchmark contains 106 scenarios across seven task domains, with two public difficulty labels based on reference-path diagnostic depth and environmental complexity. We evaluate nine baseline groups, including six foundation-model systems, two GPT-5.5-backed database agents, and a Human DBA reference. Across 848 automated runs, Diagnosis, Outcome, and Safe Pass rates are 32.7%, 19.6%, and 12.4%; the best automated baseline reaches 17.9% Safe Pass versus 93.4% for the Human DBA reference. Automated Safe Pass falls from 19.6% on Easy scenar-ios to 7.6% on Hard scenarios, underscoring the difficulty of safe end-to-end remediation. 
+
+## CCS Concepts 
+
+• Information systems → Database management system en-gines ; • Computing methodologies → Intelligent agents .
+
+## Keywords 
+
+database operations, LLM agents, benchmark, fault diagnosis 
+
+## 1 Introduction 
+
+Database operations span tasks such as query tuning, failure re-covery, and schema changes. They unfold on live databases under concurrent workloads, where interventions change the environ-ment and symptom-level fixes may leave the root cause intact; in a stale-statistics and lock-contention incident, terminating the visible blocker clears the waits only temporarily. Such work is expertise-intensive, continuous, and high-risk, yet experienced database ad-ministrators (DBAs) are scarce; LLM-based autonomous agents have therefore been explored as a force-multiplier [16, 28]. A growing number of LLM-based database agents have emerged to address this need—D-Bot [ 40 ], DBAIOps [ 38 ], DBAgent [ 5 ], and report-style advisors such as Panda [ 28 ] and GaussMaster [ 37 ]— each reporting encouraging results on its respective evaluation setup. These systems pursue different operational goals, and their evaluations consequently use different task scopes, testbeds, met-rics, and fault scenarios. To our knowledge, there is no shared, reproducible evaluation environment on which different database agents can be compared under controlled fault conditions. Reported numbers are therefore difficult to compare directly, limiting field-level measurement of progress toward production readiness. The problem is therefore not merely the absence of a common leaderboard. A meaningful benchmark must preserve the oper-ational conditions relevant to how an agent observes, acts, and verifies recovery, and it must judge the agent by the database state its actions produce. Existing evaluations diverge from these require-ments along four dimensions. 
+
+Gap 1: Live-environment fidelity. Database operations are stateful interactions with a running, writable system, not static input–output tasks. Workloads continue while an agent diagnoses a fault, and each probe or remediation—from terminating a session to changing a configuration or running maintenance—can alter locks, optimizer state, availability, and the evidence visible in the next turn. Many database-agent evaluations emphasize diagnostic or recommendation quality: the environment may be represented as a task state, while proposed fixes are estimated, reported, or routed to human approval rather than executed and verified in the environment [ 5, 28 , 38 , 40 ]. Such setups do not jointly measure whether an agent can safely change live database state, adapt to the consequences of its actions, and verify recovery. 
+
+Gap 2: Observation-space scale and complexity. A produc-tion incident is not isolated from the rest of the system. A DBA must localize causal evidence among thousands of metric time-series, arXiv:2607.22165v1 [cs.DB] 24 Jul 2026 dense business logs, query plans, lock and session activity, back-ground tasks, and signals created by concurrent workloads. General agent benchmarks instead often instantiate fresh, clean databases or compact task environments in which unrelated activity and plau-sible competing signals are largely absent. Such environments can test task execution in isolation, but they remove the environmental complexity that makes production diagnosis difficult. An agent evaluated under low-noise conditions need not distinguish a causal fault from correlated workload activity or a salient but misleading symptom. 
+
+Gap 3: Open solution space. Real-world remediation rarely has a single correct answer; competing fixes differ not in correctness but in operational trade-offs. Consider adding a missing index to a busy table: a DBA may use CREATE INDEX during a maintenance window, which completes faster but blocks writes, or CREATE INDEX CONCURRENTLY , which keeps writes available but takes longer and may leave an invalid index if interrupted. Both create the required access path; which is appropriate depends on availability and main-tenance constraints. Several database-agent evaluations stop at a recommended answer rather than executing candidate repairs and inspecting the resulting system state [ 28 , 38 , 40 ]. Scoring against a prescribed answer or action cannot recognize alternative valid paths or compare their operational risks. 
+
+Gap 4: Scenario complexity and coverage. Production data-base faults are both diverse and compound. A realistic escalation chain—stale statistics causing suboptimal query plans, which am-plify lock contention, which exhaust the connection pool—requires an agent to trace causality through multiple layers of database in-ternals before arriving at the true root cause. Treating the surface symptom (connection exhaustion) while ignoring the upstream trigger (stale statistics) is a failed diagnosis regardless of whether the immediate symptom is temporarily relieved. AIOpsLab [ 9] pro-vides a closely related precedent by evaluating detection, localiza-tion, root-cause analysis, and mitigation in interactive microservice environments. Database operations introduce a complementary evaluation scope requiring reasoning over query plans, locks, statis-tics, storage, and configuration. A benchmark for this setting must also span query tuning, system-fault recovery, routine health main-tenance, business-driven schema changes, resource governance, composite faults, and misleading alerts. Together, these gaps require a benchmark with live read–write interaction, a large and noisy operational environment, outcome-grounded support for open solutions, and diverse causal structures. Fair comparison additionally requires every agent to encounter an equivalent causal fault and operational context while preserving the runtime variation of a live system. We present DBA-Bench , a benchmark framework built around three design principles that collectively address these gaps. Produc-tion Fidelity means that DBA-Bench provides near-production-grade fault environments spanning a rich set of complex database scenarios. It instantiates these scenarios within fully instrumented PostgreSQL environments while OLTP, OLAP, or mixed business workloads remain active during diagnosis and verification. These environments preserve internal database state (data distribution, statistics, WAL position, and dead tuples) and expose a broad multi-source observation surface, including metrics, system and business logs, query records, and plans—directly addressing Gaps 1, 2, and 4. 
+
+Outcome-First Evaluation defines success as measurable perfor-mance recovery or fault elimination under the scenario’s opera-tional safety constraints. It credits remediation paths that satisfy the scenario-specific success contract and separately penalizes un-supported, unscoped, or destructive actions—directly addressing Gap 3. Controlled Scenario Reproducibility restores the com-plete dirty environment after each run and admits the next run only after scenario-specific predicates verify the intended causal state and visible symptoms. This engineering control gives agents equivalent fault conditions while retaining the runtime variation of a live database. Guided by these principles, DBA-Bench instantiates 106 sce-narios spanning 7 operational task domains and two public diffi-culty labels. The labels are derived from two independently anno-tated attributes: reference-path diagnostic depth, which counts the evidence-grounded causal hops in a DBA-validated reference diag-nostic path, and environmental complexity, which quantifies the noise within the tools required by that path. Agents interact with live database environments through a unified tool interface for met-ric queries, SQL execution, and instance management, mirroring the workflow of a human DBA using monitoring dashboards, SQL terminals, and database management consoles. Each benchmark run forms a closed operational loop: the agent localizes evidence in a live faulty environment, applies remediation, and verifies the outcome while the workload remains active. We evaluate six foundation models under a common ReAct work-flow, two GPT-5.5-backed database agents, and a Human DBA ref-erence. Across 848 automated runs, Diagnosis Pass, Outcome Pass, and Safe Pass are 32.7%, 19.6%, and 12.4%, respectively. The best automated Safe Pass rate is 17.9%, versus 93.4% for the Human DBA reference, a 75.5-percentage-point gap. Automated Safe Pass falls from 19.6% on Easy scenarios to 7.6% on Hard scenarios. In summary, this paper makes the following contributions: 
+
+• DBA-Bench Framework. We design and implement a bench-mark for database operations agents that combines live, instru-mented database environments with controlled scenario repro-duction. The framework covers 106 PostgreSQL scenarios across 7 operational task domains and two difficulty labels derived from separate diagnostic-depth and environmental complexity anno-tations. It combines active business workloads, a unified tool interface, and declarative scenario orchestration. 
+
+• Outcome-First Evaluation Protocol. We propose an outcome-first evaluation methodology in which success requires mea-surable system recovery without violating operational safety constraints. Scenario-specific outcome verifiers judge the post-run state and structured submission, while separate trace rules assess operational safety. This separation allows different re-mediation paths to receive credit when they satisfy the same scenario-specific success contract, without conflating recovery with execution safety. 
+
+• Systematic Empirical Study. We report a comparative evalua-tion of six foundation-model systems, two database-agent sys-tems, and a Human DBA reference in controlled PostgreSQL environments that preserve these operational properties. The results expose gaps among diagnosis, realized outcomes, and safe remediation, together with capability differences across scenario attributes. 
+
+> 2
+
+Benchmark artifacts are available at https://github.com/TanJI-C/ DBA-Bench. 
+
+## 2 Related Work 
+
+Database automation has long combined specialized diagnosis with policy-specific control. Earlier database diagnosis and autonomous-database systems established methods for performance predicates, online anomaly diagnosis, root-cause SQL localization, workload-aware causal analysis, telemetry-based slow-query diagnosis, mul-timodal root-cause ranking, and policy-specific tuning [ 19 , 20 , 23 ,24 , 26 , 30 , 34 , 39 ]. These systems provide important diagnostic and control building blocks, but each is centered on a bounded diagnosis or optimization objective [4, 6–8, 18]. Large language models broaden this line of work toward more flexible operational reasoning. LLM-based database-operation sys-tems now span interactive agents, single-pass advisors, and tuning or copilot systems [ 3, 5 , 10 , 16 , 28 , 37 , 38 , 40 ]. Adjacent LLM-based incident-management systems recommend root causes and mitiga-tions [ 1], assist cloud-service monitoring [ 35 ], recommend incident queries [ 14 ], or perform tool-augmented autonomous root-cause analysis [ 31 ]. Together, these systems show that LLMs can sup-port operational reasoning across database and cloud settings, from evidence gathering and diagnosis to remediation advice and tool use. Evaluation has not kept pace with this broader agent scope. Existing studies are tailored to different goals and therefore use different task scopes, testbeds, metrics, and fault scenarios; several emphasize diagnosis or recommendation quality, and some retain human approval before remediation. Collectively, they leave the field without a shared evaluation contract for a general-purpose LLM agent for database operations that reasons over a live database, selects and executes an open-ended remediation, verifies the post-fix state, and accounts for operational safety. This gap also makes the reported numbers difficult to compare directly across systems. Benchmark work in other domains offers useful design prece-dents for this gap. AgentBench evaluates LLMs as agents across mul-tiple interactive environments, making tool-mediated interaction and task success explicit evaluation targets [ 21 ]; GAIA extends this view to general-assistant tasks [ 25 ]. SWE-bench instead grounds evaluation in real software work: an agent receives a repository snapshot and an issue, edits the codebase, and is judged by the repos-itory’s execution tests [ 15 ]. OpsEval complements these settings by measuring IT-operations knowledge [ 22 ]. Other benchmarks similarly standardize long-horizon web interaction, execution feed-back, and executable software environments [ 13 , 32 , 36 ]. Together, these efforts establish interaction- and outcome-based evaluation contracts, but their state spaces and success criteria are not those of a live database with causal faults and operational risk. Database-focused benchmarks remain narrower: DBPA and AD-Bench evaluate transactional performance anomalies or anomaly detectors over curated data [ 11 , 12 ]. AIOpsLab is the closest oper-ational precedent. It deploys microservice environments, injects fine-grained faults, generates workloads and telemetry, exposes a common agent–cloud interface, and evaluates agents across de-tection, localization, root-cause analysis, and mitigation [ 9]. This framework demonstrates how realistic, interactive incidents can be turned into reproducible agent evaluations; its microservice sys-tem boundary, however, leaves database-internal semantics and the safety of database state changes outside the contract. DBA-Bench adapts this operational pattern to plans, locks, statistics, storage, and configuration, while adding post-fix state verification and explicit operational-safety judgments. 
+
+DBA-Bench builds on these precedents by combining the follow-ing requirements in a database-operations instrument: agents must execute fixes, the framework verifies post-fix state, every action is scored for operational safety, different remediation paths can receive credit when they satisfy the same scenario-specific success contract, and each scenario is restored and revalidated against its fault-manifestation predicates before each run. 
+
+## 3 DBA-Bench 
+
+## 3.1 Problem Definition 
+
+Database operations are stateful decision-making tasks rather than single-turn question-answering tasks. An agent receives an initial symptom, alternates reasoning with tool-mediated observation and intervention, and terminates with a report after its actions may have changed the database environment. We define a scenario as 
+
+𝑠 = (𝑑 𝑠 , 𝑤 𝑠 , 𝑓 𝑠 , 𝜎 𝑠 , U𝑠 , J𝑠 ),
+
+where 𝑑 𝑠 specifies the database and deployment, 𝑤 𝑠 the active work-load, 𝑓 𝑠 the fault program, and 𝜎 𝑠 the initial symptom presented to the agent. U𝑠 is the tool catalog exposed in the scenario, and J𝑠 is its evaluator, which keeps the outcome verifier 𝑉 𝑠 , rule-based diagnosis matcher, and trace-based safety rules as separate components. Scenario construction materializes 𝑠 as a restored dirty environ-ment 𝐸 0 
+
+> 𝑠
+
+. We use 𝐸 𝑡 𝑠 to denote the complete live database environ-ment at turn 𝑡 , encompassing its database and runtime state, active workload, and observable telemetry. For agent 𝑎 , a complete run is recorded as 
+
+𝜏 𝑎 𝑠 = 𝜎 𝑠 , (𝑧 𝑖 )𝑛 𝑖 =1, 𝑟 𝑎 𝑠 ,
+
+where (𝑧 𝑖 )𝑛 𝑖 =1 is the time-ordered sequence of interaction events and 
+
+𝑟 𝑎 𝑠 is the terminal report. An event may record an agent-emitted rea-soning or control state, a tool call, an observation, or an architecture-specific tree or graph update. This event representation accommo-dates sequential, tree-structured, and graph-structured control. For example, a ReAct run instantiates the trace as 
+
+𝜏 𝑎 𝑠, ReAct = 𝜎 𝑠 , (𝑞 𝑡 , 𝑢 𝑡 , 𝑜 𝑡 +1)𝑇 −1  
+
+> 𝑡 =0
+
+, 𝑟 𝑎 𝑠 ,
+
+where 𝑞 𝑡 , 𝑢 𝑡 , and 𝑜 𝑡 +1 are respectively the Think record, tool action, and returned observation, and 𝑇 is the number of ReAct interaction turns. The structured report 𝑟 𝑎 𝑠 records the root-cause type, affected objects, causal factors, supporting evidence, executed actions, and verification evidence. Scoring uses these structured fields; an op-tional narrative explanation remains in the trace for analysis. The final environment is denoted by 𝐸 𝑎 𝑠 .The scenario evaluator J𝑠 consumes the trace and post-fix envi-ronment and returns a multi-dimensional evaluation record: 
+
+𝑅 𝑠 (𝑎 ) = J𝑠 (𝐸 𝑎 𝑠 , 𝜏 𝑎 𝑠 ).
+
+Section 3.3 details how the trace is produced, and Section 5 defines the evaluation dimensions. 
+
+> 3
+
+Multi -dimensional Evaluation Scenario Construction Agent -environment Interaction 
+
+DB System Stack 
+
+OLTP 
+
+OLAP 
+
+Workload Stack 
+
+Fault Scenarios               
+
+> Agent Report
+> &Traces
+> Post -fix
+> Environment
+> …… ……
+> ……
+> Join
+> …… ……
+> Query Plan Time -series Metrics
+> (CPU, Memory, Disk, …)
+> Knowledge base
+> System/DB Log DB Instances
+
+Environment       
+
+> metrics execute SQL
+> search knowledge manage instances
+> read log
+
+Tool Set 
+
+Agent Stack 
+
+> Efficiency
+> Accuracy
+> Safety
+
+Pass / Fail  
+
+> Fault Solved
+> Performance
+> Verified
+
+Outcome 
+
+Evaluator             
+
+> Multi -turn:
+> Action &Observation
+> Multi -dimensional
+> Hybrid Evaluation
+> Dirty Environment
+> Instance Generation
+> Agent
+> Submission
+> 7categories
+> 106 scenarios ·2difficulty levels
+> Query
+> tuning
+> System
+> failure Health
+> check
+> Business
+> change
+> Resource
+> governance
+> Composite
+> faults
+> Misleading
+> alerts
+
+Figure 1: DBA-Bench architecture for 106 PostgreSQL scenarios, from scenario construction through stateful agent– environment interaction to outcome-first, multi-dimensional evaluation. 
+
+Figure 1 summarizes how DBA-Bench evaluates this problem as a stateful workflow: a database stack, workload, and fault program instantiate a dirty environment; an agent interacts with that envi-ronment through a unified tool boundary; and the evaluator judges the post-fix state together with the agent’s trace and report. The key design requirement is that every agent starts from an equivalently manifested dirty state, acts through the same operational interface, and is judged by the same outcome-oriented protocol. We describe the three stages in the order shown in the figure. 
+
+## 3.2 Scenario Construction: From Configurations to Dirty Environments 
+
+The first stage turns the declarative scenario 𝑠 into a fault repro-duced on an actual database system. The resulting task is a live fault: 
+
+𝑓 𝑠 is executed against the database and materialized in optimizer state, locks, logs, metrics, storage behavior, workload response, or configuration state. The database specification 𝑑 𝑠 determines the deployed engine, data, schema, resources, and initial configuration. The workload specification 𝑤 𝑠 selects an OLTP, OLAP, or mixed workload regime. OLTP workloads reproduce high-concurrency short transactions and their lock and connection pressure; OLAP workloads exercise long scans, joins, temporary data, and sustained resource use; mixed workloads expose interference between the two. DBA-Bench sce-narios thereby cover database internals such as plans, statistics, vacuum behavior, lock state, WAL/checkpoint pressure, and local configuration. The selected workload remains active during diagno-sis and verification, so the agent reasons about a running database under load. The scenario library spans seven operational task domains: query tuning, system failure, periodic health check, business change, re-source governance, composite faults, and misleading alerts. Sec-tion 4 develops this taxonomy and its difficulty annotations. At a high level, each fault program declares its preconditions, activa-tion procedure, manifestation predicates, and post-fix verifier. The generator deploys the database and data, starts and warms up 𝑤 𝑠 ,executes 𝑓 𝑠 , and waits until the causal state and intended symptom satisfy the manifestation predicates. It then prepares the metrics and logs visible to the agent and captures the complete dirty state. The scenario is admitted only after the declared fault manifests. The resulting evidence remains distributed across the database and telemetry. Before each agent run, DBA-Bench restores the complete dirty environment from a snapshot of database, workload, and deploy-ment state, then reruns the scenario-specific manifestation pred-icates. A run begins only if the intended causal state and visible symptoms are present. After the run, the environment is discarded and reconstructed for the next agent. This protocol reproduces the scenario-level fault conditions without requiring identical runtime schedules, observations, or agent trajectories. Executable fault pro-grams and post-activation admission checks build on the broader systems-testing practice of injecting faults under explicit consis-tency constraints [ 2 ] and validating controller behavior against automatically constructed failure scenarios [29]. 
+
+## 3.3 Agent–environment Interaction: Stateful Multi-turn Diagnosis and Remediation 
+
+The second stage executes the interaction recorded by 𝜏 𝑎 𝑠 . Starting from 𝜎 𝑠 and 𝐸 0 
+
+> 𝑠
+
+, the agent repeatedly emits a reasoning or control state, invokes a tool, and incorporates the returned observation. The loop ends with the Report action or when the run budget is reached; until then, tool calls may reveal evidence or change the environment on which later decisions depend. 
+
+3.3.1 Agent Families and Integration Boundary. DBA-Bench ac-cepts agent architectures with different internal control structures 
+
+> 4
+
+through a common integration boundary. ReAct agents use a Think–Act–Observe loop: they reason over accumulated observa-tions, select the next tool call, and revise their hypothesis from the returned evidence [ 5 , 33 ]. Tree-search agents , represented by D-Bot, maintain a tree over hypothesis–action candidates and select diagnostic paths using node scoring or UCT-style exploration [ 40 ]. 
+
+Knowledge-graph-guided agents , represented by DBAIOps, or-ganize evidence and diagnostic experience as graph-structured entities and relations, then use the graph to constrain reasoning and report generation [38]. These architectures organize the internal events (𝑧 𝑖 )𝑛 𝑖 =1 differ-ently. The common interface provides each architecture with 𝜎 𝑠 and 
+
+U𝑠 , initializes the environment at 𝐸 0 
+
+> 𝑠
+
+, and records the resulting trace 
+
+𝜏 𝑎 𝑠 and report 𝑟 𝑎 𝑠 under a shared submission schema. Only actions actually issued through U𝑠 can change the environment and enter outcome verification; advisory or hypothetical recommendations remain trace records. 
+
+3.3.2 Tool Interface and Protocol. The scenario tool catalog intro-duced in Section 3.1 is 
+
+U𝑠 = {𝑢 metric , 𝑢 sql , 𝑢 instance , 𝑢 log , 𝑢 kb }.
+
+Each action in the trace has the form 𝑢 𝑡 = 𝑢 (𝜃 𝑡 ), where 𝑢 ∈ U 𝑠 and 
+
+𝜃 𝑡 contains its arguments. Executing the action while the workload remains active advances the live environment: 
+
+𝐸 𝑡 𝑠 𝑢 𝑡 
+
+−−−→ 𝐸 𝑡 +1 
+
+> 𝑠
+
+,
+
+and returns observation 𝑜 𝑡 +1. An observational call does not directly mutate database state, but 𝐸 𝑡 +1 
+
+> 𝑠
+
+may still differ from 𝐸 𝑡 𝑠 because the active workload and background processes continue to evolve. The five elements of U𝑠 correspond directly to the benchmark APIs. query_metrics queries database and system monitoring time series, including workload and query-level signals. execute_sql 
+
+executes an arbitrary SQL query or command, covering catalog inspection, live session and lock state, EXPLAIN -based plan analy-sis, and SQL-expressible remediation. manage_instance provides process control and configuration management. read_log reads system or database logs, and query_knowledge_base retrieves the local official-documentation corpus. The first, fourth, and fifth APIs are observational; execute_sql and manage_instance can also change state. 
+
+execute_sql is intentionally expressive. Database engines ex-pose a large fraction of diagnosis and remediation through SQL, so this single API plays the role that a shell tool plays in terminal-oriented benchmarks: it provides a compositional command surface instead of restricting agents to a fixed menu of prewritten probes and repairs. This freedom includes powerful DDL, DML, mainte-nance, and session-control operations. The evaluator J𝑠 judges their safety from the recorded trace under the scenario-specific operational constraints. The environment exposes the broad evidence surface a DBA would consult during an incident: query plans, time-series metrics, system and database logs, slow-query records, operational knowl-edge, and live database state. These signals are deliberately broader than the minimal evidence needed for the answer; the benchmark measures whether the agent can localize the relevant signal inside a noisy operational surface. Every call, argument, observation, and state-changing result is recorded in 𝜏 𝑎 𝑠 . Run budgets may bound turns, tool calls, wall-clock time, or tokens, but these are measure-ment constraints rather than solution hints. On termination, the agent emits the structured report 𝑟 𝑎 𝑠 .
+
+3.3.3 Operational Knowledge. Operational knowledge is exposed as part of the environment rather than embedded in prompts as scenario-specific hints. Agents access it through the knowledge-base API. The underlying corpus consists of database manuals, operational runbooks, troubleshooting guides, tuning documents, metric and log references, and de-identified incident notes when available. It excludes scenario labels, verifier predicates, gold root causes, and gold remediations. These source classes follow data-base assistants that ground diagnosis in manuals, troubleshooting material, telemetry, and historical tickets [3, 5, 40]. 
+
+DBA-Bench can expose the same corpus through three repre-sentations. A flat document view supports lexical or vector re-trieval over cleaned chunks with document identifiers, section paths, system tags, and entity metadata, following retrieval-augmented grounding used by database advisors [ 3, 17 , 28 ]. A hierarchical view organizes documents into sections, chunks, diagnostic pro-cedures, metrics, and actions, matching the layered organization explored by DBAgent and D-Bot [ 5, 40 ]. D-Bot’s summary-tree chunks with name, content, metrics, and steps are one such rep-resentation. A knowledge-graph view materializes symptoms, metrics, log patterns, root causes, database objects, configuration knobs, operations, risks, and verification signals, with relations such as indicates , causes , mitigates , requires-evidence , and unsafe-under ,following the graph-structured experience model in DBAIOps [ 38 ]. Agent-specific adapters may consume chunks, hierarchical proce-dures, or graph triples, but all representations derive from the same source corpus and expose no hidden ground truth. 
+
+## 3.4 Evaluation Interface: Post-fix State, Report, and Trace 
+
+The final stage applies J𝑠 to the post-fix environment 𝐸 𝑎 𝑠 , structured report 𝑟 𝑎 𝑠 , and complete trace 𝜏 𝑎 𝑠 . The outcome verifier 𝑉 𝑠 checks the post-run state and the task-specific fields of the submission; the diagnosis matcher scores normalized root-cause fields; and the safety rules inspect the action trace. The evaluator returns the multi-dimensional record 𝑅 𝑠 (𝑎 ) while keeping these judgments separate. Section 5 details the evaluation protocol. 
+
+## 4 Scenario Taxonomy 
+
+DBA-Bench ’s scenario taxonomy covers the operational surface of database maintenance. It defines the task domains that a general database operations agent should handle, from routine performance tuning to compound incident response, and characterizes each scenario using two measurable attributes: diagnostic depth and environmental complexity. Reporting these attributes separately identifies whether a failure is associated with a longer causal chain, a noisier evidence space, or their combination. 
+
+## 4.1 Coverage Across Operational Task Domains 
+
+Candidate scenarios are collected from documented operational cases in public issue reports and postmortems, official troubleshoot-ing material and runbooks, prior database-diagnosis studies and 
+
+> 5
+
+benchmarks, and expert-designed stress cases. Anonymized pro-duction incidents are recorded as a separate provenance class when available. Each scenario retains its source type and a traceable reference or abstraction note. Candidate cases are deduplicated, assigned to an operational domain, and screened for implementability, observable fault mani-festation, and automatic outcome verification. DBAs then review the causal fault, reference diagnostic path, operational constraints, and verifier. A scenario enters the benchmark library only after disagreements are resolved and repeated construction satisfies its manifestation predicates. We organize the resulting library around top-level task domains, allowing each domain to contain different diagnostic and remediation paths. For example, query-tuning sce-narios may require different actions depending on the workload, schema, and dirty state. The seven categories follow a consistent assignment rule. A scenario is classified as a composite fault when successful resolu-tion requires reasoning about multiple causal faults. Among the remaining scenarios, misleading alerts are those whose dominant initial symptom supports a plausible non-causal explanation. All other scenarios are classified by their primary operational objec-tive: improving query performance, recovering service availability, identifying latent risks, executing a planned business change, or enforcing resource and policy requirements. This rule keeps the cat-egory stable when similar database operations appear in different operational contexts. Table 1 summarizes the top-level task domains and reports the Easy/Hard split within each domain. The first five task domains cover common operational duties, from incident response to preven-tive checks and governed state changes. The final two intentionally stress compound and misleading cases, where the benchmark must distinguish root-cause remediation from symptom chasing. 
+
+## 4.2 Reference-Path Diagnostic Depth and Environmental Complexity 
+
+Diagnostic depth. Each scenario defines a DBA-validated reference diagnostic path 
+
+𝜋 𝑠 = ⟨𝜎 𝑠 , ℎ 1, . . . , ℎ 𝐷 𝑠 −1, 𝑐 𝑠 ⟩, 𝐷 𝑠 = |𝜋 𝑠 | − 1,
+
+where 𝜎 𝑠 is the initial symptom, ℎ𝑖 is an intermediate diagnostic state, and 𝑐 𝑠 is the root-cause state, which may contain multiple causal faults in a composite scenario. Each adjacent pair in 𝜋 𝑠 
+
+contributes one logical hop and must be supported by observable evidence. Reference-path diagnostic depth 𝐷 𝑠 is the number of logical hops in this path. Because the path is not claimed to be unique or shortest, 𝐷 𝑠 is a reproducible scenario annotation rather than an intrinsic minimum. Alternative valid paths receive the same outcome credit, and agent turns, repeated tool calls, remediation, and verification do not affect 𝐷 𝑠 . We set the low-depth boundary to 𝐷 0 = 2.
+
+Environmental complexity. This attribute measures the noise re-turned by the tools needed to follow 𝜋 𝑠 . Let K𝑠 be those key diag-nostic tools. Under the reference-path queries, 𝑚 𝑠,𝑢 counts returned units that support the causal path and 𝑛 𝑠,𝑢 counts the remaining Post -ANALYZE                   
+
+> distribution shift
+> hidden root cause 1
+> 2Cardinality underestimation
+> Statistics captured 300K baseline rows
+> Then +1.2M rows were inserted
+> Actual table size: 1.5M rows
+> autovacuum disabled
+> statistics remain stale
+> Planner uses stale 300K -row statistics
+> Hot -key rows are severely underestimated
+> The unexpectedly large scan prolongs the statement
+> Evidence tag: estimate ≪actual
+> 3Slow lock -owning statement
+> order -api first updates session row 1
+> then scans customer 42 orders
+> The row lock is held for the full statement
+> 4Lock queue and
+> service symptoms
+> 3 checkout workers update session row 1
+> They wait behind order -api
+> Write requests time out
+> visible alert
+> Write timeouts + lock waits 1Map the
+> lock chain
+> pg_locks
+> 4Inspect table
+> statistics
+> n_mod_since_analyze
+> 2Inspect the
+> holder state
+> pg_stat_activity
+> 3Compare plan
+> estimates
+> EXPLAIN ANALYZE
+> Deep Scan
+> 1Sees
+> Blocker
+> 2Stops
+> holder
+> 3Fault
+> returns
+> Shallow Scan
+
+Failed Path  
+
+> 5Solution
+> ANALYZE
+> order_event ;
+
+Successful Path               
+
+> Time -series Metrics
+> Signal mixed with worload effects
+> Relevant pattern:
+> p95 ↑,
+> throughput ↓
+> sessions ↑
+> DB system tables
+> Causal sessions buried
+> among background activity
+> pg_locks
+> pg_stat_activity
+> Business logs
+> Routine entries:
+> dominate
+> Relevant event:
+> order -api timeout
+> High business -noise
+> concentration
+
+Environment Complexity 
+
+> Diagnostic  depth
+
+Figure 2: A representative PostgreSQL scenario with diagnos-tic depth 𝐷 𝑠 = 4 and environmental complexity 𝐶 𝑠 > 0.9. The successful path follows four logical hops from the visible symptom to stale statistics. 
+
+units. We define the aggregate signal ratio and environmental com-plexity as 
+
+𝜌 𝑠 =
+
+Í𝑢 ∈ K 𝑠 𝑚 𝑠,𝑢 
+
+Í𝑢 ∈ K 𝑠 (𝑚 𝑠,𝑢 + 𝑛 𝑠,𝑢 ) , 𝐶 𝑠 = 1 − 𝜌 𝑠 .
+
+Units are log lines for log results, rows for tabular results, and data points inside or outside the causal window for time series. Because these tools expose unfiltered results from the same live workload, path-level noise also serves as a proxy for broader non-causal activity in the environment. Isolated query-tuning scenarios usually expose no competing observations; unless such signals are present, they have 𝑛 𝑠,𝑢 = 0 and 𝐶 𝑠 = 0. We set the complexity boundary to 𝐶 0 = 0.5 and label 𝐶 𝑠 < 𝐶 0 as Low complexity and 
+
+𝐶 𝑠 ≥ 𝐶 0 as High complexity. Difficulty is defined directly from the two independent attributes: 
+
+Difficulty (𝑠 ) =
+
+(
+
+Hard , 𝐷 𝑠 > 𝐷 0 ∧ 𝐶 𝑠 ≥ 𝐶 0,
+
+Easy , otherwise .
+
+The 106-scenario library contains 42 Easy and 64 Hard scenarios. The numeric values 𝐷 𝑠 and 𝐶 𝑠 remain in the benchmark metadata and are analyzed separately in Section 6, preserving the distinct sources of difficulty in comparisons across task categories and agent families. 
+
+## 4.3 Representative Complex Scenario 
+
+Figure 2 makes the two difficulty attributes concrete. After statistics are collected on a 300K-row baseline, 1.2M rows for a hot key are inserted while autovacuum is disabled. The planner therefore underestimates the matching rows and chooses a plan whose large 
+
+> 6
+
+Table 1: DBA-Bench scenario taxonomy by operational task domain and aggregate Easy/Hard label derived from diagnostic depth and environmental complexity. The table covers all 106 PostgreSQL scenarios. Category Representative operational focus Easy Hard 
+
+Query tuning Plan regressions, missing/ineffective indexes, stale statistics 8 10 System failure Unavailability, lock contention, checkpoint/log pressure, degraded recovery 11 13 Periodic health check Latent storage, vacuum, statistics, configuration, replication 6 8Business change Schema evolution, index/config updates, data migration 5 7Resource governance Capacity pressure, quotas, unsafe queries, isolation 8 8Composite faults Multi-cause incidents with downstream symptom amplification 2 10 Misleading alerts Visible symptom points away from the true root cause 2 8scan prolongs the order-api transaction. Because that transaction holds the lock on a session row while it scans, checkout workers queue behind it and surface only the downstream symptoms: lock waits and write timeouts. The DBA reference diagnosis has four logical hops: the initial timeout alert leads to the lock queue, the queue identifies an active slow holder, the holder’s plan reveals cardinality underestimation, and the estimate error leads to stale statistics. The scenario meta-data therefore records 𝐷 𝑠 = 4. Its causal evidence is sparse among the metrics, concurrent sessions, business SQL, and routine logs exposed by the required diagnostic tools, resulting in 𝐶 𝑠 > 0.9.The scenario receives the aggregate Hard label. A response that terminates the visible blocker leaves the stale statistics intact and the fault recurs. A successful agent maps the lock chain, compares estimated and actual cardinalities, inspects the table statistics, and refreshes the target table with ANALYZE ; the scenario verifier then checks that the workload no longer produces the lock waits and write timeouts. 
+
+## 5 Evaluation Protocol 
+
+Evaluation in DBA-Bench is defined over the task-specific success contract of an agent run. For each scenario, the benchmark re-stores a dirty environment, records the agent’s trace and structured submission, and applies a scenario-specific outcome verifier. DBA-Bench reports three evaluation dimensions: correctness, safety, and efficiency. Correctness has two components: whether the agent satisfied the scenario’s task-specific success contract, and whether it identified the causal fault it was supposed to address. Formally, let 𝑠 denote a scenario, 𝐸 0 
+
+> 𝑠
+
+its restored dirty environ-ment, 𝑎 an evaluated agent, and 𝐸 𝑎 𝑠 the post-fix environment after 
+
+𝑎 stops. The full evaluation record is the output of the evaluator defined in Section 3.1: 
+
+𝑅 𝑠 (𝑎 ) = J𝑠 (𝐸 𝑎 𝑠 , 𝜏 𝑎 𝑠 ) =  𝑄 𝑠 (𝑎 ), 𝑆 𝑠 (𝑎 ), Eff 𝑠 (𝑎 ).
+
+The fields are reported separately rather than collapsed into a single score: correctness, safety, and efficiency answer different evaluation questions. 
+
+## 5.1 Correctness: Outcome and Diagnosis 
+
+Correctness measures whether the agent solved the right opera-tional problem. It consists of outcome correctness and diagnostic accuracy: 
+
+𝑄 𝑠 (𝑎 ) =  𝑂 𝑠 (𝑎 ), 𝐴 𝑠 (𝑎 ).
+
+This outcome-first definition distinguishes the realized operational result from the submitted causal account: outcome establishes whether the scenario-specific success contract was satisfied, while diagnosis separately tests whether the submitted causal account was correct. 
+
+Outcome correctness asks whether the agent satisfies the sce-nario’s task-specific success contract. For every valid run, the eval-uator emits a normalized fix-effectiveness value 𝐹 𝑠 (𝑎 ) ∈ [ 0, 1], and Outcome Pass is the exact full-contract verdict 
+
+𝑂 𝑠 (𝑎 ) = 1[𝐹 𝑠 (𝑎 ) = 1] , 𝐹 𝑠 (𝑎 ) = 𝑉 𝑠 (𝐸 𝑎 𝑠 , 𝑟 𝑎 𝑠 , 𝜏 𝑎 𝑠 ).
+
+The verifier primarily checks the post-run database state and struc-tured task artifacts. When the task contract requires targeted re-mediation or an explicit post-fix check, it also examines the cor-responding action records. General path quality and destructive behavior remain separate evaluation dimensions. Success contracts reflect the task domain. (1) Query tuning. 
+
+The target workload must improve and the intended plan or data-base state must take effect. (2) System failure. The affected oper-ation or service must recover and the triggering fault state must be cleared. (3) Periodic health check. The requested findings, sup-porting evidence, and recommendations must be persisted; when remediation is requested, the resulting state must also change. 
+
+(4) Business change. The requested schema, data, index, or con-figuration state must hold while continuity and integrity are pre-served. (5) Resource governance. The designated policy must be enforced while protected roles, workloads, and access paths remain functional. (6) Composite faults. All causes must be remediated and service must be restored. (7) Misleading alerts. The true causal fault must be resolved without acting on the decoy, and the target operation must be rechecked. These contracts are executable predicates rather than free-form grading prompts: verifiers query database state, rerun target op-erations, and inspect the task artifacts needed for the declared outcome. 
+
+Diagnostic accuracy asks whether the agent identified the causal fault, not merely a symptom. Let 𝐻 𝑠 be the scenario’s re-quired root-cause conditions and b𝐻 𝑠 (𝑎 ) the normalized conditions submitted by the agent. We score their agreement with the set-based F1 measure: 
+
+𝐴 𝑠 (𝑎 ) = 2|𝐻 𝑠 ∩ b𝐻 𝑠 (𝑎 )| |𝐻 𝑠 | + | b𝐻 𝑠 (𝑎 )| , 𝐴 𝑠 (𝑎 ) ∈ [ 0, 1],
+
+> 7
+
+where conditions cover root-cause types, causal factors, and affected entities. Scenario metadata declares accepted aliases, a critical sub-set 𝐻 crit  
+
+> 𝑠
+
+, and a set 𝐵 𝑠 of contradictory diagnoses. The matcher retains unmatched submitted conditions as false positives. A run has 𝛿 diag  
+
+> 𝑠
+
+(𝑎 ) = 1 only when 𝐴 𝑠 (𝑎 ) ≥ 0.8, all critical conditions are present, and b𝐻 𝑠 (𝑎 ) ∩ 𝐵 𝑠 = ∅; otherwise it is zero. Free-form narrative and hidden reasoning do not affect the score. Outcome correctness and diagnostic accuracy are both correct-ness signals, but they capture different failure modes. An agent can fix a scenario by accident without identifying the root cause, or identify the root cause without executing a repair that restores the environment. Reporting both components separates reliable remediation from lucky repair and from diagnosis-only behavior. 
+
+## 5.2 Operational Safety 
+
+Safety scoring is risk-aware rather than write-averse. DBA-Bench 
+
+does not penalize state-changing operations simply because they are powerful: many database faults require write-side remediation or instance control. Instead, it penalizes unnecessary, unscoped, unsupported, or destructive use of such operations. A high-risk action can be safe when it is justified by evidence, constrained in scope, consistent with the scenario’s operational assumptions, and followed by verification. The same action is unsafe when it violates an explicit scenario constraint or is issued without the required evidence, scope guard, or post-action check. Safety analysis is performed over SQL and instance-management traces. Inherently destructive operations, such as dropping data objects or truncating tables, are flagged unless explicitly required by the scenario. Scope errors, such as unconstrained DELETE or 
+
+UPDATE , are penalized. Context-dependent operations, such as lock-heavy maintenance, session termination, restart, or configuration change, are judged by whether the trace shows sufficient evidence, appropriate constraints, and post-action verification. This lets DBA-Bench distinguish professional remediation from “fix by force” behavior that happens to improve the final metric. At the scoring level, scenario metadata defines the applicable safety rules and explicit exceptions as 𝐺 𝑠 . Safety risk is the weighted penalty 
+
+𝑆 𝑠 (𝑎 ) =∑︁ 
+
+> 𝑔 ∈𝐺 𝑠
+
+𝜆 𝑔 1𝑔 is violated in 𝜏 𝑎 𝑠 
+
+ ,
+
+where 𝜆 𝑔 > 0 is the severity weight and the indicator is one when the trace violates rule 𝑔 . A larger 𝑆 𝑠 (𝑎 ) means greater operational risk. The run-level destructiveness_penalty field is 𝑆 𝑠 (𝑎 ). Its exact-zero test defines Safe Pass, while its magnitude is retained as a secondary risk profile; no weighted composite score is used as a pass criterion. Because all weights are positive, they affect the severity profile but not the exact-zero test: 𝑆 𝑠 (𝑎 ) = 0 if and only if no applicable rule is violated. 
+
+## 5.3 Efficiency 
+
+Efficiency measures the end-to-end token expenditure of one run, from the scenario prompt through the final structured submission. Let 𝑁 in  
+
+> 𝑠
+
+(𝑎 ) be the input tokens processed across all model calls, 
+
+𝑁 cache  
+
+> 𝑠
+
+(𝑎 ) the subset of input tokens served from the provider’s cache, and 𝑁 out  
+
+> 𝑠
+
+(𝑎 ) the tokens generated by the model. Input tokens comprise the instructions, task context, and accumulated interac-tion context presented to the model. KV caching reuses previously computed key–value states for repeated context. Cached input tokens therefore enter Token Cost at a lower provider rate than ordinary input tokens. Output tokens comprise all content gener-ated by the model during the run. Let 𝑝 in  
+
+> 𝑎
+
+, 𝑝 cache  
+
+> 𝑎
+
+, and 𝑝 out  
+
+> 𝑎
+
+be the corresponding prices in USD per million tokens. The per-run Token Cost and efficiency record are 
+
+Cost 𝑠 (𝑎 ) = 110 6
+
+h
+
+𝑝 in 
+
+> 𝑎
+
+ 𝑁 in  
+
+> 𝑠
+
+(𝑎 ) − 𝑁 cache  
+
+> 𝑠
+
+(𝑎 )
+
++ 𝑝 cache  
+
+> 𝑎
+
+𝑁 cache  
+
+> 𝑠
+
+(𝑎 ) + 𝑝 out  
+
+> 𝑎
+
+𝑁 out  
+
+> 𝑠
+
+(𝑎 )
+
+i
+
+,
+
+Eff 𝑠 (𝑎 ) =  𝑁 in  
+
+> 𝑠
+
+(𝑎 ), 𝑁 cache  
+
+> 𝑠
+
+(𝑎 ), 𝑁 out  
+
+> 𝑠
+
+(𝑎 ), Cost 𝑠 (𝑎 ).
+
+(1) We use the frozen provider price table associated with the evalua-tion date and reconstruct costs from the recorded model calls. These are normalized list-price estimates rather than provider billing records. Token Cost does not affect correctness or safety. 
+
+## 5.4 Reported Experimental Metrics 
+
+The experiments summarize the per-scenario evaluation records with four reported metrics. Safe Pass is the primary endpoint be-cause it measures production-acceptable task completion; Outcome Pass and Diagnosis Pass are secondary metrics that isolate recovery and causal understanding. For an evaluated scenario set S, Diagno-sis Pass (DP) averages the per-run diagnosis verdict above, while 
+
+Outcome Pass (OP) is the fraction that pass the scenario verifier: 
+
+DP (𝑎 ) = 1
+
+|S| ∑︁ 𝑠 ∈ S 
+
+𝛿 diag  
+
+> 𝑠
+
+(𝑎 ),
+
+OP (𝑎 ) = 1
+
+|S| ∑︁ 𝑠 ∈ S 
+
+𝑂 𝑠 (𝑎 ).
+
+An attempt that exhausts the agent’s assigned budget, produces an invalid structured submission, or terminates without a report receives neither an outcome nor a diagnosis pass. 
+
+Safe Pass (SP) requires both outcome recovery and zero recorded safety risk. We report 
+
+SP (𝑎 ) = 1
+
+|S| ∑︁ 𝑠 ∈ S 
+
+𝑂 𝑠 (𝑎 ) 1[𝑆 𝑠 (𝑎 ) = 0] .
+
+Thus, a run that restores the target state but violates any applicable safety rule does not count as a safe pass. All pass rates are scenario-weighted means over the same evaluated set, and the experiments additionally report each operational category separately. The aggre-gate therefore summarizes binary task-specific success contracts rather than pooling incomparable raw metrics. 
+
+Token Cost reports the mean end-to-end model cost per evalu-ated scenario: 
+
+Cost (𝑎 ) = 1
+
+|S| ∑︁ 𝑠 ∈ S 
+
+Cost 𝑠 (𝑎 ),
+
+using the per-run accounting in Equation 1. It is N/A for human DBAs because their runs contain no model calls. 
+
+## 6 Experiments 
+
+We design the experiments to measure not only whether current agents can complete DBA-Bench scenarios, but where they fail under workload-active, stateful database conditions and which 
+
+> 8
+
+Table 2: Evaluated baseline groups.         
+
+> Group Baselines Experimental role
+> Frontier LLMs GPT-5.5; Claude Opus 4.8; GLM-5.1; Qwen3.7-Max; DeepSeek V4 Pro Model capability under ReAct Open-weight LLMs Qwen3-Coder-Next Model capability under ReAct DB-specific agents D-Bot (GPT-5.5); DBAIOps (GPT-5.5) Fixed-backbone system comparison Human reference Human DBA Human reference
+
+existing database-agent mechanisms remain insufficient for safe end-to-end remediation. 
+
+## 6.1 Experimental Setup 
+
+Run configuration. The PostgreSQL evaluation contains 106 unique scenarios across seven operational categories and the Easy/Hard labels defined in Section 4.2. It contains one run for each pairing of the 106 scenarios and eight automated baselines, yielding 848 auto-mated runs; the Human DBA reference contributes 106 separately reported runs. Each evaluated run starts from the pre-generated dirty snapshot for its scenario. The harness reruns the scenario’s manifestation predicates before exposing the task, records the com-plete interaction, and restores the snapshot before the next run. The primary comparison is a single-run pass@1 evaluation, and its primary endpoint is Safe Pass. For the primary evaluation, we record the provider’s decod-ing configuration and experiment seed for every run. Where an API exposes explicit decoding controls, temperature and top-p are fixed; where it does not, the provider’s documented nondetermin-ism is retained. The primary score contains one run per evaluated baseline–scenario pair. 
+
+Task input and knowledge access. Each automated run presents the scenario’s initial symptom and operational context as a DBA request or automated alert. It follows the common tool and submission interfaces defined in Section 3.3. All automated baselines access the same corpus of official Post-greSQL documentation [ 27 ] and operational SOPs through the knowledge-base tool. As specified in Section 3.3.3, retrieval is agent-controlled: no scenario-specific passages are pre-injected, and each system must select the operational evidence and knowledge entries it inspects. 
+
+Agent integration protocol. We use a common minimal ReAct Think– Act–Observe loop [ 33 ] to evaluate foundation-model capability. All frontier and open-weight LLMs receive the same tool schemas, knowledge access, safety instruction, trace logging, and submission format; only the foundation model changes. We then fix GPT-5.5 as the backbone and compare the ReAct reference with D-Bot’s tree-search strategy and DBAIOps’s knowledge-graph-guided strat-egy. This fixed-backbone comparison evaluates the agent systems while controlling model choice; architecture-specific control and implementation remain part of each system. Our D-Bot baseline adapts the public DB-GPT implementation 1, preserving its core algorithms while integrating it with DBA-Bench ’s common tool, knowledge, trace, and submission interfaces. No public DBAIOps implementation was available at the time of evaluation, so we 
+
+> 1https://github.com/TsinghuaDatabaseGroup/DB-GPT
+
+independently reimplemented the knowledge-graph-guided archi-tecture described in its paper [ 38 ]. The post-fix verifier reflects operations issued through the DBA-Bench tool API; advisory rec-ommendations remain trace records. 
+
+Human DBA baseline. The Human DBA baseline uses the same ini-tial symptom, dirty snapshot, tool boundary, safety constraints, and final submission schema as the agent runs. Human submissions are scored by the same outcome verifier, diagnosis scorer, and safety scorer. The analysis contains one valid Human DBA result for each of the 106 scenarios. Token Cost applies to model calls and is there-fore N/A for Human DBA runs. Table 2 summarizes the evaluated groups and their experimental roles. 
+
+## 6.2 End-to-end Performance 
+
+We evaluate end-to-end scenario completion with human DBAs as a reference. Foundation-model baselines use the common ReAct setup, while D-Bot and DBAIOps use GPT-5.5 as the fixed backbone. Safe Pass is the primary endpoint; Diagnosis Pass, Outcome Pass, and Token Cost explain causal understanding, realized outcome, and cost as defined in Section 5.4. Figure 3 jointly reports overall and category-level performance, the fixed-backbone system comparison, and the gap to human DBAs. The automated systems form a clear performance ordering. GPT-5.5 and Claude Opus 4.8 form the leading tier at 17.9% Safe Pass. GLM-5.1, Qwen3.7-Max, and DBAIOps form a second cluster at 14.2– 15.1%, followed by DeepSeek V4 Pro at 10.4%; D-Bot and Qwen3-Coder-Next remain below 6%. Human DBA reaches 93.4% Safe Pass, leaving a 75.5-percentage-point gap to the best automated result. The aggregate metrics expose a diagnosis-to-remediation bottle-neck. Across the 848 automated runs, Diagnosis, Outcome, and Safe Pass are 32.7%, 19.6%, and 12.4%, respectively. Among the 848 auto-mated runs, 277 achieve Diagnosis Pass, yet 172 of these (62.1%) fail Outcome Pass. Agents therefore often localize the root cause with-out completing the repair. No automated baseline leads Safe Pass in every category, so the overall ordering does not imply uniform superiority across operational domains. 
+
+Performance–cost trade-off. Figure 4 relates Safe Pass to the mean USD Token Cost from Equation 1. We construct the Pareto frontier by treating lower cost and higher Safe Pass as preferable. Across all systems with defined Token Cost, the frontier contains DeepSeek V4 Pro, DBAIOps, GLM-5.1, and Claude Opus 4.8. If Safe Pass alone drives selection, GPT-5.5 and Claude Opus 4.8 tie for first. Once cost is included, Claude Opus 4.8 dominates GPT-5.5 by matching its Safe Pass at a 36.5% lower mean cost. DBAIOps and GLM-5.1 occupy intermediate operating points: relative to GPT-5.5, they reduce Safe Pass by 3.7 and 2.8 percentage points while reducing mean cost by 69.1% and 59.3%, respectively. DeepSeek V4 Pro marks the low-cost end of the frontier at $0.0803 per run and 10.4% Safe Pass. These lower-cost frontier points may be more practical for high-volume deployment, where per-run cost accumu-lates across repeated tasks. D-Bot records 5.7% Safe Pass at $7.1564 per run, compared with 17.9% at $1.0210 for the common-ReAct GPT-5.5 system.                           
+
+> 9050 100
+> GPT-5.5
+> Claude Opus 4.8
+> GLM-5.1
+> Qwen3.7-Max
+> DeepSeek V4 Pro
+> Qwen3-Coder-Next
+> D-Bot (GPT-5.5)
+> DBAIOps (GPT-5.5)
+> Human DBA
+> (a) Overall
+> n= 106
+> 050 100
+> (b) Query tuning
+> n= 18
+> 050 100
+> (c) System failure
+> n= 24
+> 050 100
+> (d) Health check
+> n= 14
+> 050 100
+> GPT-5.5
+> Claude Opus 4.8
+> GLM-5.1
+> Qwen3.7-Max
+> DeepSeek V4 Pro
+> Qwen3-Coder-Next
+> D-Bot (GPT-5.5)
+> DBAIOps (GPT-5.5)
+> Human DBA
+> (e) Business change
+> n= 12
+> 050 100
+> (f) Resource governance
+> n= 16
+> 050 100
+> (g) Composite faults
+> n= 12
+> 050 100
+> (h) Misleading alerts
+> n= 10
+> Success rate (%)
+> Safe Pass Outcome Pass Diagnosis Pass
+
+Figure 3: PostgreSQL Safe Pass, Outcome Pass, and Diagnosis Pass overall and across seven scenario categories. The legend follows that metric order; two gray separators distinguish model, database-agent, and Human DBA groups. Each panel title reports its number of unique scenarios ( 𝑛 ). 10 −1 10 0 10 1
+
+Mean verified token cost (USD / valid run) 
+
+0
+
+10 
+
+20 
+
+30    
+
+> Safe Pass (%)  GPT-5.5
+> Claude Opus 4.8
+> GLM-5.1 Qwen3.7-Max
+> DeepSeek V4 Pro
+> Qwen3-Coder-Next
+> D-Bot
+> DBAIOps
+> Frontier LLM Open-weight LLM DB-specific agent
+
+Figure 4: PostgreSQL Safe Pass–mean Token Cost trade-off. The line marks the Pareto frontier. 
+
+## 6.3 Capability Boundaries 
+
+The main-results overview says how often each system succeeds. Figure 5 next exposes the aggregate Easy-to-Hard performance drop and two capability boundaries that underlie it: deep causal diagnosis and noisy operational environments. The scenario annotations support descriptive, non-causal comparisons of these factors. 
+
+Difficulty, depth, and complexity. Easy contains 42 scenarios and 336 automated runs, with 29.8% Outcome Pass; Hard contains 64 scenarios and 512 automated runs, with 12.9%. We further disaggre-gate Outcome Pass by the two attributes underlying this difficulty label. Direct diagnosis contains 23 scenarios and 184 automated runs, with 26.1% Outcome Pass; deep diagnosis contains 83 scenar-ios and 664 automated runs, with 17.8%. The depth gap varies across systems: D-Bot records 30.4% on Direct and 8.4% on Deep scenarios, DeepSeek V4 Pro records 26.1% and 13.3%, and Qwen3-Coder-Next records 17.4% and 7.2%, whereas GPT-5.5 records 26.1% and 26.5%. Low environmental complexity contains 7 scenarios and 56 auto-mated runs, with 25.0% Outcome Pass; high complexity contains 99 scenarios and 792 automated runs, with 19.2%. Across automated runs, Outcome Pass falls by 16.9 percentage points from Easy to Hard, 8.3 percentage points from Direct to Deep diagnosis, and 5.8 percentage points from Low to High environmental complexity. The consistent aggregate decline identifies deeper causal chains and denser, noisier evidence environments as practical barriers for agents: more competing signals make it harder to separate causal evidence from noise, localize the root cause, and complete a repair. 
+
+Task domains and trace-level failures. We connect these capability boundaries to observable failures across the seven categories in Table 1: query tuning, system failure, periodic health check, busi-ness change, resource governance, composite faults, and misleading alerts. Figure 3 reports the category-level pass rates, while Figure 6 classifies 700 evaluator-readable non-clean runs by one dominant failure label. An LLM-as-a-judge classifier assigns the label from each recorded trace. A clean recovery must restore the required environment state without an unacceptable operational action. Runs that miss the out-come are diagnosis failures when causal localization is inadequate, and remediation failures when the cause is identified but repair selection, execution, coupling, or verification is incorrect. Runs that restore the outcome while violating a safety constraint are unsafe     
+
+> 10 025 50 75 100
+> GPT-5.5
+> Claude Opus 4.8
+> GLM-5.1
+> Qwen3.7-Max
+> DeepSeek V4 Pro
+> Qwen3-Coder-Next
+> D-Bot (GPT-5.5)
+> DBAIOps (GPT-5.5)
+> Human DBA
+
+(a) Difficulty      
+
+> Easy Hard
+> 025 50 75 100
+
+Outcome Pass (%) 
+
+(b) Diagnostic depth      
+
+> Direct Deep
+> 025 50 75 100
+
+(c) Environmental complexity  
+
+> Low High
+
+Figure 5: PostgreSQL capability boundaries. Panel (a) reports Outcome Pass by Easy/Hard difficulty; panel (b) reports Outcome Pass by diagnostic depth; panel (c) reports Outcome Pass by environmental complexity. 0 20 40 60 80 100 
+
+Share of non-clean runs (%) 
+
+Query tuning 
+
+System failure 
+
+Health check 
+
+Business 
+
+Governance 
+
+Composite 
+
+Alerts          
+
+> 15%
+> 13%
+> 33%
+> 28%
+> 27%
+> 19%
+> 18%
+> 12%
+> 68%
+> 21%
+> 46%
+> 10%
+> 35%
+> 21%
+> 30%
+> 20%
+> 13%
+> 11%
+> 10%
+> 20%
+> 15%
+> 24% n=119
+> n=150
+> n=103
+> n=80
+> n=100
+> n=85
+> n=63
+> Diagnosis
+> Omit Misread Noise Chain
+> Remediation
+> Target Partial Execute Verify
+> Unsafe recovery
+> Destructive Scope Safeguard
+
+Figure 6: Failure-mode composition by scenario category across 700 evaluator-readable non-clean runs. Each 𝑛 is the number of runs included in the analysis for that category. 
+
+recoveries. Secondary labels capture evidence omission or misin-terpretation, noise anchoring, causal-chain truncation, wrong or partial repair, ineffective execution, unclosed verification, protected-object or unscoped actions, and missing safeguards. Each run con-tributes exactly one dominant label, so the segments within each category sum to 100%; the displayed 𝑛 values give the number of included runs. The composition differs substantially across task categories. Noise/decoy anchoring dominates misleading-alert failures (68.3%), whereas causal-chain truncation dominates composite faults (45.9%). Wrong remediation target or action is the most frequent mode for system failures (34.7%) and business changes (30.0%), while decisive evidence omission leads periodic health checks (33.0%) and resource governance (28.0%). Query-tuning failures are more evenly divided between evidence misinterpretation (26.9%) and an unclosed verifi-cation loop (24.4%). Aggregate pass rates therefore conceal distinct diagnostic and remediation bottlenecks across operational domains. 
+
+## 6.4 Safety and Operational Risk 
+
+Outcome recovery is necessary but not sufficient for operationally acceptable database repair. Necessary write operations are not them-selves safety violations; an outcome-restoring path is unsafe when it touches a protected object, exceeds the evidence-supported scope, or omits safeguards required by the scenario. We therefore evaluate execution-path safety separately from whether the path restores the target state. The Outcome–Safe gap in Figure 3 makes this separation con-sequential: of the 166 automated runs that restore the required outcome, 61 (36.7%) fail Safe Pass. Figure 6 examines a different 
+
+> 11
+
+population, the 700 evaluator-readable non-clean runs, and assigns each trace one exclusive dominant label. Unsafe recovery accounts for 40 of these labels (5.7%). The first statistic measures safety fail-ure conditional on outcome recovery; the second characterizes the failure composition of the non-clean trace cohort and does not estimate the prevalence or severity of all safety defects that may co-occur within a run. Of the 40 unsafe-recovery labels, 17 are unscoped interventions and 15 are missing operational safeguards, compared with 8 destruc-tive or protected-object violations. Scope and safeguard failures therefore account for 32 of 40 cases (80.0%), showing that opera-tional risk is expressed primarily through how a repair is bounded and controlled rather than only through explicitly destructive ac-tions. Unsafe recovery appears in all seven task categories; the largest within-category shares occur in business change (7/80, 8.8%), resource governance (8/100, 8.0%), and query tuning (9/119, 7.6%). This cross-category spread motivates treating safety as a constraint on the full agent control loop rather than as a specialized check for nominally safety-oriented tasks. 
+
+## 6.5 Fixed-backbone Agent-System Comparison 
+
+Fixed-backbone comparison. With GPT-5.5 fixed as the backbone, we compare three evaluated agent systems under the same sce-narios, tool boundary, knowledge content, and scoring protocol. The sequential ReAct system is the reference; D-Bot incorporates tree-search-based hypothesis expansion [ 40 ], while DBAIOps uses knowledge-graph-guided reasoning [ 38 ]. Figure 3 reports their Di-agnosis, Outcome, and Safe Pass rates, while Figure 4 relates Safe Pass to mean Token Cost. GPT-5.5 ReAct records 44.3% Diagnosis Pass, 26.4% Outcome Pass, and 17.9% Safe Pass at a mean cost of $1.0210. DBAIOps records 38.7%, 23.6%, and 14.2%, respectively, at $0.3150. Relative to ReAct, DBAIOps therefore trades a 3.7-percentage-point reduction in Safe Pass for a 69.1% reduction in mean cost, placing it on the Pareto frontier in Figure 4. D-Bot records 18.9% Diagnosis Pass, 13.2% Outcome Pass, and 5.7% Safe Pass at $7.1564, yielding a less favorable performance–cost trade-off in this comparison. On Hard scenarios, Figure 3 shows the same ordering: GPT-5.5 ReAct records 40.6%/23.4%/17.2%, DBAIOps records 26.6%/12.5%/4.7%, and D-Bot records 4.7%/4.7%/0.0% for Diagnosis, Outcome, and Safe Pass. 
+
+## 7 Discussion 7.1 Implications for Database-Agent Design 
+
+Agents lose the causal thread. The first weakness is diagnostic con-tinuity: agents often process individual signals without maintaining a coherent explanation across the incident. Only 277 of 848 auto-mated runs (32.7%) pass Diagnosis, and 166 (19.6%) pass Outcome. Outcome Pass falls by 8.3 percentage points from Direct to Deep diagnostic paths and by 5.8 points from Low to High environmen-tal complexity. The trace composition identifies the correspond-ing failure patterns: causal-chain truncation dominates composite-fault failures (45.9%), noise/decoy anchoring dominates misleading-alert failures (68.3%), and decisive evidence omission leads periodic health checks (33.0%) and resource governance (28.0%). These re-sults show why larger context windows or more retrieval alone are unlikely to solve the problem. The design lesson is to make hypothesis state explicit: agents must maintain competing expla-nations, seek disconfirming observations, and record which causal links remain unverified as the evidence surface expands. 
+
+Agents do not close the repair safely. Correct localization does not reliably become a correct, verified intervention: 172 of the 277 diagnosis-passing runs (62.1%) fail Outcome. Wrong remediation targets or actions are the leading failure mode for system failures (34.7%) and business changes (30.0%), while query-tuning failures are split between evidence misinterpretation (26.9%) and an un-closed verification loop (24.4%). The same weakness appears af-ter recovery: 61 of the 166 outcome-passing runs (36.7%) fail Safe Pass. Among the 40 exclusive unsafe-recovery labels in the 700-run non-clean trace cohort, 17 are unscoped interventions and 15 omit operational safeguards, together accounting for 80.0% of un-safe labels. The lesson is that a final safety filter is too late. The agent should carry a repair contract through the whole control loop, including preconditions, affected objects, action coupling and order-ing, evidence-supported scope, reversibility, lock impact, rollback conditions, expected state transitions, and post-action verification of the original incident. 
+
+Architecture changes do not remove brittleness. Current systems re-main far from reliable operation: the best automated Safe Pass is 17.9%, compared with 93.4% for the Human DBA reference, and no automated baseline leads every scenario category. The fixed-backbone comparison also shows no automatic payoff from adding a more elaborate reasoning architecture. DBAIOps reaches 14.2% Safe Pass at a mean cost of $0.3150, versus 17.9% at $1.0210 for GPT-5.5 ReAct; D-Bot reaches only 5.7% while costing $7.1564 per run. Thus tree search or knowledge-graph guidance can change the operating point without removing the underlying failure modes. The design lesson is to evaluate agents by end-to-end Safe Pass, category-level failure patterns, and cost together. A single diagnosis score or global ranking can hide a system that is expensive, unsafe, or brittle on a particular class of database incident. 
+
+## 8 Conclusion 
+
+Evaluations based on curated observations, recommendation-only answers, or non-reproducible testbeds can overestimate whether an LLM agent can diagnose and safely remediate a live database incident. We introduced DBA-Bench , an outcome-first benchmark that restores controlled dirty environments preserving selected operational properties, revalidates each scenario’s fault manifes-tation, and separately evaluates diagnosis, system recovery, oper-ational safety, and efficiency. By exposing where agents lose the causal chain, follow operational noise, or fail to close the remedia-tion loop, DBA-Bench provides a reproducible basis for measuring progress toward dependable database-operations agents. The com-plete scenarios and evaluation artifacts will be released publicly upon publication. 
+
+## References      
+
+> [1] Toufique Ahmed, Supriyo Ghosh, Chetan Bansal, Thomas Zimmermann, Xuchao Zhang, and Saravan Rajmohan. 2023. Recommending Root-Cause and Mitigation Steps for Cloud Incidents using Large Language Models. In 2023 IEEE/ACM 45th International Conference on Software Engineering (ICSE) . 1737–1749. doi:10.1109/ ICSE48619.2023.00149 [2] Haicheng Chen, Wensheng Dou, Dong Wang, and Feng Qin. 2020. CoFI: Consistency-Guided Fault Injection for Cloud Systems. In Proceedings of the
+> 12
+
+35th IEEE/ACM International Conference on Automated Software Engineering . 536– 547. doi:10.1145/3324884.3416548 [3] Sibei Chen, Ju Fan, Bin Wu, Nan Tang, Chao Deng, Pengyi Wang, Ye Li, Jian Tan, Feifei Li, Jingren Zhou, and Xiaoyong Du. 2025. Automatic Database Configura-tion Debugging using Retrieval-Augmented Language Models. Proceedings of the ACM on Management of Data 3, 1 (2025), 1–27. doi:10.1145/3709663 [4] Xu Chen, Haitian Chen, Zibo Liang, Shuncheng Liu, Jinghong Wang, Kai Zeng, Han Su, and Kai Zheng. 2023. LEON: A New Framework for ML-Aided Query Optimization. Proceedings of the VLDB Endowment 16, 9 (2023), 2261–2273. doi:10.14778/3598581.3598597 [5] Xu Chen, Junmin Chen, Shuncheng Liu, Yuyang Xia, Zibo Liang, Xiaoming Qin, Kai Zeng, Han Su, and Kai Zheng. 2026. DBAgent: An RL-Based Agent for Autonomous Database Operations and Maintenance. Proceedings of the VLDB Endowment 19, 12 (2026). [6] Xu Chen, Shuncheng Liu, Tong Yuan, Tao Ye, Kai Zeng, Han Su, and Kai Zheng. 2025. Optimizing Block Skipping for High-Dimensional Data with Learned Adaptive Curve. Proceedings of the ACM on Management of Data 3, 1 (2025), 1–26. doi:10.1145/3709710 [7] Xu Chen, Zhen Wang, Shuncheng Liu, Yaliang Li, Kai Zeng, Bolin Ding, Jingren Zhou, Han Su, and Kai Zheng. 2023. BASE: Bridging the Gap between Cost and Latency for Query Optimization. Proceedings of the VLDB Endowment 16, 8 (2023), 1958–1966. doi:10.14778/3594512.3594525 [8] Xu Chen, Ximu Zeng, Yuze Wang, Zibo Liang, Kai Zeng, Han Su, and Kai Zheng. 2026. LEON+: Towards Robust ML-Aided Query Optimization. The VLDB Journal 
+
+35, 3 (2026), 21. doi:10.1007/s00778-026-00973-9 [9] Yinfang Chen, Manish Shetty, Gagan Somashekar, Minghua Ma, Yogesh Simmhan, Jonathan Mace, Chetan Bansal, Rujia Wang, and Saravan Rajmohan. 2025. AIOpsLab: A Holistic Framework to Evaluate AI Agents for Enabling Au-tonomous Clouds. In Proceedings of Machine Learning and Systems , Vol. 7. https://arxiv.org/abs/2501.06706 [10] Yinfang Chen, Huaibing Xie, Minghua Ma, Yu Kang, Xin Gao, Liu Shi, Yunjie Cao, Xuedong Gao, Hao Fan, Ming Wen, et al. 2024. Automatic Root Cause Analysis via Large Language Models for Cloud Incidents. In Proceedings of the Nineteenth European Conference on Computer Systems . 674–688. doi:10.1145/3627703.3629553 [11] Songqiao Han, Xiyang Hu, Hailiang Huang, Minqi Jiang, and Yue Zhao. 2022. ADBench: Anomaly Detection Benchmark. In Advances in Neural Information Processing Systems , Vol. 35. 32142–32159. https://papers.nips.cc/ paper_files/paper/2022/hash/cf93972b116ca5268827d575f2cc226b-Abstract-Datasets_and_Benchmarks.html [12] Shiyue Huang, Ziwei Wang, Xinyi Zhang, Yaofeng Tu, Zhongliang Li, and Bin Cui. 2023. DBPA: A Benchmark for Transactional Database Performance Anomalies. 
+
+Proceedings of the ACM on Management of Data 1, 1 (2023), 1–26. doi:10.1145/ 3588926 [13] Naman Jain, Manish Shetty, Tianjun Zhang, King Han, Koushik Sen, and Ion Stoica. 2024. R2E: Turning any GitHub Repository into a Programming Agent Environment. In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) . 21196–21224. https: //proceedings.mlr.press/v235/jain24c.html [14] Yuxuan Jiang, Chaoyun Zhang, Shilin He, Zhihao Yang, Minghua Ma, Si Qin, Yu Kang, Yingnong Dang, Saravan Rajmohan, Qingwei Lin, and Dongmei Zhang. 2024. Xpert: Empowering Incident Management with Query Recommendations via Large Language Models. In Proceedings of the IEEE/ACM 46th International Conference on Software Engineering . 1–13. doi:10.1145/3597503.3639081 [15] Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. 2024. SWE-bench: Can Language Models Resolve Real-World GitHub Issues?. In International Conference on Learning Representations .https://arxiv.org/abs/2310.06770 [16] Jiale Lao, Yibo Wang, Yufei Li, Jianping Wang, Yunjia Zhang, Zhiyuan Cheng, Wanghu Chen, Mingjie Tang, and Jianguo Wang. 2024. GPTuner: A Manual-Reading Database Tuning System via GPT-Guided Bayesian Optimization. Pro-ceedings of the VLDB Endowment 17, 8 (2024), 1939–1952. doi:10.14778/3659437. 3659449 [17] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Se-bastian Riedel, and Douwe Kiela. 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. In Advances in Neural Information Process-ing Systems 33 . 9459–9474. https://proceedings.neurips.cc/paper/2020/hash/ 6b493230205f780e1bc26945df7481e5-Abstract.html [18] Zibo Liang, Xu Chen, Yuyang Xia, Runfan Ye, Haitian Chen, Jiandong Xie, and Kai Zheng. 2024. DACE: A Database-Agnostic Cost Estimator. In 2024 IEEE 40th International Conference on Data Engineering (ICDE) . IEEE, 4925–4937. doi:10. 1109/ICDE60146.2024.00374 [19] Ping Liu, Shenglin Zhang, Yongqian Sun, Yuan Meng, Jiahai Yang, and Dan Pei. 2020. FluxInfer: Automatic Diagnosis of Performance Anomaly for Online Database System. In 2020 IEEE 39th International Performance Computing and Communications Conference (IPCCC) . IEEE, 1–8. doi:10.1109/IPCCC50635.2020. 9391550 [20] Xiaoze Liu, Zheng Yin, Chao Zhao, Congcong Ge, Lu Chen, Yunjun Gao, Dimeng Li, Ziting Wang, Gaozhong Liang, Jian Tan, and Feifei Li. 2022. PinSQL: Pinpoint Root Cause SQLs to Resolve Performance Issues in Cloud Databases. In 2022 IEEE 38th International Conference on Data Engineering (ICDE) . IEEE, 2549–2561. doi:10.1109/ICDE53745.2022.00236 [21] Xiao Liu, Hao Yu, Hanchen Zhang, Yifan Xu, Xuanyu Lei, Hanyu Lai, Yu Gu, Hangliang Ding, Kaiwen Men, Kejuan Yang, Shudan Zhang, Xiang Deng, Aohan Zeng, Zhengxiao Du, Chenhui Zhang, Sheng Shen, Tianjun Zhang, Yu Su, Huan Sun, Minlie Huang, Yuxiao Dong, and Jie Tang. 2024. AgentBench: Evaluating LLMs as Agents. In International Conference on Learning Representations (ICLR) .https://arxiv.org/abs/2308.03688 [22] Yuhe Liu, Changhua Pei, Longlong Xu, Bohan Chen, Mingze Sun, Zhirui Zhang, Yongqian Sun, Shenglin Zhang, Kun Wang, Haiming Zhang, Jianhui Li, Gaogang Xie, Xidao Wen, Xiaohui Nie, Minghua Ma, and Dan Pei. 2023. OpsEval: A Comprehensive IT Operations Benchmark Suite for Large Language Models. 
+
+arXiv preprint arXiv:2310.07637 (2023). https://arxiv.org/abs/2310.07637 [23] Xianglin Lu, Zhe Xie, Zeyan Li, Mingjie Li, Xiaohui Nie, Nengwen Zhao, Qingyang Yu, Shenglin Zhang, Kaixin Sui, Lin Zhu, and Dan Pei. 2022. Generic and Robust Performance Diagnosis via Causal Inference for OLTP Database Systems. In 2022 22nd IEEE International Symposium on Cluster, Cloud and Internet Computing (CCGrid) . IEEE, 655–664. doi:10.1109/CCGrid54584.2022.00075 [24] Minghua Ma, Zheng Yin, Shenglin Zhang, Sheng Wang, Christopher Zheng, Xin-hao Jiang, Hanwen Hu, Cheng Luo, Yilin Li, Nengjun Qiu, Feifei Li, Changcheng Chen, and Dan Pei. 2020. Diagnosing Root Causes of Intermittent Slow Queries in Cloud Databases. Proceedings of the VLDB Endowment 13, 8 (2020), 1176–1189. doi:10.14778/3389133.3389136 [25] Grégoire Mialon, Clémentine Fourrier, Craig Swift, Thomas Wolf, Yann LeCun, and Thomas Scialom. 2024. GAIA: A Benchmark for General AI Assistants. In 
+
+International Conference on Learning Representations (ICLR) . https://arxiv.org/ abs/2311.12983 [26] Biao Ouyang, Yingying Zhang, Hanyin Cheng, Yang Shu, Chenjuan Guo, Bin Yang, Qingsong Wen, Lunting Fan, and Christian S. Jensen. 2024. RCRank: Multimodal Ranking of Root Causes of Slow Queries in Cloud Database Systems. 
+
+Proceedings of the VLDB Endowment 18, 4 (2024), 1169–1182. doi:10.14778/3717755. 3717774 [27] PostgreSQL Global Development Group. 2026. PostgreSQL 16.14 Documentation .https://www.postgresql.org/docs/16/ Accessed 2026-07-20. [28] Vikramank Singh, Kapil Eknath Vaidya, Vinayshekhar Bannihatti Kumar, Sopan Khosla, Balakrishnan Narayanaswamy, Rashmi Gangadharaiah, and Tim Kraska. 2024. Panda: Performance Debugging for Databases using LLM Agents. In 
+
+Conference on Innovative Data Systems Research (CIDR) . https://www.cidrdb.org/ cidr2024/papers/p6-singh.pdf [29] Xudong Sun, Wenqing Luo, Jiawei Tyler Gu, Aishwarya Ganesan, Ramnatthan Alagappan, Michael Gasch, Lalith Suresh, and Tianyin Xu. 2022. Automatic Reliability Testing for Cluster Management Controllers. In 16th USENIX Sym-posium on Operating Systems Design and Implementation (OSDI 22) . 143–159. https://www.usenix.org/conference/osdi22/presentation/sun [30] Dana Van Aken, Andrew Pavlo, Geoffrey J. Gordon, and Bohan Zhang. 2017. Automatic Database Management System Tuning Through Large-scale Machine Learning. In Proceedings of the 2017 ACM International Conference on Management of Data . 1009–1024. doi:10.1145/3035918.3064029 [31] Zefan Wang, Zichuan Liu, Yingying Zhang, Aoxiao Zhong, Jihong Wang, Fengbin Yin, Lunting Fan, Lingfei Wu, and Qingsong Wen. 2024. RCAgent: Cloud Root Cause Analysis by Autonomous Agents with Tool-Augmented Large Language Models. In Proceedings of the 33rd ACM International Conference on Information and Knowledge Management . 4966–4974. doi:10.1145/3627673.3680016 [32] John Yang, Akshara Prabhakar, Karthik Narasimhan, and Shunyu Yao. 2023. InterCode: Standardizing and Benchmarking Interactive Coding with Execution Feedback. In Advances in Neural Information Processing Systems 36 . 23826–23854. doi:10.52202/075280-1035 [33] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R. Narasimhan, and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language Models. In The Eleventh International Conference on Learning Representations (ICLR) . OpenReview.net. https://openreview.net/forum?id=WE_vluYUL-X [34] Dong Young Yoon, Ning Niu, and Barzan Mozafari. 2016. DBSherlock: A Performance Diagnostic Tool for Transactional Databases. In Proceedings of the 2016 International Conference on Management of Data . ACM, 1599–1614. doi:10.1145/2882903.2915218 [35] Zhaoyang Yu, Minghua Ma, Chaoyun Zhang, Si Qin, Yu Kang, Chetan Bansal, Saravan Rajmohan, Yingnong Dang, Changhua Pei, Dan Pei, Qingwei Lin, and Dongmei Zhang. 2024. MonitorAssistant: Simplifying Cloud Service Monitor-ing via Large Language Models. In Companion Proceedings of the 32nd ACM International Conference on the Foundations of Software Engineering . 38–49. doi:10.1145/3663529.3663826 [36] Shuyan Zhou, Frank F. Xu, Hao Zhu, Xuhui Zhou, Robert Lo, Abishek Sridhar, Xianyi Cheng, Tianyue Ou, Yonatan Bisk, Daniel Fried, Uri Alon, and Graham Neubig. 2024. WebArena: A Realistic Web Environment for Building Autonomous Agents. In International Conference on Learning Representations . https://arxiv. 
+
+> 13
+
+org/abs/2307.13854 [37] Wei Zhou, Ji Sun, Xuanhe Zhou, Guoliang Li, Luyang Liu, Hao Wu, and Tianyuan Wang. 2025. GaussMaster: An LLM-based Database Copilot System. arXiv preprint arXiv:2506.23322 (2025). https://arxiv.org/abs/2506.23322 [38] Wei Zhou, Peng Sun, Xuanhe Zhou, Qianglei Zang, Ji Xu, Tieying Zhang, Guo-liang Li, and Fan Wu. 2026. DBAIOps: A Reasoning LLM-Enhanced Database Operation and Maintenance System using Knowledge Graphs. Proceedings of the VLDB Endowment 19, 6 (2026), 1319–1331. doi:10.14778/3797919.3797937 [39] Xuanhe Zhou, Lianyuan Jin, Ji Sun, Xinyang Zhao, Xiang Yu, Jianhua Feng, Shifu Li, Tianqing Wang, Kun Li, and Luyang Liu. 2021. DBMind: A Self-Driving Platform in openGauss. Proceedings of the VLDB Endowment 14, 12 (2021), 2743– 2746. doi:10.14778/3476311.3476334 [40] Xuanhe Zhou, Guoliang Li, Zhaoyan Sun, Zhiyuan Liu, Weize Chen, Jianming Wu, Jiesi Liu, Ruohang Feng, and Guoyang Zeng. 2024. D-Bot: Database Diagnosis System using Large Language Models. Proceedings of the VLDB Endowment 17, 10 (2024), 2514–2527. doi:10.14778/3675034.3675043

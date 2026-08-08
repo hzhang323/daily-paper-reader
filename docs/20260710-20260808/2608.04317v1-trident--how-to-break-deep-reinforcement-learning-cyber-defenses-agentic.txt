@@ -1,0 +1,696 @@
+Title: Trident : How to Break Deep Reinforcement Learning Cyber Defenses (Agentic)
+
+URL Source: https://arxiv.org/pdf/2608.04317v1
+
+Published Time: Thu, 06 Aug 2026 00:19:13 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Trident : How to Break Deep Reinforcement Learning Cyber Defenses (Agentic) 
+
+Ryozo Masukawa 1,
+
+Ian Bryant 1, Armita Kazeminajafabadi 2,Sanggeon Yun 1, Hyunwoo Oh 1, SungHeon Jeong 1,Nathaniel D. Bastian 3, Mahdi Imani 2,Mohsen Imani 11University of California, Irvine 
+
+> 2
+
+Northeastern University 
+
+> 3
+
+Johns Hopkins University 
+
+rmasukaw@uci.edu 
+
+## Abstract 
+
+Autonomous cyber defense systems based on Deep Reinforcement Learning (DRL) have attracted significant research attention, yet remain evaluated almost exclu-sively against static, heuristic red agents, leaving their robustness against adaptive threats critically understudied. Meanwhile, recent advances in Reinforcement Learning with Verifiable Rewards (RLVR) have improved LLM reasoning, but their integration into cybersecurity remains elusive due to the absence of suitable benchmark environments and interaction datasets. To bridge this gap, we introduce 
+
+Trident , an agentic LLM red teaming framework comprising three components: a dynamic benchmark with isolated sandbox servers spanning CybORG CAGE 4 and CyberWheel, a dataset comprises over 13,000 high-fidelity red-blue interaction trajectories for RLVR, and a “Code-as-Policy” RLVR agentic architecture ( Trident Agentic ). The latter reformulates red agent training as a contextual bandit via a tripartite Log Summarizer–Planner–Coder design, where a trainable Planner generates complete attack strategies from compressed execution logs, which a frozen Coder translates into executable Python policies deployed against live DRL defenders. Empirical evaluations reveal a fundamental brittleness in existing de-fenses: with a single trainable 7B planner, Trident reduces blue agent defensive performance by an average of 522% compared to static red agent baselines while autonomously discovering emergent behaviors such as decoy avoidance and adap-tive state prioritization that static heuristics entirely fail to uncover. Anonymized code is available here 1.
+
+## 1 Introduction 
+
+Modern computer networks face escalating cyber threats that increasingly outpace manual defense capabilities [ 2 ]. This has driven a long line of research in autonomous cyber defense (ACD): from early rule-based expert systems [ 38 , 45 ] and anomaly detection [ 32 , 62 ], to deep reinforcement learning (DRL) agents [ 44 , 27 , 35 , 10 ] that actively monitor network states and recover compromised hosts in real-time. DRL-based defenders, in particular, remain critically understudied against adaptive threats [ 26 , 39 ]: they are evaluated almost exclusively against static, heuristic red agents with fixed behavioral signatures, leaving their robustness against adaptive attackers unknown.          
+
+> 1https://anonymous.4open.science/r/Trident-A934 Preprint. arXiv:2608.04317v1 [cs.CR] 5 Aug 2026 Trainable Planner (𝜋 𝜃 )Log Summarizer Red Coder
+> Log Parser
+> (Sanitization)
+> Reward Log Parser
+> •Successful Milestones (+)
+> •Attack Efficiency (+)
+> •Operational Penalties ( -)
+> •Syntax Penalties ( -)
+> Red Agent Blue Agent
+> Cybersecurity Simulator
+> GRPO
+> Red Agent Logs
+> Summary Strategy Red Agent
+> Code (. py )
+> Trident Agentic
+> Policy Execution (Attack)
+> Environment Feedback
+
+Figure 1: Overview of the Trident agentic benchmark framework. A Log Summarizer observes and summarizes sanitized logs, enabling a trainable Planner ( πθ ) to formulate abstract tactics. A frozen Coder translates the tactic into an executable Python policy deployed against a live DRL defender. Execution logs provide a verifiable reward signalto update πθ via GRPO. The ideal red agent for rigorous evaluation should be adaptive: capable of observing defensive behavior, reasoning about weaknesses, and synthesizing novel attack strategies. Recent progress in agentic Large Language Models (LLMs) makes this vision increasingly plausible and urgent: Claude Mythos [ 7 ] has demonstrated that large-scale frontier agentic LLMs can autonomously identify and exploit zero-day vulnerabilities across major operating systems and web browsers. Research on agentic cybersecurity frameworks has made significant advancements across Capture The Flag (CTF) challenges [ 4 , 41 , 60 ], penetration testing [ 13 ], and vulnerability reproduction [ 65 , 52 , 67 , 46 ]. However, all of these works deploy models via prompting or supervised fine-tuning on static datasets, and none train an agent through direct interaction with an active defender using Reinforcement Learning (RL), nor do they provide the infrastructure to do so. DeepSeek-R1 [ 18 ] has popularized Reinforcement Learning with Verifiable Rewards (RLVR), where an LLM policy learns to maximize rewards derived from objective, environment-provided rules rather than relying solely on human-labeled examples. RLVR has since shown significant advances across mathematical reasoning [ 12 , 21 , 42 ], software engineering [ 53 , 59 ], information retrieval [ 25 ], and computer vision [ 34 ]. Yet its integration into cybersecurity has remained elusive because execution environments are often ephemeral or restricted [ 67 ], even though the latest large-scale studies identify RLVR as a promising direction yet leave its realization entirely unexplored [ 58 ]. A key reason is the absence of a suitable benchmark: one that provides stable, repeatable adversarial environments, verifiable reward signals, and active defenders against which red agents can be trained and evaluated. High-fidelity simulators, such as CybORG CAGE 4 [ 26 ] and CyberWheel [ 39 ], offer a concrete path forward. They provide stable, repeatable adversarial environments designed to closely replicate real-world network operations. CAGE 4 models a realistic segmented enterprise network with cooperative multi-agent defenders operating under partial observability, while CyberWheel grounds its attack actions in real-world MITRE ATT&CK [ 3] techniques via Atomic Red Team [ 1], supporting higher attack realism. Together, they offer realistic network attack and defense dynamics with deterministic, verifiable reward signals from system events, the properties needed to support RLVR training against active defenders. This motivates a critical question: Can agentic LLMs be trained via RLVR to compromise state-of-the-art DRL defenders? 
+
+To answer this question, we introduce Trident (Figure 1), a dynamic red teaming benchmark spanning CAGE 4 and CyberWheel. Trident provides isolated sandbox servers that execute generated attack policies against live DRL defenders to produce verifiable reward signals, alongside a dataset of over 13,000 high-fidelity red-blue interaction trajectories for RL-based post training, to the best of our knowledge, the first resource to support RLVR training against active DRL defenders. To demonstrate the utility of this infrastructure, we further introduce Trident Agentic , an agentic LLM framework trained via RLVR under a “Code-as-Policies” [ 31 , 53 ] paradigm, where an agent’s policy is instantiated as executable, LLM-generated code. Rather than selecting actions step-by-step under a Decentralized Partially Observable Markov Decision Process (Dec-POMDP), Trident Agentic reformulates red agent training as a contextual bandit. A trainable Planner receives a compressed summary of past execution logs from a Log Summarizer and generates an attack strategy in a single forward pass. A frozen Coder then translates this strategy into an executable Python policy. Using Trident Agentic, we reveal a critical gap in how autonomous cyber defenders are currently as-sessed. Trident Agentic systematically compromises state-of-the-art DRL blue agents by discovering attack sequences that expose weaknesses in their learned policies, weaknesses that traditional heuristic 2red agents entirely fail to uncover. On average, it causes a 522% reduction in blue agent performance compared to the default heuristic baseline. These results suggest that current autonomous defenders may be more brittle against adaptive attackers than prior evaluations have indicated. Our primary contributions are as follows: • Trident Evaluation Benchmark and Dataset : We introduce a cross-environment red teaming benchmark spanning CAGE 4 and CyberWheel. This framework utilizes isolated sandbox servers to produce verifiable reward signals against live DRL defenders. We release over 13,000 red-blue interaction trajectories, supporting RLVR training on LLMs. • Trident Agentic : We introduce a tripartite agentic LLM architecture that leverages the “Code-as-Policies” paradigm to reformulate red agent training from a Dec-POMDP into a contextual bandit via RLVR, enabling the direct generation of executable attack strategies. • Empirical Evidence of a Fundamental DRL Brittleness : Trident Agentic causes an average 522% performance loss on state-of-the-art DRL defenders, with a trained 7B SLM surpassing frontier-scale models, revealing that current static-adversary evaluation practices critically underestimate the brittleness of autonomous cyber defenses. Beyond its immediate contributions, Trident’s simulator-agnostic RESTful sandbox architecture, where generated policies are submitted and rewards are returned, enables seamless integration of future, higher-fidelity environments as drop-in servers. This plug-and-play design not only supports the continued development of adaptive red agents, but equally opens the door to training blue agents robust against generative attackers, establishing Trident as an extensible platform for the long-term co-evolution of autonomous cyber offense and defense. 
+
+## 2 Preliminaries 
+
+2.1 Adversarial cyber environment as Dec-POMDP 
+
+Previous studies model the autonomous cyber defense task from the defender’s perspective as a Dec-POMDP [ 44 , 27 ], defined by the tuple M = ( I, S, A, T , R, Ω, O, γ ). Here, I represents the team of agents including M ≥ 1 defending agents. S is the true network state space, A is the joint defense action space, and R(s, a ) is the shared reward for the defending team. Each defending agent 
+
+i ∈ I perceives the environment only through its local observation via the observation function 
+
+O(o|s′, a ), reflecting the partial observability inherent to realistic network defense. Crucially, in these formulations, red agents and optionally, benign users are not treated as independent learning agents within I, but rather as fixed logic embedded within the environment. The state transition dynamics are conditioned on the red agent policy code c ∈ C , written as T (s′|s, a, c ), reflecting that the network state trajectory is jointly determined by the environment dynamics and the static logic embedded in 
+
+c. In existing benchmarks such as CAGE 4 ( M > 1) and CyberWheel ( M = 1 ), c is instantiated as a heuristic agent such as a finite state machine, meaning blue agents are evaluated against a non-adaptive adversary 2. This fixity leaves critical vulnerabilities in learned blue policies undetected. Since c is executable code that modern LLMs can naturally generate, we propose training an LLM meta-policy πθ to directly synthesize c conditioned on execution feedback from prior trajectories. 
+
+2.2 Strategic red teaming as a contextual bandit 
+
+Directly applying πθ within the step-by-step POMDP loop is intractable due to prohibitive com-putational cost [ 10 ]. To circumvent this, Trident adopts a Code-as-Policies [ 31 ] paradigm: rather than sequentially emitting discrete primitive actions, πθ expresses its entire strategy as executable source code that captures complex control flows and semantic reasoning. Specifically, πθ receives a context C consisting of environment descriptions and historical feedback, and generates a complete, executable Python policy c ∈ C in a single forward pass c ∼ πθ (c | C). Since πθ generates c in a single step and receives a reward only upon full execution of c within M, this naturally reduces to a 
+
+Contextual Bandit [5 , 50 , 12 , 42 ] problem. The training objective is to maximize J(θ), the expected cumulative return when c is executed within M:
+
+J(θ) = Ec∼πθ (·| C)
+
+"
+
+Eτ ∼πc
+
+" TX
+
+> t=0
+
+R(st, a t)
+
+## 
+
+(1) The inner expectation Eτ ∼πc reflects multiple layers of stochasticity: even for a deterministic c, the resulting trajectory τ remains stochastic due to the non-deterministic transition dynamics T and the   
+
+> 2CyberWheel also supports DRL-based red agents; however, we fix cto a static heuristic in both environments for experimental consistency with CAGE 4.
+
+3probabilistic interventions of the active DRL defender. Note that, for simplicity, in multi-agent red team settings, c is deployed uniformly across all red agents such that they share identical behavioral logic throughout each episode. 
+
+2.3 Optimization via GRPO 
+
+To optimize the meta-agent πθ under this formulation, we utilize Group Relative Policy Optimization (GRPO) [ 42 ] as a surrogate objective for Equation 1. The GRPO objective and the associated relative advantage are defined as: 
+
+JGRPO (θ) = E
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+min πθ (ci|C)
+
+πθold (ci|C) Ai, clip 
+
+ πθ (ci|C)
+
+πθold (ci|C) , 1 − ϵ, 1 + ϵ
+
+
+
+Ai
+
+!
+
+− βDKL (πθ ∥πref )
+
+#
+
+, A i = ri − mean (r1, . . . , r G)
+
+std (r1, . . . , r G)
+
+(2) For each context C, GRPO samples a group of red policies {c1, . . . , c G} from the old policy πθold . The advantage Ai is computed by normalizing the verifiable rewards ri relative to the group performance, where β and ϵ are hyperparameters for stability, and πref is a frozen reference model to ensure training stability. This objective allows the meta-agent to iteratively refine its strategic reasoning, discovering effective attack logics against adaptive DRL defenders through direct environmental feedback. 
+
+## 3 Trident 
+
+Optimizing J(θ) via GRPO requires a distribution of high-quality red-blue interaction trajectories to sample contexts C from. However, no existing resource provides such trajectories against active DRL defenders. Trident addresses this by providing both the dataset and the benchmark infrastructure needed to realize RLVR training in this setting. 
+
+3.1 Dataset preparation 
+
+As summarized in Table 1, existing LLM-driven cybersecurity benchmarks lack long-horizon adver-sarial dynamics. Large-scale datasets predominantly provide static security corpora [ 58 ] or QA pairs for supervised fine-tuning [ 46 , 58 , 6, 49 ], while interactive benchmarks focus primarily on isolated CTF [ 67 , 56 ] or single-target Common Vulnerabilities and Exposures (CVE) exploitation [ 65 ]. None of these capture the continuous, multi-step interactions required to defeat active network defenders. To fill this gap, we construct D, a large-scale dataset of over 13,000 high-fidelity red-blue interaction trajectories spanning CAGE 4 and CyberWheel, whose construction is detailed below. Table 1: Comparison of Trident Dataset against existing benchmarks. By focusing on core capabili-ties, Trident uniquely provides a massive-scale dataset combined with an interactive environment supporting Agentic evaluation, RLVR, and Active DRL defenses.                                                                        
+
+> Benchmark Task Scale (Train / Total) Agentic? RLVR? Active Defesne?
+> NYU CTF [41] CTF - / 200 ✓✗✗
+> InterCode-CTF [56] CTF - / 100 ✓✗✗
+> Cybench [60] CTF - / 40 ✓✗✗
+> Cyber-Zero [67] CTF 6.188 / 6,188 ✓✗✗
+> CVE-bench [65] CVE Exploitation - / 509 ✓✗✗
+> CyberSecEval 3 [49] Security Eval. - / 6 ✓✗✗
+> CTI-bench [6] Security QA 2,500 / 2,500 ✗✗✗
+> RedSage [46] Security QA 266K / 266K ✗✗✗
+> PRIMUS [58] Security Corpus 674K / 674K ✗✗✗
+> CyberBattleSim [47] Network Attack N/A ✗✗✗
+> CybORG CAGE 4 [26] Network Defense N/A ✗✗✓
+> CyberWheel [39] Network Attack/Defense N/A ✗✗✓
+> Trident (Ours) Network Attack 13,056 +/ 13,744 +✓✓✓
+
+Sandbox Infrastructure : To enable high-concurrency parallel rollouts, we decouple policy execution from the simulation runtime via a client-server architecture. Trident operates on the client side, transmitting generated Python policies to isolated, containerized sandbox servers that execute them natively against live DRL defenders and return verifiable execution logs with deterministic reward signals. Each sandbox exposes a standardized RESTful interface, allowing concurrent rollouts across independent simulator instances without shared state, guaranteeing reproducibility and integrity of D.4(a) CAGE4 0 20  40  60  80  
+
+> Episodes
+> 50
+> 40
+> 30
+> 20
+> 10
+> 100
+> 0
+> Withdraw
+> Stealth Service Discovery
+> Sleep
+> Red Session Check
+> Privilege Escalate
+> Impact
+> Exploit Remote Service
+> Discover Remote Systems
+> Discover Deception
+> Degrade Services
+> Aggressive Service Discovery
+> End / Timeout
+> Timesteps
+
+(b) CyberWheel Privilege -Escalation     
+
+> Port Scan
+> Ping Sweep
+> Lateral Movement
+> Impact
+> Discovery
+> End/Timeout
+> 010 20 30 40
+> Episodes
+> 50
+> 40
+> 30
+> 20
+> 10
+> 50
+> 0
+> Timesteps
+
+Figure 2: Tactical branching in CybORG and CyberWheel. Each row represents one of 50 sampled trajectories from a baseline heuristic against a fixed DRL defender. This seed variation ensures diverse data for RLVR training. 
+
+Trajectory Rollout: We leverage a diverse suite of N red agent against a fixed DRL blue defender (Details in Appendix B), iteratively sampling a heuristic cj ∼ Uniform (1 , N ) and a randomized seed 
+
+si ∼ S to generate trajectories, collected as: 
+
+D =
+
+
+
+τ ′ 
+
+> i
+
+=
+
+
+
+o(i) 
+
+> t
+
+, a (i)
+
+> t
+
+Tt=0 
+
+∼ P (· | cj , s i) : 1 ≤ i ≤ n, j ∼ Uniform (1 , N )
+
+
+
+(3) This rollout process yields 3,556 training and 188 validation trajectories for CyberWheel, and 9,500 training and 500 validation trajectories for CAGE 4, totaling 13,744 samples. As the framework supports arbitrary seed randomization, additional trajectories can be generated on demand. As illustrated in Figure 2, even fixed heuristic logic produces significant tactical branching across seeds and defender interventions, capturing the complexity of the adversarial landscape. 
+
+Natural Language Log Serialization: Each trajectory τ ′ 
+
+> i
+
+is serialized into a structured natural language logs via a fixed, deterministic template. Each timestep encodes the agent’s partial ob-servation, differential host intelligence updates, and executed actions at every step t, followed by an episode-level impact summary, as illustrated in Figure 3. This prompt dataset bootstraps the meta-agent with a structural map of the adversarial landscape. 
+
+# Mission Trajectory Summary ### Step {t} Knowledge: {Current Host: {host} | Unimpacted: {S} | Unknowns: {U}} Host Intel: {host_id}({role}, {phase},)[+NEW?] ... Action: {Success |Failed} {action_type} to {target} (repeated for t = 0 , . . . , T )## Episode Impact Summary - Episode {i} achieved the most server impacts: {count}. 
+
+Figure 3: Example of a serialized trajectory raw log template from the CyberWheel environment. 
+
+3.2 Trident agentic 
+
+Trident Agentic decomposes the attack agent into three specialized modules, each with a distinct role: compressing observations, reasoning about strategy, and generating executable code. Following prior multi-agent designs [ 30 , 16 , 54 , 11 ], this separation of concerns isolates the RL optimization signal to a single trainable strategic component, while keeping the remaining modules frozen. 
+
+Log Summarizer: A hybrid module that uses a rule-based parser combined with a frozen LLM to compress a prohibitive amount of serialized logs (Figure 3). To ensure the input remains within token limits without losing critical information, the parser identifies and preserves all “milestone” steps—such as successful exploits, privilege escalations, or service impacts—while randomly sam-pling from failed attempts and reconnaissance noise. This heuristic filtering ensures that the most informative parts of the attack trajectory are always presented to the LLM. The model then synthesizes these filtered logs into a dense semantic summary for the Planner. 
+
+Planner (πθ ): The sole trainable component of our architecture. Conditioned on the condensed summary as its partially observable state, it formulates abstract tactical logic, outputting a structured JSON payload as its strategic action. By delegating exact programming syntax to the Coder, the 5Planner focuses exclusively on high-level decision-making, smoothing the optimization landscape. Its weights are updated directly via GRPO (Equation 2) driven by verifiable execution outcomes, ensuring the policy learns generalized attack strategies strictly from observable feedback without any privileged environment access. 
+
+Coder: As illustrated in Figure 4, a frozen model translates the Planner’s strategic in-tent into executable Python code. Following recent advancements in robust LLM-driven code generation [ 64 , 51 ], we incorporate an Abstract Syntax Tree (AST)-based patching mechanism to verify structural integrity and ensure execution stability before deployment. System Prompt   
+
+> •Action Knowledge Base
+> •Strict Output Format
+
+Planner (𝜋 𝜃 )
+
+> Planner’s Strategy (. json )
+
+Red Policy Coder         
+
+> <begin>
+> def state_transitions_probability (self):
+> #...(SKIPPED)...
+> return proba
+> </end>
+> <begin>
+> def set_host_state_priority_list (self):
+> #...(SKIPPED)...
+> return {'K': 10, 'R': 30, ...}
+> </end>
+> <begin>
+> def _process_new_observations (self, observation):
+> #...(SKIPPED)...
+> return new_observation
+> </end>
+> Red Agent Code (. py )
+> Retry up to 𝐾 times on Error
+> { "intent":
+> {
+> "summary": "Gain root privileges on...",
+> "focus": ["Prioritize root privileges”, ...])},
+> "host_state_priority ": {
+> "K": 0, "KD": 10, "S": 10,
+> "SD": 20, "U": 20, "UD": 20,
+> "R": 20, "RD": 10 },
+> "state_action_probs ": {
+> "K": {
+> "DiscoverRemoteSystems ": 0.9,
+> "AggressiveServiceDiscovery ": 0.1,
+> #...(SKIPPED)...
+> "StealthServiceDiscovery ": 0.2
+> },
+> }
+> }
+
+Cybersecurity Server 
+
+AST -based Safe Patch 
+
+Figure 4: Planner-Coder Pipeline. Furthermore, an iterative self-repair loop is employed to mitigate minor syntax errors that could disrupt the learn-ing. A sandbox performs a fast-pass sanity check; if an execution error occurs, the traceback is provided to the Coder for correction. Permitting up to K(=3) repair at-tempts absorbs trivial syntax errors, ensuring the Planner is not penalized for incidental implementation noise. How-ever, if the Coder exhausts all retries, this indicates the Planner’s strategy is fundamentally unimplementable, and the resulting execution penalty is intentionally applied. 
+
+3.3 Domain-grounded prompt design. 
+
+A critical challenge in applying LLMs to cybersecurity is preventing hallucinated actions and ensuring the agent operates strictly within the observable state. To address this, each module in Trident is governed by heavily en-gineered, domain-grounded prompts. First, we inject an action knowledge base directly into the system prompts, providing the LLMs with explicit prerequisites and ex-pected outcomes for complex killchain actions. Second, we enforce Strict API Boundaries. The Coder and Plan-ner are explicitly forbidden from accessing unobservable simulation internals (e.g., querying decoy flags). They are constrained to use only legal APIs, forcing them to rely on behavioral inference rather than omniscient state access. Finally, to guarantee deterministic pipeline execution, we utilize rigid output schemas—forcing the Planner to gen-erate abstract strategy JSON, and constraining the Coder to output exactly delineated Python blocks. 
+
+3.4 Reward design 
+
+To accurately evaluate the generated algorithmic policy 
+
+c, we design a dense, verifiable reward function derived directly from the execution logs of each trajectory τ . Let ϕ(e, o 0: T ) count occurrences of event e
+
+across the observation sequence of length T , and let E+, E− denote positive milestone events (e.g., system impacts, privilege escalations) and negative events (e.g., failed exploits, invalid actions), respectively. We define the tactical reward components as: 
+
+R+ = X
+
+> e∈E +
+
+qeϕ(e, o 0: T ) + rT
+
+X
+
+> e∈E +
+
+ϕ(e, o 0: T ), R− = X
+
+> e∈E −
+
+seϕ(e, o 0: T ) (4) where qe is a per-event weight reflecting the relative importance of each positive milestone, r is a scalar efficiency coefficient that normalizes total achievements by episode length T , and se is a per-event penalty weight controlling the severity of each negative event. Thus R+ accumulates weighted killchain milestones augmented by an efficiency bonus, and R− penalizes wasteful behavior. Crucially, to penalize syntactically invalid or non-executable logic, the final episodic reward is determined via a conditional branch. If the generated policy c fails to execute due to unrecoverable syntax or runtime errors, the episode is aborted and a strict execution penalty p is applied. Otherwise, the policy receives a tactical reward clipped within [Rmin , R max ]:
+
+R(c, o 0: T ) = 
+
+p if c fails to execute or violates constraints clip (R+ − R−, R min , R max ) otherwise (5) 6Full specifications of E+, E−, and p for each environment are provided in subsubsection A.1.3, subsubsection A.2.3, and subsection A.3, respectively. 
+
+## 4 Experiments 
+
+Table 2: Performance comparison across CAGE4 and CyberWheel settings. Lower values indicate worse performance for the blue agent. Values are reported as mean ± standard deviation. Highlighted values denote relative reduction ( ∆) compared to the Default Agent.                                                                                          
+
+> Method CAGE4 CyberWheel Average Loss ( ∆)GNN [27] HMARL3 [44] HMARL4 [44] MARL [35] PPO (NN) [39]
+> Default Agent -202.34 ±1.42 -132.63 ±0.87 -940.87 ±15.75 -171.09 ±4.32 4574.59 ±3.65 -GPT-4o [23] -351.43 ±65.30 (73.68%) -191.56 ±42.17 (44.44%) -844.99 ±196.51 (-10.19%) -323.91 ±9.85 (89.33%) 1919.31 ±149.59 (58.04%) 51.06% Zero-shot -498.74 ±65.85 (146.48%) -598.09 ±26.15 (350.96%) -1701.01 ±113.20 (80.79%) -435.84 ±29.82 (154.75%) 2107.84 ±59.64 (53.92%) 157.38% CoT -367.19 ±19.58 (81.47%) -200.09 ±22.76 (50.87%) -737.94 ±171.87 (-21.57%) -340.55 ±42.79 (99.05%) 1729.16 ±69.83 (62.20%) 54.40%
+> Trident Agentic (Ours) -2083.68 ±110.89 (929.79%) -849.85 ±6.46 (540.78%) -2241.72 ±194.82 (138.26%) -1716.73 ±33.28 (903.43%) 35.70 ±48.89 (99.22%) 522.30%
+
+CAGE4: Dynamic State Priority Adaptation 
+
+[Default Code (CAGE4)] 
+
+> def set_host_state_priority_list(self): return None # equal priority (default agent)
+
+[Planner’s Thought] 
+
+> Shift from discovery to exploitation. Prioritize high-value targets and increase focus on privilege escalation and root compromise.
+
+[Coder’s Implementation] 
+
+> def set_host_state_priority_list(self): return { ’K’: 10, ’KD’: 10, ’S’: 10, ’SD’: 10, ’U’: 20, ’UD’: 20, ’R’: 30, ’RD’: 30 }
+
+Figure 5: CAGE4 policy generation example. Tri-dent Agentic coder introduces a structured priority that shifts focus toward high-value targets. To evaluate the effectiveness and robustness of Trident Agentic, we conduct our experiments within multiple environments with different vic-tim models. We design our evaluation to answer two primary Research Questions (RQs): ( RQ1 )Can the algorithmic policy generated by Trident Agentic defeat state-of-the-art DRL blue agents where traditional heuristic attackers fail? ( RQ2 )Is RLVR training beneficial for generating effec-tive attacks against DRL blue agents? 
+
+4.1 Experimental setup and baselines Implementation Details: We used Qwen2.5-7B-Instruct for our planner policy( πθ ), Qwen2.5-14B-Instruct-AWQ [ 55 , 48 ] for summarizer and Qwen2.5-Coder-7B-Instruct [ 22 ] for coder agent. We used a single NVIDIA-H200 GPU to host frozen LLM agents and 2 NVIDIA-H200 GPUs for training our planner policy. The group size of GRPO ( G) is set to 8, learning rate of 5.0 × 10 −7 and batch size of 2. The KL penalty term (β) is set to 0.05 for CyberWheel and 5.0 × 10 −4 for CAGE4, respectively. The implementation was mainly built upon verl [ 43 ] for the RLVR training loop, utilizing vllm [ 29 ] for efficient policy generation and Ray [37] for distributed orchestration. 
+
+Environment Setup: Both CAGE 4 [ 26 ] and CyberWheel [ 39 ] model enterprise networks as adversarial POMDPs where a killchain-based red agent attacks hosts across subnets while a DRL blue agent defends in real-time — producing deterministic, verifiable reward signals from discrete-event logs. Despite this shared structure, they differ in network topology, defender architecture, and mission complexity. CAGE 4 features a multi-agent military network with dynamic mission phases and cooperative blue defenders, while CyberWheel grounds its red agent actions in real-world MITRE ATT&CK [ 3] techniques, providing higher attack realism. We evaluate across both to test the generalizability of Trident. Full environment details are provided in Appendix A. 
+
+Victim Models: We evaluate the performance of Trident Agentic against three state-of-the-art DRL blue agents. “GNN” [ 27 , 26 ] represents the network as a temporal attributed graph processed by a graph convolutional network optimized by Proximal Policy Optimization (PPO) [ 40 ], with actions formulated as graph edits on nodes and edges, enabling zero-shot generalization to unseen topologies. “H-MARL” [ 44 ] employs a hierarchical architecture optimized by PPO that decomposes cyber defense into sub-tasks, coordinated by either an expert-rule or a learned master policy across five blue agents. “MARL” [ 35 ] is a decentralized multi-agent PPO baseline where each blue agent maintains a separate actor-critic trained solely on its local observations. All three are evaluated in CAGE 4. For CyberWheel, we evaluate against “PPO(NN)” [ 39 ], a PPO-based blue agent from the official CyberWheel repository trained to minimize server downtime against a heuristic red agent. 
+
+Dataset and Training Split: For each target DRL blue agent, we trained a dedicated red policy ( πθ )via RLVR exclusively on the training split of the Trident Dataset. Specifically, policies evaluated in CAGE 4 are trained solely on the CAGE 4 training split, and those evaluated in CyberWheel are trained solely on the CyberWheel training split. The performance reported in our evaluation is then 7derived from the corresponding validation splits to ensure a rigorous assessment of generalization across unseen network states and defensive configurations. 
+
+Baselines: We compare Trident against a rule-based baseline and three alterna-tive planner configurations to isolate the contribution of RLVR training. The “De-fault Agent” uses the default FiniteStateRedAgent from the CybORG CAGE 4 repository for CAGE 4, and the BFSServerDowntime strategy for CyberWheel. 
+
+CyberWheel: Decoy Avoidance 
+
+[Default Red Agent] 
+
+Simple BFS prioritizing unimpacted servers. 
+
+[Planner’s Thought] 
+
+> ”Based on the analysis, we can summarize the key issues with the current strat-egy: 1. Fixation on single hosts, leading to redundant actions. 2. Inefficient exploitation of the early window. 3. Lack of effective behavioral detection for decoys. We need to reformulate our strategy to ensure that the agent can efficiently reach and impact unimpacted servers within the early window and avoid fixating on already impacted or suspicious hosts. Additionally, we should develop a mechanism to detect and avoid decoys.”
+
+[Generated Logic (Python)] 
+
+> class ImprovedRedStrategy: # Learned parameter avoiding decoys DECOY_THRESHOLD = 3 def select_target(cls, agent): if history.svc_count == 0: cls.failures[host] += 1 if cls.failures >= cls.THRESHOLD: return cls.select_next_target() # Abort –––––Skipped–––––
+
+Figure 6: Example generated logic for decoy avoidance in CyberWheel that aborts targets with repeated failures. The remaining configurations vary only the planner: “Zero-shot” uses the same base model without any training; “CoT” [ 28 ] uses an identical prompt ex-cept for CoT instruction; and “GPT-4o” employs GPT-4o [ 23 ] as the planner to evaluate the effect of frontier model ca-pacity without task-specific training. All methods share identical observations and evaluation protocols; except for CoT , all prompts are identical as well. 
+
+Evaluation Metrics: We adopt the blue agent’s cumulative episodic reward as our primary metric, where a lower value in-dicates more effective red agent attacks, consistent with prior DRL defense bench-marks. This captures disruption to green agent activity across mission phases in CAGE 4, and defender success via decoys in CyberWheel. CAGE 4 results are re-ported at training step 150, averaged over 500 randomized episodes of 500 steps each ( T =500 in Equation 1); CyberWheel results are reported at training step 1,000, averaged over 188 randomized episodes of 100 steps each. All baselines are reported as the mean and standard deviation across 3 independent runs. We note a deliberate asymmetry favoring baselines: GPT-4o, Zero-shot, and CoT metrics are computed exclusively over successful executions , filtering out fatal errors, while Trident’s evaluation is strictly comprehensive, absorbing all execution failures and their associated penalties. 
+
+4.2 Results Quantitative Analysis: Table 2 presents cumulative rewards against all defensive baselines. Tra-ditional heuristic red agents perform poorly as evaluators of DRL defenders: because blue agents are trained exclusively against these static adversaries, they develop policies implicitly conditioned on their fixed behavioral signatures, creating systematic blind spots that are invisible under current evaluation practices. In contrast, Trident systematically dismantles these defenses by dynamically synthesizing executable attack scripts tailored to the evolving network state, achieving an average performance gain of 522.30% over the default baseline across all environments, affirmatively an-swering RQ1 . Notably, the Zero-shot SLM unexpectedly outperforms GPT-4o in several settings, which we attribute to prompt optimization bias: our scaffolding was iteratively developed around our 7B instruction-tuned model, placing GPT-4o at an inherent disadvantage that extensive prompt-tuning could correct but was computationally infeasible at the scale of thousands of interactive DRL episodes. Crucially, despite this inadvertent advantage to the Zero-shot baseline, Trident Agentic still substantially surpasses it, confirming that while static prompt engineering alone can partially compromise adaptive DRL defenders, RLVR training provides a decisive advantage in exploiting their vulnerabilities, thus answering RQ2 .
+
+Qualitative Analysis: Figure 5 and Figure 6 illustrate emergent attack behaviors autonomously discovered by Trident Agentic through RLVR. In CyberWheel, Trident Agentic identifies the baseline agent’s naive BFS strategy as vulnerable to honeypots and autonomously synthesizes a decoy-avoidance mechanism that aborts attacks on suspicious hosts after repeated failures. In CAGE 4, rather than treating all network states equally, Trident Agentic learns to prioritize high-value states such as Root and User access over basic reconnaissance states. These behaviors confirm that the 8“Code-as-Policies” paradigm provides the expressivity necessary to discover novel, environment-specific attack vectors that static heuristics cannot represent. 
+
+Ablation Studies: Due to space constraints, detailed ablation studies regarding the reward formulation and the design choices of our agentic components are deferred to Appendix C. 
+
+## 5 Related Works 
+
+5.1 Cybersecurity and LLMs 
+
+LLM-based cybersecurity research has evolved from static evaluations, including vulnerability detection [ 63 , 65 ], threat intelligence QA [ 6], and secure code evaluation [ 9, 49 , 8 , 17 ], toward interactive agentic systems [ 20 , 14 , 66 , 15 , 19 ], driven by competitions such as DARPA AIxCC [ 2 , 33 ]and evaluated on CTF challenges and sandboxes [ 4 , 60 , 41 , 52 , 61 ]. However, these frameworks feature static targets without active defenders, while traditional DRL simulators [ 26 , 47 ] operate on numeric vector spaces unsuitable for LLM-native reasoning, and recent cybersecurity LLMs [ 67 ,58 , 46 ] rely on offline Supervised Fine Tuning (SFT) datasets that cannot support online RL against adaptive defenders. Trident bridges this gap by providing both an interactive text-native environment and a large-scale hybrid dataset for RLVR training, a need made urgent by the autonomous zero-day exploitation capabilities now demonstrated by frontier models such as Claude Mythos [7]. 
+
+5.2 Code-as-policy and RLVR in agentic LLMs 
+
+Modern agentic frameworks formulate complex tasks as POMDPs using step-by-step prompting strategies in ReAct [ 57 ]-based manner [ 54 , 11 ], where an agent interleaves reasoning traces with discrete tool calls to iteratively progress toward a goal. However, this approach is bottlenecked by the engineering overhead of designing universal tool wrappers across heterogeneous simulators and is vulnerable to error compounding in cybersecurity. The “Code-as-Policies” paradigm [ 31 , 53 ]overcomes these limitations by generating executable programs that embed complex control flows directly into actions, eliminating brittle tool APIs. Recent works have integrated LLMs into RL pipelines for agentic reward design [ 36 ] or and [ 24 ] adapted this into cyber defense environments, but these deploy LLMs as auxiliary modules rather than as primary policy generators. In contrast, Trident Agentic adopts the “Code-as-Policies” paradigm with iterative self-repair [ 64 , 51 ] to generate com-plete adversarial strategies directly. While RLVR has driven advancements in mathematics [ 42 , 21 ]and competitive programming [ 59 ], Trident is, to the best of our knowledge, the first to successfully adapt it for training “Code-as-Policies” adversarial agents in cybersecurity. 
+
+## 6 Limitations 
+
+While Trident Agentic demonstrates exceptional efficacy against state-of-the-art DRL defenses, two engineering choices limit out-of-the-box generalization. First, the framework depends heavily on domain-specific prompt engineering: the tripartite architecture relies on hand-crafted templates and rule-based log parsers, meaning adaptation to new simulation engines requires manual recalibration of these scaffolds. Second, the reward design remains environment-dependent; although the underlying concepts are universal, their implementation is tied to the specific log formats and action spaces of CAGE 4 and CyberWheel. Future work will focus on automating log parsing and reward discovery to move toward a truly zero-shot, adaptive red agent. 
+
+## 7 Broader impacts and ethical considerations 
+
+This work demonstrates that sophisticated offensive capabilities against state-of-the-art DRL defenses can be realized with compact, open-weight SLMs, introducing a dual-use risk that will grow as simu-lators more closely approximate real-world networks. Assuming adversaries will not independently develop these methods is not a viable security posture. We argue that transparency is preferable to obscurity: by openly demonstrating Trident Agentic’s capabilities, we expose a critical evaluation gap and call on the community to develop equally adaptive, RL-driven blue agents. This framework provides the automated adversaries and verifiable metrics needed to train more robust cyber defenses before these attack strategies are independently deployed. 
+
+## 8 Conclusions 
+
+In this paper, we introduced Trident , a dynamic red teaming benchmark comprising isolated sandbox servers, red-blue interaction datasets, and Trident Agentic , a tripartite RLVR agentic architecture to reframe autonomous red teaming as a contextual bandit problem. Our evaluations reveal a fundamental brittleness in existing autonomous defenders: a single trainable 7B LLM planner achieves an average 522% reduction in blue agent performance while autonomously discovering 9emergent behaviors such as decoy avoidance and adaptive state prioritization. Beyond its immediate contributions, Trident opens several exciting future directions: its sandbox infrastructure naturally supports a self-improving curriculum where trained red agent policies generate richer adversarial trajectories to bootstrap progressively stronger attackers, whose pressure drives more robust blue agents in a game-theoretic co-evolution loop, while its simulator-agnostic design invites integration with higher-fidelity environments toward real-world autonomous cyber defense. 
+
+## 9 Acknowledgments 
+
+This work was supported in part by the DARPA Young Faculty Award; the National Science Foun-dation (NSF) under Grants No. 2127780, 2319198, 2321840, 2312517, 2235472, and 2431561; the Semiconductor Research Corporation (SRC); the Office of Naval Research through the Young Investigator Program Award and Grants No. N00014-21-1-2225, N00014-22-1-2067, and N00014-24-1-2547; the Army Research Office under Grant No. W911NF2410360; and the Air Force Office of Scientific Research under Award No. FA9550-22-1-0253. 
+
+## References 
+
+[1] Atomic Red Team™ — atomicredteam.io. https://www.atomicredteam.io/ . [Accessed 20-04-2026]. [2] Darpa’s artificial intelligence cyber challenge (aixcc). https://aicyberchallenge.com/ overview/ . [Accessed 17-04-2026]. [3] MITRE ATT&CK; — attack.mitre.org. https://attack.mitre.org/ . [Accessed 20-04-2026]. [4] Talor Abramovich, Meet Udeshi, Minghao Shao, Kilian Lieret, Haoran Xi, Kimberly Milner, Sofija Jancheska, John Yang, Carlos E Jimenez, Farshad Khorrami, Prashanth Krishnamurthy, Brendan Dolan-Gavitt, Muhammad Shafique, Karthik R Narasimhan, Ramesh Karri, and Ofir Press. EnIGMA: Interactive tools substantially assist LM agents in finding security vulnerabilities. In Forty-second International Conference on Machine Learning , 2025. [5] Arash Ahmadian, Chris Cremer, Matthias Gallé, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin, Ahmet Üstün, and Sara Hooker. Back to basics: Revisiting REINFORCE-style optimization for learning from human feedback in LLMs. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, editors, Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12248–12267, Bangkok, Thailand, August 2024. Association for Computational Linguistics. [6] Md Tanvirul Alam, Le Nguyen, Dipkamal Bhusal, and Nidhi Rastogi. Ctibench: a benchmark for evaluating llms in cyber threat intelligence. In Proceedings of the 38th International Conference on Neural Information Processing Systems , NIPS ’24, Red Hook, NY, USA, 2024. Curran Associates Inc. [7] Anthropic. Claude Mythos Preview red.anthropic.com — red.anthropic.com. https://red. anthropic.com/2026/mythos-preview/ . [Accessed 17-04-2026]. [8] Manish Bhatt, Sahana Chennabasappa, Yue Li, Cyrus Nikolaidis, Daniel Song, Shengye Wan, Faizan Ahmad, Cornelius Aschermann, Yaohui Chen, Dhaval Kapil, et al. Cyberseceval 2: A wide-ranging cybersecurity evaluation suite for large language models. arXiv preprint arXiv:2404.13161 , 2024. [9] Manish Bhatt, Sahana Chennabasappa, Cyrus Nikolaidis, Shengye Wan, Ivan Evtimov, Do-minik Gabi, Daniel Song, Faizan Ahmad, Cornelius Aschermann, Lorenzo Fontana, et al. Purple llama cyberseceval: A secure coding benchmark for language models. arXiv preprint arXiv:2312.04724 , 2023. [10] Sebastián R Castro, Roberto Campbell, Nancy Lau, Octavio Villalobos, Jiaqi Duan, and Alvaro A Cardenas. Large language models are autonomous cyber defenders. In 2025 IEEE Conference on Artificial Intelligence (CAI) , pages 1125–1132. IEEE, 2025. 10 [11] Weize Chen, Yusheng Su, Jingwei Zuo, Cheng Yang, Chenfei Yuan, Chi-Min Chan, Heyang Yu, Yaxi Lu, Yi-Hsin Hung, Chen Qian, Yujia Qin, Xin Cong, Ruobing Xie, Zhiyuan Liu, Maosong Sun, and Jie Zhou. Agentverse: Facilitating multi-agent collaboration and exploring emergent behaviors. In The Twelfth International Conference on Learning Representations , 2024. [12] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 ,2021. [13] Gelei Deng, Yi Liu, Víctor Mayoral-Vilches, Peng Liu, Yuekang Li, Yuan Xu, Tianwei Zhang, Yang Liu, Martin Pinzger, and Stefan Rass. PentestGPT: Evaluating and harnessing large language models for automated penetration testing. In 33rd USENIX Security Symposium (USENIX Security 24) , pages 847–864, Philadelphia, PA, August 2024. USENIX Association. [14] Richard Fang, Rohan Bindu, Akul Gupta, and Daniel Kang. Llm agents can autonomously exploit one-day vulnerabilities. arXiv preprint arXiv:2404.08144 , 2024. [15] Richard Fang, Rohan Bindu, Akul Gupta, Qiusi Zhan, and Daniel Kang. Llm agents can autonomously hack websites. arXiv preprint arXiv:2402.06664 , 2024. [16] Tao Feng, Haozhen Zhang, Peixuan Han, Zijie Lei, and Jiaxuan You. Graphplanner: Graph-based agentic routing for LLMs. In The Fourteenth International Conference on Learning Representations , 2026. [17] Chengquan Guo, Xun Liu, Chulin Xie, Andy Zhou, Yi Zeng, Zinan Lin, Dawn Song, and Bo Li. Redcode: Risky code execution and generation benchmark for code agents. In The Thirty-eight Conference on Neural Information Processing Systems Datasets and Benchmarks Track , 2024. [18] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. [19] Andreas Happe and Jürgen Cito. Getting pwn’d by ai: Penetration testing with large language models. In Proceedings of the 31st ACM joint european software engineering conference and symposium on the foundations of software engineering , pages 2082–2086, 2023. [20] Andreas Happe, Aaron Kaplan, and Juergen Cito. Llms as hackers: Autonomous linux privilege escalation attacks. Empirical Software Engineering , 31(3):70, 2026. [21] Zhiwei He, Tian Liang, Jiahao Xu, Qiuzhi Liu, Xingyu Chen, Yue Wang, Linfeng Song, Dian Yu, Zhenwen Liang, Wenxuan Wang, Zhuosheng Zhang, Rui Wang, Zhaopeng Tu, Haitao Mi, and Dong Yu. Deepmath-103k: A large-scale, challenging, decontaminated, and verifiable mathematical dataset for advancing reasoning. In The Fourteenth International Conference on Learning Representations , 2026. [22] Binyuan Hui, Jian Yang, Zeyu Cui, Jiaxi Yang, Dayiheng Liu, Lei Zhang, Tianyu Liu, Jia-jun Zhang, Bowen Yu, Kai Dang, et al. Qwen2. 5-coder technical report. arXiv preprint arXiv:2409.12186 , 2024. [23] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276 , 2024. [24] Guangyu Jiang, Mahdi Imani, Nathaniel D Bastian, and Tian Lan. Agentic ai for cyber defense: Llm-guided hierarchical multi-agent reinforcement learning. In MILCOM 2025-2025 IEEE Military Communications Conference (MILCOM) , pages 1518–1523. IEEE, 2025. [25] Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan O Arik, Dong Wang, Hamed Zamani, and Jiawei Han. Search-r1: Training LLMs to reason and leverage search engines with reinforcement learning. In Second Conference on Language Modeling , 2025. 11 [26] Mitchell Kiely, Metin Ahiskali, Etienne Borde, Benjamin Bowman, David Bowman, Dirk Van Bruggen, KC Cowan, Prithviraj Dasgupta, Erich Devendorf, Ben Edwards, et al. Exploring the efficacy of multi-agent reinforcement learning for autonomous cyber defence: A cage challenge 4 perspective. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 39, pages 28907–28913, 2025. [27] Isaiah J King, Benjamin Bowman, and H Howie Huang. Automated cyber defense with generalizable graph-based reinforcement learning agents. arXiv preprint arXiv:2509.16151 ,2025. [28] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. Advances in neural information processing systems ,35:22199–22213, 2022. [29] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large lan-guage model serving with pagedattention. In Proceedings of the ACM SIGOPS 29th Symposium on Operating Systems Principles , 2023. [30] Zhuofeng Li, Haoxiang Zhang, Seungju Han, Sheng Liu, Jianwen Xie, Yu Zhang, Yejin Choi, James Zou, and Pan Lu. In-the-flow agentic system optimization for effective planning and tool use. In The Fourteenth International Conference on Learning Representations , 2026. [31] Jacky Liang, Wenlong Huang, Fei Xia, Peng Xu, Karol Hausman, Brian Ichter, Pete Florence, and Andy Zeng. Code as policies: Language model programs for embodied control. In 2023 IEEE International conference on robotics and automation (ICRA) , pages 9493–9500. IEEE, 2023. [32] Xinjie Lin, Gang Xiong, Gaopeng Gou, Zhen Li, Junzheng Shi, and Jing Yu. Et-bert: A contextualized datagram representation with pre-training transformers for encrypted traffic classification. In Proceedings of the ACM Web Conference 2022 , pages 633–642, 2022. [33] Zefang Liu, Jialei Shi, and John F Buford. Cyberbench: A multi-task benchmark for evaluating large language models in cybersecurity. In AAAI 2024 Workshop on Artificial Intelligence for Cyber Security , 2024. [34] Ziyu Liu, Zeyi Sun, Yuhang Zang, Xiaoyi Dong, Yuhang Cao, Haodong Duan, Dahua Lin, and Jiaqi Wang. Visual-rft: Visual reinforcement fine-tuning. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 2034–2044, 2025. [35] Xueguang Lyu, Yuchen Xiao, Brett Daley, and Christopher Amato. Contrasting centralized and decentralized critics in multi-agent reinforcement learning. In Proceedings of the 20th International Conference on Autonomous Agents and MultiAgent Systems , AAMAS ’21, page 844–852, Richland, SC, 2021. International Foundation for Autonomous Agents and Multiagent Systems. [36] Yecheng Jason Ma, William Liang, Guanzhi Wang, De-An Huang, Osbert Bastani, Dinesh Jayaraman, Yuke Zhu, Linxi Fan, and Anima Anandkumar. Eureka: Human-level reward design via coding large language models. In The Twelfth International Conference on Learning Representations , 2024. [37] Philipp Moritz, Robert Nishihara, Stephanie Wang, Alexey Tumanov, Richard Liaw, Eric Liang, Melih Elibol, Zongheng Yang, William Paul, Michael I Jordan, et al. Ray: A distributed framework for emerging {AI } applications. In 13th USENIX symposium on operating systems design and implementation (OSDI 18) , pages 561–577, 2018. [38] Peter G Neumann and Phillip A Porras. Experience with emerald to date. In Workshop on Intrusion Detection and Network Monitoring , pages 73–80, 1999. [39] Sean Oesch, Amul Chaulagain, Brian Weber, Matthew Dixson, Amir Sadovnik, Benjamin Roberson, Cory Watson, and Phillipe Austria. Towards a high fidelity training environment for autonomous cyber defense agents. In Proceedings of the 17th Cyber Security Experimentation and Test Workshop , CSET ’24, page 91–99, New York, NY, USA, 2024. Association for Computing Machinery. 12 [40] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [41] Minghao Shao, Sofija Jancheska, Meet Udeshi, Brendan Dolan-Gavitt, haoran xi, Kimberly Milner, Boyuan Chen, Max Yin, Siddharth Garg, Prashanth Krishnamurthy, Farshad Khorrami, Ramesh Karri, and Muhammad Shafique. Nyu ctf bench: A scalable open-source benchmark dataset for evaluating llms in offensive security. In Advances in Neural Information Processing Systems , volume 37, pages 57472–57498, 2024. [42] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [43] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu. Hybridflow: A flexible and efficient rlhf framework. In 
+
+Proceedings of the Twentieth European Conference on Computer Systems , EuroSys ’25, page 1279–1297, New York, NY, USA, 2025. Association for Computing Machinery. [44] Aditya Vikram Singh, Ethan Rathbun, Emma Graham, Lisa Oakley, Simona Boboila, Peter Chin, and Alina Oprea. Hierarchical multi-agent reinforcement learning for cyber network defense. Reinforcement Learning Journal , 6:790–810, 2025. [45] Natalia Stakhanova, Samik Basu, and Johnny Wong. A taxonomy of intrusion response systems. 
+
+Int. J. Inf. Comput. Secur. , 1(1/2):169–184, January 2007. [46] Naufal Suryanto, Muzammal Naseer, Pengfei Li, Syed Talal Wasim, Jinhui Yi, Juergen Gall, Paolo Ceravolo, and Ernesto Damiani. Redsage: A cybersecurity generalist LLM. In The Fourteenth International Conference on Learning Representations , 2026. [47] Microsoft Defender Research Team. Cyberbattlesim, 2021. Created by Christian Seifert, Michael Betser, William Blum, James Bono, Kate Farris, Emily Goren, Justin Grana, Kris-tian Holsheimer, Brandon Marken, Joshua Neil, Nicole Nichols, Jugal Parikh, Haoran Wei. [48] Qwen Team. Qwen2.5: A party of foundation models, September 2024. [49] Shengye Wan, Cyrus Nikolaidis, Daniel Song, David Molnar, James Crnkovich, Jayson Grace, Manish Bhatt, Sahana Chennabasappa, Spencer Whitman, Stephanie Ding, et al. Cyberseceval 3: Advancing the evaluation of cybersecurity risks and capabilities in large language models. 
+
+arXiv preprint arXiv:2408.01605 , 2024. [50] Tianyi Wang, Yixia Li, Long Li, Yibiao Chen, Shaohan Huang, Yun Chen, Peng Li, Yang Liu, and Guanhua Chen. Sppo: Sequence-level ppo for long-horizon reasoning tasks. arXiv preprint arXiv:2604.08865 , 2026. [51] Yiting Wang, Wanghao Ye, Ping Guo, Yexiao He, Ziyao Wang, Bowei Tian, Shwai He, Guoheng Sun, Zheyu Shen, Sihan Chen, Ankur Srivastava, Qingfu Zhang, Gang Qu, and Ang Li. SymRTLO: Enhancing RTL code optimization with LLMs and neuron-inspired symbolic reasoning. In The Thirty-ninth Annual Conference on Neural Information Processing Systems ,2026. [52] Zhun Wang, Tianneng Shi, Jingxuan He, Matthew Cai, Jialin Zhang, and Dawn Song. Cyber-gym: Evaluating AI agents’ real-world cybersecurity capabilities at scale. In The Fourteenth International Conference on Learning Representations , 2026. [53] Yuxiang Wei, Olivier Duchenne, Jade Copet, Quentin Carbonneaux, LINGMING ZHANG, Daniel Fried, Gabriel Synnaeve, Rishabh Singh, and Sida Wang. SWE-RL: Advancing LLM reasoning via reinforcement learning on open software evolution. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. [54] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Shaokun Zhang, Jiale Liu, Ahmed Hassan Awadallah, Ryen W White, Doug Burger, and Chi Wang. Autogen: Enabling next-gen LLM applications via multi-agent conversations. In First Conference on Language Modeling , 2024. 13 [55] An Yang, Baosong Yang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Zhou, Chengpeng Li, Chengyuan Li, Dayiheng Liu, Fei Huang, Guanting Dong, Haoran Wei, Huan Lin, Jialong Tang, Jialin Wang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Ma, Jin Xu, Jingren Zhou, Jinze Bai, Jinzheng He, Junyang Lin, Kai Dang, Keming Lu, Keqin Chen, Kexin Yang, Mei Li, Mingfeng Xue, Na Ni, Pei Zhang, Peng Wang, Ru Peng, Rui Men, Ruize Gao, Runji Lin, Shijie Wang, Shuai Bai, Sinan Tan, Tianhang Zhu, Tianhao Li, Tianyu Liu, Wenbin Ge, Xiaodong Deng, Xiaohuan Zhou, Xingzhang Ren, Xinyu Zhang, Xipin Wei, Xuancheng Ren, Yang Fan, Yang Yao, Yichang Zhang, Yu Wan, Yunfei Chu, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zhihao Fan. Qwen2 technical report. arXiv preprint arXiv:2407.10671 , 2024. [56] John Yang, Akshara Prabhakar, Karthik Narasimhan, and Shunyu Yao. Intercode: Standardizing and benchmarking interactive coding with execution feedback. Advances in Neural Information Processing Systems , 36:23826–23854, 2023. [57] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In The eleventh international conference on learning representations , 2022. [58] Yao-Ching Yu, Tsun-Han Chiang, Cheng-Wei Tsai, Chien-Ming Huang, and Wen-Kwang Tsao. Primus: A pioneering collection of open-source datasets for cybersecurity LLM training. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Pro-ceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 10391–10413, Suzhou, China, November 2025. Association for Computational Linguistics. [59] Huaye Zeng, Dongfu Jiang, Haozhe Wang, Ping Nie, Xiaotong Chen, and Wenhu Chen. ACECODER: Acing coder RL via automated test-case synthesis. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 12023–12040, Vienna, Austria, July 2025. Association for Computational Linguistics. [60] Andy K Zhang, Neil Perry, Riya Dulepet, Joey Ji, Celeste Menders, Justin W Lin, Eliot Jones, Gashon Hussein, Samantha Liu, Donovan Julian Jasper, Pura Peetathawatchai, Ari Glenn, Vikram Sivashankar, Daniel Zamoshchin, Leo Glikbarg, Derek Askaryar, Haoxiang Yang, Aolin Zhang, Rishi Alluri, Nathan Tran, Rinnara Sangpisit, Kenny O Oseleononmen, Dan Boneh, Daniel E. Ho, and Percy Liang. Cybench: A framework for evaluating cybersecurity capabilities and risks of language models. In The Thirteenth International Conference on Learning Representations , 2025. [61] Chiyu Zhang, Marc-Alexandre Côté, Michael Albada, Anush Sankaran, Jack W Stokes, Tong Wang, Amir H. Abdi, William Blum, and Muhammad Abdul-Mageed. Defenderbench: A toolkit for evaluating language agents in cybersecurity environments. In Workshop on Scaling Environments for Agents , 2025. [62] Ruijie Zhao, Mingwei Zhan, Xianwen Deng, Yanhao Wang, Yijun Wang, Guan Gui, and Zhi Xue. Yet another traffic classifier: A masked autoencoder based traffic transformer with multi-level flow representation. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 37, pages 5420–5427, 2023. [63] Yaqin Zhou, Shangqing Liu, Jingkai Siow, Xiaoning Du, and Yang Liu. Devign: effective vulnerability identification by learning comprehensive program semantics via graph neural networks . Curran Associates Inc., Red Hook, NY, USA, 2019. [64] Derui Zhu, Dingfan Chen, jinfu chen, Jens Grossklags, Walter Pretschner, and Weiyi Shang. More than just functional: LLM-as-a-critique for efficient code generation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. [65] Yuxuan Zhu, Antony Kellermann, Dylan Bowman, Philip Li, Akul Gupta, Adarsh Danda, Richard Fang, Conner Jensen, Eric Ihli, Jason Benn, Jet Geronimo, Avi Dhir, Sudhit Rao, Kaicheng Yu, Twm Stone, and Daniel Kang. CVE-bench: A benchmark for AI agents’ ability to exploit real-world web application vulnerabilities. In Forty-second International Conference on Machine Learning , 2025. 14 [66] Yuxuan Zhu, Antony Kellermann, Akul Gupta, Philip Li, Richard Fang, Rohan Bindu, and Daniel Kang. Teams of LLM agents can exploit zero-day vulnerabilities. In Vera Demberg, Kentaro Inui, and Lluís Marquez, editors, Proceedings of the 19th Conference of the European Chapter of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 23–35, Rabat, Morocco, March 2026. Association for Computational Linguistics. [67] Terry Yue Zhuo, Dingmin Wang, Hantian Ding, Varun Kumar, and Zijian Wang. Cyber-zero: Training cybersecurity agents without runtime. In The Fourteenth International Conference on Learning Representations , 2026. 
+
+## A Environment Setup & Reward Design 
+
+This section provides a comprehensive breakdown of the experimental testbeds, victim models, and reward formulations used to train and evaluate the Trident framework. We deploy Trident across two distinct cybersecurity simulators: CybORG CAGE 4 (Appendix A.1) and CyberWheel (Appendix A.2). For each environment, we detail the underlying network topology, the architecture of the victim DRL defenders (blue agents), and the baseline heuristic attackers (red agents). Crucially, we explain the exact mechanism by which Trident is integrated into these native simulators to dynamically generate and deploy its code-based adversarial policies (highlighted in blue for clarity). Finally, we define the RLVR signals, outlining both the environment-specific tactical reward parsers and the universal system-level penalties (Appendix A.3) used to optimize the Planner-Coder architecture. 
+
+A.1 CAGE 4 
+
+For our experiments utilizing the CybORG CAGE Challenge 4 [ 26 ] (CAGE 4) environment, we adopted its official enterprise network scenario, which is designed to emulate a complex, multi-subnet military network. While CyberWheel provides dynamically generated network graphs, CAGE 4 offers a complementary, rigorous testbed by maintaining a structurally fixed macro-topology while introducing severe micro-level variability. By randomizing the number of hosts, active services, and initial vulnerabilities in every episode, CAGE 4 allows us to evaluate the generated red policies for both strategic consistency across a stable network layout and tactical adaptability against shifting host-level configurations. 
+
+A.1.1 Network topology 
+
+The CAGE 4 environment simulates a highly segmented military enterprise architecture. The network is divided into four isolated enclaves connected via an internet node: two Deployed Networks (Network A and B), a Headquarters (HQ) Network, and an undefended Contractor Network that serves as the red agent’s initial breach point. The topology enforces strict routing bottlenecks. For example, each Deployed Network contains a Restricted Zone facing the internet and an air-gapped Operational Zone accessible only through the Restricted Zone’s router. Similarly, the HQ Network exposes a Public Access Zone, which internally routes to isolated Admin and Office networks. To prevent deterministic policy memorization, the environment dynamically randomizes both the network configuration and the attack surface at the start of each episode. Each subnet is procedu-rally generated with a randomized allocation of 3 to 10 user workstations and 1 to 6 server hosts. Furthermore, while all hosts run baseline services like SSH, the environment probabilistically as-signs supplementary services and injects exploitable vulnerabilities. This combination of dynamic node generation, strict hierarchical routing, and stochastic vulnerability distribution ensures that the Trident-generated red policy cannot rely on static killchains. Instead, it demands generalized reconnaissance, adaptive lateral movement, and conditional exploit logic. 
+
+A.1.2 Agent configuration and Trident integration 
+
+The CAGE 4 environment is defended by cooperative Multi-Agent Reinforcement Learning (MARL) policies, pitted against heuristic-based red agents. To establish a comprehensive defense baseline, we evaluated Trident against a diverse suite of state-of-the-art DRL architectures. 
+
+Victim defenders (blue agents): We utilized the official pre-trained weights for the HMARL and standard MARL defensive agents [ 35 ] available in the official GitHub repository of [ 44 ]. Additionally, 15 we retrained the GNN defender using its official repository code [ 27 ]. This agent represents the network as a temporal attributed graph, processing partial observations through a Graph Neural Network to output independent action probabilities for each of the five active blue agents. Following the official implementation, the policy was trained via PPO for 500,000 episodes (500 steps per episode) using a batch size of 2,500. The actor and critic networks utilize a 256-unit hidden layer and a 128-dimensional node embedding representation. Optimization was performed using learning rates of 3.0 × 10 −4 for the actor and 1.0 × 10 −3 for the critic, with a surrogate clipping coefficient of 0.2
+
+over 4 update epochs. All baseline blue policies remain strictly frozen during Trident’s training and evaluation. 
+
+Baseline Attacker (Red Agent): The default attacker in CAGE4 is the FiniteStateRedAgent .It employs an internal Finite State Machine (FSM) to orchestrate its attack killchain. The agent tracks each discovered host across 9 progressive compromise states (e.g., Known, User Shell, Root Shell). During execution, it selects a target host based on heuristic prioritization (e.g., defaulting to a 75% bias toward servers) and selects its next action (e.g., ExploitRemoteService or Impact )by sampling from a hardcoded state transition probability matrix associated with the target’s current state. 
+
+Trident Integration: Rather than replacing the red agent entirely, Trident modifies 
+
+FiniteStateRedAgent . The generated Python policy (the Coder’s output) dynamically patches the agent by overriding exactly three core methods: state_transitions_probability (control-ling action selection likelihoods for each FSM state), set_host_state_priority_list (dictating target prioritization), and _process_new_observations (handling intelligence updates). This architecture allows Trident to dictate high-level tactical routing and state-machine transitions while relying on the underlying framework to robustly handle the low-level execution of atomic killchain commands, significantly narrowing the generation space and reducing syntax errors. 
+
+A.1.3 RLVR reward design and specifications 
+
+Consistent with our Code-as-Policy framework, we utilized a tactical log-based reward parser to evaluate Trident’s performance in CAGE 4. As defined in Equation 5, the episodic reward R(c, o 0: T )
+
+is determined by a conditional branch. If the sandbox sanity check fails or the code triggers unrecoverable runtime errors during the self-repair loop, the episode is immediately terminated with a severe execution penalty ( pexec = −5.0, and pempty = −10 .0 for empty generation). For executable policies, the tactical reward is parsed directly from terminal logs: • Positive Milestones ( E+): Rewards scale based on the absolute count of successful actions, breaking the traditional binary success metric. We assign weights of qimpact = 0 .2, qroot =0.3, quser = 0 .1, and qscan = 0 .05 . To prioritize rapid exploitation, an efficiency multiplier 
+
+r = 2 .0 scales the reward based on the achievement-to-step ratio. • Negative Events ( E−): To penalize operational noise, the parser deducts points for invalid actions ( sinvalid = 0 .05 ) and failed exploits ( sexploit_fail = 0 .1). The tactical portion of the reward is clipped within [Rmin = −1.0, R max = 100 .0] . This separation of syntactic penalties and bounded tactical scores ensures that the GRPO gradient cleanly distinguishes between invalid code and poor strategic planning. 
+
+A.2 CyberWheel 
+
+For our experiments utilizing the CyberWheel environment [ 39 ], we evaluated Trident on a 15-host enterprise network topology. While CyberWheel natively supports dynamically generated networks of varying scales, investigating how our generated policies perform across different topology sizes is left as an interesting direction for future work. 
+
+A.2.1 Network topology 
+
+The 15-host network is centrally orchestrated around a single core_router and partitioned into three functional subnets to replicate a standard enterprise architecture: • DMZ Subnet : Contains 5 outward-facing workstations ( dmz0 to dmz4 ). This serves as the primary entry point and decoy deployment zone for the blue agent. 16 • User Subnet : Contains 5 internal workstations ( host0 to host4 ). • Server Subnet : Contains 5 critical business servers, specifically defining two proxy servers, one mail server, and two SSH jump servers ( server0 to server4 ). To support complex lateral movement, explicit cross-subnet interfaces are configured, such as bridging 
+
+dmz1 directly to server2 , and host4 to dmz2 .
+
+A.2.2 Agent configuration and Trident integration 
+
+In our CyberWheel setup, the environment pits an active DRL defender ( rl_blue_agent ) against an Atomic Red Team attacker ( art_agent ). To ensure the defense baseline is perceived as rigorous and standardized, here is the refined LaTeX snippet. It explicitly states that the configuration follows the official implementation to prevent any concerns regarding the selection of a "weak" defender. 
+
+Victim Defender (Blue Agent): To establish a rigorous baseline, we utilized a Proximal Policy Optimization (PPO) blue agent following the official CyberWheel implementation. Its policy employs a standard Actor-Critic architecture consisting of Multi-Layer Perceptrons (MLPs) with two hidden layers of 64 units each and ReLU activations. We maintained the official hyperparameters: a discount factor γ = 0 .995 , GAE λ = 0 .95 , and learning rates of 2.5 × 10 −4 with cosine restarts (minimum floor 1 × 10 −5). The surrogate objective was clipped at 0.3, with an entropy coefficient of 0.02 , value function coefficient of 0.5, and maximum gradient norm of 0.5. This blue policy remains strictly frozen during Trident’s training and evaluation. 
+
+Baseline Attacker (Red Agent): The default ARTAgent [ 39 ] executes a hardcoded, deterministic killchain sequence (e.g., PingSweep → PortScan → Lateral Movement → Discovery → Privilege Escalation → Impact) grounded in MITRE ATT&CK techniques. Crucially, its target selection logic is modularized into a strategy class (defaulting to a greedy ServerDowntime breadth-first search). 
+
+Trident Integration: Trident edits ARTAgent ’s strategy. The generated Python policy (the Coder’s output) dynamically replaces the default target selection module via the set_strategy() method. This architecture allows Trident to dictate high-level tactical routing while relying on the underlying 
+
+ARTAgent framework to robustly handle the low-level execution of atomic killchain commands, significantly narrowing the generation space and reducing syntax errors. 
+
+A.2.3 RLVR reward design and specifications 
+
+To ensure the Trident framework remains versatile and portable across heterogeneous environments, the reward system is decoupled from the simulator’s internal engine. Instead, Trident relies on a tactical log-based reward parser, allowing the agent to learn strictly from observable terminal logs and general environment metadata rather than privileged simulator states. Using this log-centric design, rewards are extracted from trajectory text via regular expressions to identify specific tactical events: • Positive Milestones (E+): Rewards are allocated for advancing through the killchain, with weights set at qimpact = 0 .2, qpriv_esc = 0 .1, and qscan = 0 .02 . Achieving root or user 
+
+access triggers state-specific bonuses of 0.3 and 0.1. To incentivize direct attack paths, an efficiency multiplier ( r = 2 .0) scales the reward based on the achievement-to-step ratio. • Negative Events (E−): To penalize operational noise, inefficiency, and misdirection, the parser identifies failed actions ( sfail = 0 .05 ), redundant repetitions ( srepeat = 0 .02 ), and interactions with honeypots ( sdecoy = 0 .5). Crucially, treating decoy hits as negative events addresses a misalignment in default simulation reward structures [ 39 ]. In CyberWheel’s default deception scenario, a red agent receives a positive reward for impacting a decoy, while the blue agent is simultaneously rewarded for a successful misdirection. By clas-sifying decoy interactions as strict negative penalties, we prevent a mutually beneficial local optimum where the red agent naively farms impact rewards on honeypots, ensuring the policy autonomously learns genuine decoy avoidance. The empirical necessity of this penalty to maintain proper adversarial alignment is explicitly demonstrated in our ablation study (Figure 9 and Appendix C.3). The final episodic reward is clipped within Rmin = −2.0, R max = 100 .0 to maintain stability during GRPO gradient optimization. 17 A.3 System-level penalties 
+
+To maintain a stable RLVR training loop and enforce the constraints of the Code-as-Policy paradigm, we define a universal system-level penalty p. Aside from environment-specific tactical violation rules, these penalties are shared across both environments to ensure the emergence of robust algorithmic policies. The value of p is determined by the specific failure mode identified during execution: 
+
+p =
+
+
+
+−10 .0 × Nleak if is_leak (c)
+
+−10 .0 if is_empty (c)
+
+−5.0 if exec_error (c)
+
+−2.0 if is_timeout (c)
+
+−1.0 if format_error (c) ∨ http_error (c)
+
+(6) where Nleak denotes the total count of unauthorized access attempts detected in the generated code. The penalty mapping is defined as follows: • Information Leak (−10 .0 × Nleak ): Applied if the policy attempts to bypass the sanitized observation layer to access restricted simulator internals or unobservable ground-truth data (e.g., direct inspection of decoy flags). The penalty scales with the number of detected leak occurrences in the generated code. • Empty Code ( −10 .0): A discrete penalty applied if the Coder fails to produce any exe-cutable Python logic. • Execution Error ( −5.0): Applied if the generated code triggers unrecoverable runtime errors even after exhausting self-repair attempts. • Timeout ( −2.0): Applied if the policy execution exceeds the designated time limit, penaliz-ing computationally inefficient or recursive logic. • Format & HTTP Error ( −1.0): Applied for JSON schema violations or transient infras-tructure communication failures. Treating infrastructure-level issues as a minor penalty encourages the agent to prioritize the generation of deployable, robust policies. 
+
+## B Heuristic red agent design 
+
+B.1 CAGE4 red agent inventory 
+
+Each agent operates within the CybORG CAGE 4 environment and selects from nine abstract actions: 
+
+DiscoverRemoteSystems , AggressiveServiceDiscovery , StealthServiceDiscovery ,
+
+DiscoverDeception , ExploitRemoteService , PrivilegeEscalate , Impact ,
+
+DegradeServices , and Withdraw . Host states are encoded as a nine-symbol alphabet {K,
+
+KD , S, SD , U, UD , R, RD , F}, representing degrees of knowledge, service discovery, user-level access, root access, and out-of-reach hosts respectively. 
+
+B.1.1 FiniteStateRedAgent (base class) 
+
+The base finite-state-machine (FSM) red agent maintains a per-host state dictionary and transitions each host according to separate success and failure state-transition matrices on every step. Actions are sampled from a fixed probability matrix conditioned on the current host state, and decoy services discovered via DiscoverDeception are stored so that ExploitRemoteService can exclude their PIDs via PIDSelectiveExploitActionSelector . All derived agents inherit this observation-processing and state-transition logic. 
+
+B.1.2 FSRedAgentCombined 
+
+Extends the base FSM agent with action-specific failure tracking: per-host, per-action-type attempt and failure counts are maintained, and the action-selection probabilities are dynamically multiplied by 0.1, 0.5, or 1.5 depending on whether the observed success rate falls below 30% , below 50% , or exceeds 70% , respectively. Host selection is additionally weighted by overall failure count using the formula w = max(0 .1, 1.5−f ), exponentially suppressing hosts with many failures while still allowing occasional re-visits. 18 B.1.3 FSRedAgentDegrader 
+
+A variant that steers the agent toward service-degradation objectives: hosts already in state R or 
+
+RD (root access obtained) receive a ×10 selection weight boost, and the DegradeServices action probability is multiplied by 4 at action selection time regardless of host zone. The agent otherwise inherits all base FSM state-transition matrices unchanged. 
+
+B.1.4 FSRedAgentFailureTracker 
+
+Tracks all action failures per host (not only deception failures) and selects hosts using exponentially decaying weights w = max(0 .1, 1.5−f ), biasing toward hosts with fewer cumulative failures. Once a host in state S or SD has accumulated three or more failures, the ExploitRemoteService probability for that host is zeroed out, shifting focus away from repeatedly failing exploitation attempts. 
+
+B.1.5 FSRedAgentImpacter 
+
+Prioritises hosts whose hostnames contain operational_zone_a or operational_zone_b by assigning them a ×100 selection weight boost. When acting on a zone-matched host, the Impact 
+
+action probability is multiplied by 4; for unidentified hosts (hostname None ), DiscoverDeception 
+
+is boosted by ×2; for all other hosts, Impact is suppressed to zero. 
+
+B.1.6 FSRedAgentTargetA 
+
+Targets hosts in both restricted_zone_a and operational_zone_a with a ×100 selection weight, excluding hosts already in state RD from the boost to avoid re-exploiting already-owned machines. Against zone-A hosts, ExploitRemoteService is boosted ×4; for other hosts Withdraw 
+
+probability is slightly increased and PrivilegeEscalate halved, reducing unnecessary escalation outside the target zones. 
+
+B.1.7 FSRedAgentTargetAOperational 
+
+Identical targeting and action-weighting logic to FSRedAgentTargetA , but the zone keyword is restricted to operational_zone_a only, limiting the agent’s focus to the operational (not restricted) subnet of zone A. Hosts already in state RD within the zone receive a reduced weight of 2 rather than 
+
+100 , further narrowing aggression to not-yet-fully-owned targets. 
+
+B.1.8 FSRedAgentTargetARestricted 
+
+Mirrors FSRedAgentTargetAOperational but exclusively targets restricted_zone_a hosts, focusing the agent on the restricted (higher-security) subnet of zone A while leaving operational hosts with default uniform weights. The same RD -exclusion and action-probability adjustments apply. 
+
+B.1.9 FSRedAgentTargetB 
+
+The zone-B symmetric counterpart of FSRedAgentTargetA : hosts matching restricted_zone_b 
+
+or operational_zone_b receive a ×100 weight boost (again excluding RD state), and 
+
+ExploitRemoteService is multiplied by 4 when acting on zone-B hosts. Outside zone B, 
+
+PrivilegeEscalate is halved and Withdraw is marginally increased ( +0 .1). 
+
+B.1.10 FSRedAgentTargetBOperational 
+
+Focuses on operational_zone_b hosts only, following the same ×100 weight and ×4 exploit-boost pattern as FSRedAgentTargetB , but confined to the operational subnet. Hosts already at RD 
+
+are not excluded from the weight boost here (unlike the zone-A operational variant), so the agent continues to visit fully-compromised operational-B hosts. 
+
+B.1.11 FSRedAgentTargetBRestricted 
+
+Mirrors FSRedAgentTargetBOperational but scoped exclusively to restricted_zone_b , di-recting exploitation pressure solely at the restricted subnet of zone B. Action-weighting is identical 19 to the other zone-B variants: exploit boost on target hosts, reduced escalation and slightly raised withdrawal elsewhere. 
+
+B.1.12 RandomSelectRedAgent 
+
+A baseline agent that uniformly samples a random valid action from the full action space at each step, with no host-state tracking or FSM logic. Parameter values (IP addresses, hostnames, subnets) are also chosen uniformly at random from the valid options in the current action space; an optional 
+
+disable_withdraw flag can remove the Withdraw action from consideration. 
+
+B.2 CyberWheel red strategy inventory 
+
+Each class in this directory implements a target-selection strategy for the CyberWheel red agent. All strategies inherit from the abstract base class RedStrategy and override a single class method, 
+
+select_target(agent_obj) -> Host , which returns the host the red agent should act on in the current step. The agent’s internal history ( agent_obj.history ), known unimpacted servers (agent_obj.unimpacted_servers ), and the set of unknown hosts ( agent_obj.unknowns ) are the primary inputs to every strategy’s decision. The difference between the plain and BFS-prefixed variants lies solely in traversal order: plain strategies draw the next host randomly from a pool, whereas BFS strategies take the front element (data_list[0] ) for deterministic breadth-first exploration. 
+
+B.2.1 BruteForce 
+
+The simplest possible strategy: select_target unconditionally returns 
+
+agent_obj.current_host , meaning the agent repeatedly attacks the host it is already on without ever moving. This serves as a lower-bound baseline and is useful for stress-testing a single host’s defences or verifying killchain execution in isolation. 
+
+B.2.2 Exfiltration 
+
+Designed to locate and impact a designated leader (target) host. The agent stays on the current host if it is still Unknown (i.e. not yet fully characterised) or if it has been identified as the leader; otherwise it picks a random unknown host from agent_obj.unknowns , falling back to the current host if the pool is empty. Stale names that no longer appear in the network graph are silently pruned from the unknown pool during selection. 
+
+B.2.3 ServerDowntime 
+
+Aims to impact every server reachable in the network, one by one. The agent remains on the current host if it is Unknown or is still listed in agent_obj.unimpacted_servers ; otherwise it draws a 
+
+random host from the unimpacted-server pool, then falls back to the unknown-host pool, and finally stays put if both are empty. Stale hostnames are pruned from whichever pool is being consumed when they are not found in the live network graph. 
+
+B.2.4 DFSImpact 
+
+Implements a depth-first impact sweep: the agent attacks the current host until it has completed the full killchain (i.e. last_step == len(killchain) - 1 ), then immediately jumps to a random unim-pacted host drawn from agent_obj.unimpacted_hosts . Because no breadth-first bookkeeping is performed, the traversal order across hosts is non-deterministic, giving the strategy a randomised DFS character. 
+
+B.2.5 BFSExfiltration 
+
+A breadth-first variant of Exfiltration : the agent stays on the current host if it is Unknown or the leader, but when moving it selects agent_obj.unknowns.data_list[0] — the oldest-inserted entry — instead of a random one. This FIFO access pattern ensures unknown hosts are explored in discovery order, producing a systematic breadth-first sweep toward the target leader host. 20 B.2.6 BFSServerDowntime (base class) 
+
+A breadth-first variant of ServerDowntime : the agent stays on the current host if it is Unknown 
+
+or unimpacted, then moves to unimpacted_servers.data_list[0] (oldest known unimpacted server) if available, or unknowns.data_list[0] otherwise. The deterministic FIFO ordering guarantees that servers are impacted in the order they were first discovered, making this strategy more predictable and reproducible than the randomised ServerDowntime .
+
+## C Ablation study 
+
+C.1 Cross-environment validation: reward correlations 
+
+To validate the efficacy of Trident’s reward design, we evaluate the reward formulation at a macro level by analyzing the relationship between the red agent’s verifiable red reward and the actual degradation of the defender’s blue reward. This relationship is demonstrated through two distinct perspectives. First, Figure 7 illustrates the learning dynamics over time. Across all evaluated DRL defenders in both CAGE 4 and CyberWheel, as the red agent optimizes its policy and the Red Reward increases, the Blue Reward experiences a mirrored, consistent degradation. Second, Figure 8 formalizes this relationship statistically via scatter plots of episodic outcomes, removing the temporal dimension. In CAGE 4, the Pearson correlation coefficients range from −0.87 to −0.94 , demonstrating an exceptionally tight mathematical alignment between our rule-based proxy rewards and the true systemic compromise of the DRL defenders. A similar negative trend is successfully maintained in CyberWheel (Spearman: −0.72 ), confirming the cross-environment robustness of the reward framework. GNN  HMARL3  HMARL4  MARL  PPO (NN)  
+
+> CAGE 4 CyberWheel
+> Red Reward
+> Blue Reward
+> Timesteps
+
+Figure 7: Learning dynamics of verifiable tactical rewards against defender performance. As the RLVR process progresses (x-axis: episodes), the red agent successfully maximizes its verifiable reward, consistently driving the blue agent’s accumulated reward into a steep decline. CAGE 4  CyberWheel           
+
+> Blue Reward
+> GNN
+> Pearson Corr : -0.9337
+> Spearman Corr: -0.8864
+> HMARL3
+> Pearson Corr : -0.8762
+> Spearman Corr: -0.9095
+> HMARL4
+> Pearson Corr : -0.9110
+> Spearman Corr: -0.8108
+> MARL
+> Pearson Corr : -0.9428
+> Spearman Corr: -0.9077
+> PPO (NN)
+> Pearson Corr : -0.4201
+> Spearman Corr: -0.7250
+> Red Reward
+
+Figure 8: Correlation between verifiable tactical rewards and defender performance. Scatter plots illustrating the strong negative correlation between Trident’s episodic rewards and the blue agent’s rewards. The high correlation coefficients validate that our verifiable reward signal serves as a high-fidelity proxy for actual system compromise across different environments. 
+
+Note on Micro-Level Ablation: While a fine-grained ablation of individual tactical weights (e.g., 
+
+qimpact vs. qpriv_esc ) would be ideal, exhaustively tuning these parameters presents a combinatorial explosion that is practically infeasible. Therefore, we rely on heuristic weights based on domain expertise for this study, leaving automated reward optimization as future work. 
+
+C.2 Architectural and performance ablations in CAGE 4 
+
+To isolate the impact of Trident’s core architectural and reward design choices, we conducted further ablation studies within the CAGE 4 environment. For the victim defender, we specifically selected 21 the HMARL-3 agent; among the available HMARL variants, HMARL-3 demonstrated the most consistent learning stability and performance, providing a reliable and robust baseline for sensitivity analysis. We evaluated two degraded configurations against our full framework: removing the efficiency multiplier ( w/o efficiency bonus , r = 0 ) and disabling the Coder’s self-repair mechanism (w/o retry, K = 1 ). The results, averaged over three independent training runs, are summarized in Table 3. Table 3: Ablation study of Trident’s architectural and reward components in CAGE 4. Lower mean values indicate stronger red agent performance (greater degradation of the blue agent). Display-ing individual seeds (Run 1–3) reveals that while K = 1 achieves a lower overall mean, it suffers from critical instability driven by a single outlier, whereas K = 3 remains consistently robust. 
+
+Ablation Configuration Run 1 Run 2 Run 3 Mean ± Std. Dev. ↓
+
+Trident (Ours, K = 3 ) -843.43 -856.35 -849.76 -849.85 ± 6.46 
+
+w/o Efficiency Bonus ( r = 0 ) -884.68 -855.80 -767.61 -836.03 ± 60.99 w/o Retry Loop ( K = 1 ) -646.04 -1358.14 -741.14 -915.11 ± 386.62 
+
+The Necessity of the Self-Repair Loop ( K = 1 ): Restricting the Coder to a single generation attempt ( K = 1 ) without the AST-based self-repair loop drastically destabilizes the RLVR training process. Although the K = 1 configuration yields a lower mean reward, this metric is deceptive; it is entirely driven by a single highly successful outlier run, masking an extreme generation variance (±386 .62 ). Without the ability to absorb and correct minor syntactic errors, the GRPO signal becomes dominated by execution penalties. This confirms that the K = 3 self-repair loop is indispensable for filtering out syntax noise, ensuring that the Planner learns a consistently robust and reproducible strategy. 
+
+The Role of the Efficiency Bonus: Removing the efficiency multiplier ( r = 0 in Equation 5) from the tactical reward signal results in a slightly degraded mean performance and an order-of-magnitude increase in variance. While the agent can still learn effective attack paths without explicit incentives for rapid execution, the absence of this bonus makes the reward signal less focused, leading to higher instability across individual seeds (e.g., the performance drop in Run 3). This indicates that the efficiency bonus contributes positively to both the overall maximization of the reward and the stability of the policy optimization. 
+
+C.3 Environment-specific alignment: decoy penalties in CyberWheel 
+
+While the macro-level correlations demonstrate general robustness, adapting RLVR to specific environments often requires handling domain-specific simulation mechanics. To validate our handling of such mechanics, we ablate the decoy penalty ( sdecoy ) within the CyberWheel environment. As illustrated in Figure 9, the presence or absence of this penalty fundamentally alters the agent’s learned behavior. When no explicit penalty is applied for interacting with honeypots (left), the Red Reward and Blue Reward paradoxically increase together. This exposes a critical misalignment: the red agent discovers a local optimum by farming impact rewards on decoys, while the blue defender is rewarded for successful misdirection. By enforcing a strict decoy penalty (right), the red agent is forced to autonomously learn behavioral patterns to identify and avoid honeypots. The absolute scale of the Red Reward is significantly lower compared to the unpenalized configuration, reflecting the transition from infinite decoy farming to precise, targeted exploitation of genuine servers. 
+
+C.4 Execution success rate across baselines. 
+
+To contextualize the evaluation protocol in our experiments, we report the execution success rate of each method across all victim defenders in Table 4. Trident Agentic maintains consistently high success rates (mean: 0.837), while the Frontier model succeeds in only 26.3% of episodes on average. This confirms that filtering failed episodes for baseline methods is a conservative choice — including execution failures would only widen Trident’s performance advantage further. 22 w/o Decoy Penalty  w/ Decoy Penalty 
+
+> Red Reward
+> Blue Reward
+
+Figure 9: Impact of decoy interaction penalties on optimization alignment in CyberWheel. (Left) Without a specific penalty, the agent reaches a misaligned local optimum by repeatedly interacting with decoys, mutually benefiting both agents. (Right) By incorporating a strict negative penalty for decoy hits, Trident learns to avoid honeypots, effectively reducing the blue agent’s reward while minimizing operational noise. Table 4: Execution success rates across methods and victim defenders. Higher values indicate more reliable policy execution. Trident Agentic achieves the highest and most consistent success rate across all defenders, while the Frontier model fails to execute in the majority of episodes. 
+
+Method GNN HMARL3 HMARL4 MARL CyberWheel Mean 
+
+Frontier 0.085 0.099 0.081 0.114 0.938 0.263 CoT 0.491 0.466 0.382 0.295 0.954 0.517 Zero-shot 0.215 0.768 0.807 0.097 0.878 0.553 Trident Agentic 0.868 0.788 0.873 0.782 0.872 0.837 
+
+23

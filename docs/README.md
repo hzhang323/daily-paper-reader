@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 23 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 9 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>12</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-09 21:05:58 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-10 20:42:33 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共处理23篇论文，精读12篇、速读11篇，重点聚焦智能体安全与数据验证方向。</p>
-<p>最值得关注的是《OpenART》与《DataSpace》，分别以9.0分领跑，涉及开放环境红队测试与异构工作区数据代理验证。</p>
-<p>建议优先精读这两篇高影响力工作，并留意速读列表中三类时序建模与储层剪枝方法。</p>
+<p>今日精选9篇论文，聚焦长期时序预测与智能体轨迹归因两大前沿方向。</p>
+<p>最值得看的是精读满分的KReF无训练检索预测框架，以及长期轨迹归因的统一基准与细粒度标注。</p>
+<p>建议优先研读这两篇高分工作，并结合速读中的任务难度预测与稀疏时序图学习拓展视野。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="OpenART: Scaling Agent Red Teaming via Open-Ended Environment Evolution">OpenART: Scaling Agent Red Teaming via Open-Ended Environment Evolution</span></li><li><span class="dpr-home-dashboard-paper-title" title="DataSpace: Benchmarking Data Agents for Verifiable Analytics over Heterogeneous Workspaces">DataSpace: Benchmarking Data Agents for Verifiable Analytics over Heterogeneous Workspaces</span></li><li><span class="dpr-home-dashboard-paper-title" title="WeClawArena: An Auditable Sandbox and Benchmark for Cross-User Agents Collaboration and Security in Human-Centered Agent Networks">WeClawArena: An Auditable Sandbox and Benchmark for Cross-User Agents Collaboration and Security in Human-Centered Agent Networks</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="KReF: Training-Free Retrieval for Long-Term Time-Series Forecasting and Predictive Uncertainty">KReF: Training-Free Retrieval for Long-Term Time-Series Forecasting and Predictive Uncertainty</span></li><li><span class="dpr-home-dashboard-paper-title" title="Long-Horizon Agent Trajectory Attribution: A Unified Benchmark and Fine-Grained Annotation Framework">Long-Horizon Agent Trajectory Attribution: A Unified Benchmark and Fine-Grained Annotation Framework</span></li><li><span class="dpr-home-dashboard-paper-title" title="When GNNs Fail: Quantifying and Overcoming Temporal Correlation Volatility in Time Series">When GNNs Fail: Quantifying and Overcoming Temporal Correlation Volatility in Time Series</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>6</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fast covariance-free spatiotemporal modeling via coarse-to-fine learning">Fast covariance-free spatiotemporal modeling via coarse-to-fine learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Rethinking Reservoir Pruning: A Dynamical Perspective for Echo State Networks">Rethinking Reservoir Pruning: A Dynamical Perspective for Echo State Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="High-speed time-series prediction using compact memristor circuits with adjustable dynamics">High-speed time-series prediction using compact memristor circuits with adjustable dynamics</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="The Label Defines the Timescale: Trait-State Limits of Temporal-Aggregate Learning">The Label Defines the Timescale: Trait-State Limits of Temporal-Aggregate Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Predicting Task Difficulty Without Rollouts">Predicting Task Difficulty Without Rollouts</span></li><li><span class="dpr-home-dashboard-paper-title" title="EvtGraph: Event-Adaptive Compression for Sparse Temporal Graph Learning in Multimodal Time Series">EvtGraph: Event-Adaptive Compression for Sparse Temporal Graph Learning in Multimodal Time Series</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
 </section>
 </div>
 

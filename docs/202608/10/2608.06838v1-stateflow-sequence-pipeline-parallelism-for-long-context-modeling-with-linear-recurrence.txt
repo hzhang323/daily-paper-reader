@@ -1,0 +1,982 @@
+Title: StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence
+
+URL Source: https://arxiv.org/pdf/2608.06838v1
+
+Published Time: Mon, 10 Aug 2026 00:30:55 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence 
+
+## Wenxuan Zhao 
+
+zhaowenxuan866@gmail.com 
+
+Tsinghua University Beijing, China 
+
+## Yingfa Chen 
+
+chenyingfa1999@gmail.com 
+
+Tsinghua University Beijing, China 
+
+## Xu Han 
+
+han-xu@mail.tsinghua.edu.cn 
+
+Tsinghua University Beijing, China 
+
+## Wenjing Han 
+
+wenjinghan@tsinghua.edu.cn 
+
+Tsinghua University Beijing, China 
+
+## Tianbo Huang 
+
+mlbthtb@126.com 
+
+ByteDance Inc. Beijing, China 
+
+## Zhiyu Li 
+
+lizhiyu.0@bytedance.com 
+
+ByteDance Inc. Beijing, China 
+
+## Ao Sun 
+
+why1.2seed@gmail.com 
+
+Beijing University of Posts and Telecommunications Beijing, China 
+
+## Jingheng Xu 
+
+xujh@himis-sz.cn 
+
+Hetao Institute of Mathematics and Interdisciplinary Sciences Shenzhen, China 
+
+## Lin Gan 
+
+lingan@tsinghua.edu.cn 
+
+Tsinghua University Beijing, China 
+
+## Guangwen Yang 
+
+ygw@tsinghua.edu.cn 
+
+Tsinghua University Beijing, China 
+
+## Abstract 
+
+Long-context training is increasingly important for large language models, and linear attention and state space models have become popular for improving long-context efficiency. However, efficiently parallelizing long-sequence training for recurrent and hybrid models remains challenging. We present StateFlow, a sequence pipeline parallelism system for models with linear recurrence. StateFlow parti-tions each sequence into chunks and schedules their execu-tion while propagating boundary states and gradients across chunks, thereby reducing activation lifetimes and improving training throughput. StateFlow further uses profile-guided nonuniform chunking to balance recurrence and softmax attention computation in hybrid models, and overlaps state transitions that expose limited parallelism with surround-ing computation. Applying StateFlow to models with up to 32B parameters and 256K context length, we achieve up to 2.22 × throughput improvements and 2 .45 × memory reduc-tion compared to conventional pipeline parallelism, enabling otherwise infeasible configurations. 
+
+Keywords: Linear recurrence, long-context training, sequence pipeline parallelism, hybrid attention 
+
+## 1 Introduction 
+
+Long-context language models are important for applications such as long-document understanding, retrieval-augmented generation, and agentic workloads [15, 31, 34]. However, the quadratic computational cost of softmax attention and the linear growth of activation memory with the context length make long-context training slow and expensive. An alternative to softmax attention is linear recurrence, in-cluding linear attention [33] and state space models (SSMs) [7]. Unlike softmax attention, linear recurrence compresses con-textual information into a fixed-size state, resulting in linear time complexity and constant space complexity. Thus, linear recurrence is more efficient for long-context processing and has been incorporated into recent open-weight models such as Kimi K3 [12], Nemotron 3 Ultra [22], and Qwen3.6 [24]. Despite these computational benefits, activation memory remains a primary bottleneck in large-scale long-context training. Existing parallelism strategies only partially ad-dress it. Data parallelism (DP) is constrained by global batch size and does not reduce the per-device model weight stor-age, while tensor parallelism (TP) incurs collective commu-nication and depends on interconnection bandwidth [27]. Context parallelism (CP) reduces activation memory through sequence partitioning but incurs substantial intra-layer com-munication for cross-partition attention [10, 13, 19]. Pipeline parallelism (PP) reduces per-device model memory, yet each pipeline task spans the full sequence, and schedules retain multiple such microbatches in flight, causing high peak acti-vation memory [5, 9, 27]. More recently, sequence pipeline parallelism (SPP) addresses this memory overhead by splitting the sequence into chunks and scheduling them as pipeline units [17, 28]. Because this approach schedules at a smaller granularity, it reduces mem-ory footprint compared with conventional PP and improves arXiv:2608.06838v1 [cs.DC] 7 Aug 2026 Conference’17, July 2017, Washington, DC, USA Zhao et al. 
+
+throughput by reducing bubbles. However, it is still unclear how to apply SPP to linear recurrence models efficiently. Softmax attention and linear recurrence have different cross-chunk dependencies. In softmax attention, chunks need access to all previous key/value tensors, whereas re-current chunks depend only on fixed-size boundary states, allowing more efficient computation. Yet these states impose strict dependencies that existing SPP systems do not handle efficiently. Therefore, we present StateFlow , a low-latency, state-aware SPP system for recurrent and hybrid models. While linear recurrence allows each chunk to be computed more efficiently than softmax attention, applying SPP to lin-ear recurrence introduces new challenges. First, the chunks are not independent. Correct execution must preserve re-current states across chunk boundaries, maintain bound-ary states from local convolution modules, and propagate state gradients during backward computation. Second, linear recurrence depends on a state transition that exposes lim-ited parallelism compared with dense tensor computations that prepare chunk-level update matrices and outputs. This causes low GPU utilization during state transition. Third, many models incorporate both linear recurrence and softmax attention layers [2, 11], complicating sequence partitioning. Linear recurrence favors uniform chunks with regular state transition workloads, whereas softmax attention may bene-fit from nonuniform chunks because later chunks attend to longer prefixes and therefore require more FLOPs [17, 30]. StateFlow addresses these challenges with three mech-anisms. First, a state-aware chunk schedule preserves all cross-chunk dependencies and releases each chunk’s activa-tions after its local backward computation. Second, StateFlow overlaps state transitions with independent dense computa-tion in both forward and backward passes. Third, it searches over hybrid-aware partitioning candidates to balance recur-rent and softmax attention workloads. We conduct experiments on Gated DeltaNet and Mamba-3 models [14, 32] with up to 32B parameters. With activation recomputation, StateFlow achieves up to 2 .2× end-to-end speedup and 2 .45 × peak memory reduction on recurrent models, and up to 2 .22 × speedup and 2 .44 × peak mem-ory reduction on hybrid models. Without recomputation, it achieves up to 1 .79 × speedup and 2 .54 × peak memory re-duction. We will release the source code for reproducibility. In brief, this paper makes the following contributions: 
+
+• We design StateFlow , a dependency-preserving SPP approach that reduces linear recurrence activation memory and pipeline bubbles by pipelining sequence chunks with compact state transition. 
+
+• We extend StateFlow to hybrid models with an offline partition search that balances the workload of linear recurrence and softmax attention. 
+
+• We reduce the state transition utilization bottleneck with optimized kernels and overlapping them with neighboring computation in both forward and back-ward passes. 
+
+## 2 Background 
+
+2.1 Modern Linear Recurrence 
+
+Currently, most linear recurrence falls into two categories: linear attention and state space models (SSM). While these two kinds of architectures were developed based on differ-ent theoretical motivations, they can both be viewed as a kind of recurrent neural network (RNN) with matrix-valued recurrent state and a linear update rule . Below, we provide a formulation that encompasses both linear attention and SSM, while keeping the details relevant to this paper. Let 𝑥 𝑡 ∈ R𝑑 and 𝑦 𝑡 ∈ R𝑑 𝑣 denote the input and output representations at time step 𝑡 . The core computation of a linear recurrence layer can be written as 
+
+𝑆 𝑡 = 𝑆 𝑡 −1𝐹 𝑡 + 𝑣 𝑡 𝑘 ⊤ 
+
+> 𝑡
+
+, 𝑦 𝑡 = 𝑆 𝑡 𝑞 𝑡 . (1) Here, 𝐹 𝑡 ∈ R𝑑 𝑘 ×𝑑 𝑘 , 𝑞 𝑡 , 𝑘 𝑡 ∈ R𝑑 𝑘 , and 𝑣 𝑡 ∈ R𝑑 𝑣 are functions of 
+
+𝑥 𝑡 . The two equations are known as the update rule and the 
+
+query rule , respectively, and 𝑆 𝑡 is called the recurrent state 1.For all models studied, 𝑆 0 = 0. To enable parallel training and reduce parameter count, 
+
+𝐹 𝑡 is usually structured. For Mamba-2 [4] and Mamba-3 [14], 
+
+𝐹 𝑡 is a scalar-identity matrix; for Gated Linear Attention, it is a rank-1 matrix [33]; for Gated DeltaNet (GDN), it is a scalar-plus-low-rank matrix [32]; and for Kimi Delta Atten-tion (KDA), it is a diagonal-plus-low-rank matrix [11]. 
+
+2.2 Chunkwise Parallelism for Linear Recurrence 
+
+Efficient linear recurrence implementations process tokens in fixed kernel-level chunks rather than applying recurrence token by token [33]. For a chunk of input representations 
+
+𝑋 𝑖 = [𝑥 𝑖𝑇 𝐶 , · · · , 𝑥 (𝑖 +1)𝑇 𝐶 −1], where 𝑇 𝐶 is the chunk size, we abstract its execution as three functions, 𝑃𝑟𝑒, 𝑆𝑇 , 𝑂𝑢𝑡 :
+
+Ω𝑖 = 𝑃𝑟𝑒 (𝑋 𝑖 ) ,
+
+ 𝑆 (𝑖 +1)𝑇 𝐶 , 𝑉 new 
+
+> 𝑖
+
+ = 𝑆𝑇  𝑆 𝑖𝑇 𝐶 , Ω𝑖 
+
+ ,𝑌 𝑖 = 𝑂𝑢𝑡  𝑉 new  
+
+> 𝑖
+
+, 𝑆 𝑖𝑇 𝐶 , Ω𝑖 
+
+ .
+
+(2) where Ω𝑖 is the set of data-dependent parameters used by state transition and output computation, while 𝑉 new  
+
+> 𝑖
+
+is aux-iliary representation exposed by the recurrent operator for the delta rule (for SSMs, we have 𝑉 new  
+
+> 𝑖
+
+= ∅), 𝑌 𝑖 is the output representation of this chunk. 
+
+2.3 Hybrid Architectures 
+
+Linear recurrence might underperform softmax attention on recall-intensive tasks [26]. Thus, many long-context models use hybrid stacks with one softmax attention layer per 3–7 linear recurrence layers, which can achieve Transformer-level recall while retaining much of the efficiency benefit of linear recurrence [2, 11, 18]. When training such models    
+
+> 1Also called the hidden state in some papers. StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence Conference’17, July 2017, Washington, DC, USA
+
+Table 1. Qualitative comparison of sequence pipeline paral-lelism methods.                      
+
+> Method Communication volume Activation memory Balanced runtime Linear recurrence TeraPipe [17] Low High Yes No Seq1F1B [28] Low Low Yes No MEPipe [30] Low Low No No SlimPipe [16] High Low No No
+> StateFlow (ours) Low Low Yes Yes
+
+with PP, the training system needs to account for the differ-ent complexities of the two kinds of layers to balance the workload of each device, in order to minimize bubbles and maximize hardware utilization. 
+
+2.4 Parallel Training for Long Sequences 
+
+Many large-scale training systems adopt sophisticated paral-lelism strategies to reduce per-device costs by partitioning computation and model states. Megatron-LM combines TP and PP, while ZeRO shards model states across data-parallel workers [21, 25, 27]. Pipeline schedules such as PipeDream, interleaved 1F1B, and Zero Bubble improve utilization by reordering microbatch execution [20, 23, 27]. However, they still schedule full-sequence microbatches, whose activation lifetime and latency grow with the context length. Long-sequence training often relies on sequence paral-lelism (SP), which partitions activations and computation along the sequence dimension. DeepSpeed-Ulysses redis-tributes sequence and attention-head partitions through all-to-all communication, while Ring Attention circulates key/value blocks and overlaps communication with block-wise attention [10, 19]. USP and LoongTrain combine multi-ple partitioning and communication schemes [6, 8]. For linear attention, LASP-2 and ZeCO distribute sequence computa-tion through compact state communication [3, 29]. These methods provide intra-layer SP. A complementary direction is sequence pipeline paral-lelism (SPP). TeraPipe, Seq1F1B, SlimPipe, and MEPipe ex-pose sequence segments as pipeline units to balance causal attention, reduce pipeline bubbles, or release activations ear-lier [16, 17, 28, 30]. Existing SPP methods target softmax attention and its prefix key/value dependencies. StateFlow extends SPP to recurrent and hybrid models through state-aware chunk scheduling, low-latency state transition, and hybrid-aware partitioning, reducing activation memory and improving training throughput. Table 1 compares these meth-ods, with green highlighting favorable entries. It is worth highlighting that SPP can be used in combination with many other parallelism strategies such as DP, TP, and SP. 
+
+## 3 Method 
+
+Section 3.1 presents the design of StateFlow, an SPP ap-proach for linear recurrence. Then, in Section 3.2, we dis-cuss sequence partitioning for hybrid models, where recur-rent and causal layers favor different partitioning strategies. Section 3.3 provides an analysis on how StateFlow reduces memory costs and improves training throughput. Finally, Section 3.4 presents a resource-aware execution strategy to hide the exposed latency of recurrent state transition kernels. 
+
+3.1 Sequence Pipeline Parallelism for Linear Recurrence 
+
+StateFlow exposes sequence chunks as pipeline scheduling units while preserving their recurrent dependencies. We first formalize the chunk-level execution semantics. We consider a single training sequence and omit the microbatch index for clarity. Let 𝑆 in  
+
+> 𝑖
+
+and 𝑆 out  
+
+> 𝑖
+
+denote the recurrent states at the input and output boundaries of chunk 𝐶 𝑖 , respectively. 2
+
+StateFlow partitions a sequence 𝑋 into chunks: 
+
+𝑋 = 𝐶 0 ∥𝐶 1 ∥ · · · ∥ 𝐶 𝑁 −1, (3) where 𝑁 is the number of chunks, 𝐶 𝑖 is the 𝑖 -th chunk and ∥
+
+denotes concatenation along the sequence dimension. 
+
+Forward Computation. The forward computation Fwd of 𝐶 𝑖 consumes its input activation 𝐶 in  
+
+> 𝑖
+
+and input boundary state 𝑆 in  
+
+> 𝑖
+
+, and produces the chunk output 𝐶 out  
+
+> 𝑖
+
+and output boundary state 𝑆 out  
+
+> 𝑖
+
+:
+
+ 𝐶 out  
+
+> 𝑖
+
+, 𝑆 out 
+
+> 𝑖
+
+ = Fwd 
+
+
+
+𝐶 in  
+
+> 𝑖
+
+, 𝑆 in 
+
+> 𝑖
+
+
+
+, 0 ≤ 𝑖 < 𝑁 . (4) The first chunk receives the initial state 𝑆 init , while the output state of each chunk becomes the input state of its successor: 
+
+𝑆 in 0 = 𝑆 init , 𝑆 in  
+
+> 𝑖 +1
+
+= 𝑆 out  
+
+> 𝑖
+
+, 0 ≤ 𝑖 < 𝑁 − 1. (5) 
+
+Backward Computation. During the backward pass Bwd, we must preserve the reverse state dependency between chunks. Let ¯ 𝑆 out  
+
+> 𝑖
+
+denote the gradient received at the output boundary of chunk 𝐶 𝑖 . The backward computation of 𝐶 𝑖 
+
+produces gradients with respect to its input state: 
+
+  ¯𝐶 𝑖𝑛 𝑖 , ¯𝑆 𝑖𝑛 𝑖 
+
+ = Bwd 
+
+
+
+𝐶 in  
+
+> 𝑖
+
+, 𝑆 in  
+
+> 𝑖
+
+, ¯𝐶 out  
+
+> 𝑖
+
+, ¯𝑆 out 
+
+> 𝑖
+
+
+
+, 0 ≤ 𝑖 < 𝑁 . (6) Because 𝑆 in  
+
+> 𝑖 +1
+
+= 𝑆 out  
+
+> 𝑖
+
+, the input boundary-state gradient pro-duced by 𝐶 𝑖 +1 becomes the output boundary-state gradient consumed by 𝐶 𝑖 :¯𝑆 out  
+
+> 𝑖
+
+= ¯𝑆 in 
+
+> 𝑖 +1
+
+, 0 ≤ 𝑖 < 𝑁 − 1. (7) 
+
+Scheduling Dependencies. Formally, let 𝑃 denote the number of pipeline stages, and let 𝐹 𝑟,𝑎,𝑖 and 𝐵 𝑟,𝑎,𝑖 denote the forward and backward execution, respectively, of chunk 𝐶 𝑖     
+
+> 2In practice, 𝑆 in
+> 𝑖 and 𝑆 out
+> 𝑖 may also include auxiliary boundary states, such as short convolution states commonly used in linear recurrence models.
+
+Conference’17, July 2017, Washington, DC, USA Zhao et al. M0C1  M1C0  M1C1  M2C0  M2C1  M3C0 M0C1  M3C1 M0C0  M4C0 M1C1  M1C0  M4C1 M2C1  M2C0                           
+
+> M0C0 M0C1 M1C0 M1C1 M2C0 M0C1 M2C1 M3C0 M0C0 M3C1 M1C1 M1C0 M4C0 M2C1 M4C1 M2C0
+> M0C0 M0C1 M1C0 M1C1 M0C1 M2C0 M0C0 M2C1 M3C0
+> M1C1
+> M1C0 M3C1 M2C1 M4C0 M2C0 M4C1
+> M0C0 M0C1 M1C0 M0C1 M1C1 M0C0 M2C0
+> M1C1
+> M2C1 M1C0 M3C0 M2C1 M3C1 M2C0 M4C0 M3C1
+> Device 0
+> Device 1
+> Device 2
+> Device 3
+
+Forward  Backward 
+
+> M0C0
+
+𝑏 
+
+𝐶 𝑖 
+
+𝑏 𝑖,0  𝑏 𝑖,𝐾 −1  ... 𝑆 𝑖  
+
+> 𝑖𝑛
+
+𝑆 𝑖  
+
+> 𝑜𝑢𝑡
+
+= 𝑆 𝑖+1 
+
+> 𝑖𝑛
+
+𝑆 𝑖+1 𝑜𝑢𝑡  ҧ 𝑆 𝑖+1 𝑜𝑢𝑡  ҧ 𝑆 𝑖 
+
+> 𝑖𝑛
+
+Forward boundary state passing  Backward state gradient passing 
+
+𝐶 𝑖+1 
+
+> ...
+
+𝑏 𝑖+1,0  𝑏 𝑖+1,𝐾 −1  
+
+> ...
+
+𝑏 𝑖+1,K−1  𝑏 𝑖+1,0  𝑏 𝑖,𝐾−1  𝑏 𝑖,0 
+
+𝐶 𝑖+1  𝐶 𝑖 
+
+> ...
+
+StateFlow  
+
+> M3C1
+> M3C0
+> M3C0
+> M3C0
+> M3C0
+> M3C1
+> M3C1
+> M4C1
+> M4C1
+> M4C1
+> M4C1 M4C0
+> M4C0
+> M4C0
+> M4C0 M4C1
+
+Forward                          
+
+> Device 0
+> Device 1
+> Device 2
+> Device 3
+> M0 M1 M2 M3 M0 M1 M2 M3
+> M0 M1 M2 M3 M0 M1 M2 M3
+> M0 M1 M2 M0 M3 M1 M2 M3
+> M0 M0 M1 M1 M2 M2 M3 M3
+
+𝑎     
+
+> M4 M4
+> M4 M4
+> M4 M4
+> M4 M4
+
+Backward 1F1B PP 
+
+Time 
+
+> Time
+
+ҧ𝑆 𝑖+1  
+
+> 𝑖𝑛
+
+= ҧ 𝑆 𝑖 
+
+> 𝑜𝑢𝑡
+
+Figure 1. Illustration of StateFlow (ours) and conventional 1F1B, with four devices. (a) Conventional 1F1B PP schedule where a batch is split into 5 microbatches {M0 , M1 , · · · } , which are used as pipeline units. (b) StateFlow further partitions each microbatch M 𝑎 into chunks {M𝑎 C0 , M𝑎 C1 , · · · } , where M 𝑎 C𝑖 denotes the 𝑖 -th chunk of 𝑎 -th microbatch. from microbatch 𝑎 on pipeline stage 𝑟 . A legal StateFlow schedule must satisfy the following partial order: 
+
+𝐹 𝑟 −1,𝑎,𝑖 ≺ 𝐹 𝑟,𝑎,𝑖 , 1 ≤ 𝑟 < 𝑃, 𝐹 𝑟,𝑎,𝑖 −1 ≺ 𝐹 𝑟,𝑎,𝑖 , 1 ≤ 𝑖 < 𝑁 , 𝐹 𝑟,𝑎,𝑖 ≺ 𝐵 𝑟,𝑎,𝑖 , 0 ≤ 𝑟 < 𝑃, 0 ≤ 𝑖 < 𝑁 , 𝐵 𝑟 +1,𝑎,𝑖 ≺ 𝐵 𝑟,𝑎,𝑖 , 0 ≤ 𝑟 < 𝑃 − 1,𝐵 𝑟,𝑎,𝑖 +1 ≺ 𝐵 𝑟,𝑎,𝑖 , 0 ≤ 𝑖 < 𝑁 − 1.
+
+(8) The first, third, and fourth constraints are standard pipeline dependencies. The second and fifth constraints arise from forward boundary-state propagation and reverse propaga-tion of boundary-state gradients between adjacent chunks. These constraints define schedule correctness but do not prescribe a unique execution order. StateFlow can issue the ready tasks with different pipeline issue policies. Figure 1 contrasts conventional 1F1B with one legal 1F1B-style StateFlow schedule. Figure 1 (a) shows conventional 1F1B, where each pipeline scheduling unit is the forward or backward pass of one full-sequence microbatch {M0 , M1 , · · · } .Figure 1 (b) shows StateFlow, which partitions the sequence of each microbatch M 𝑎 into chunks {M𝑎 C0 , M𝑎 C1 , · · · } and exposes the forward and backward pass of each chunk as a pipeline scheduling unit. StateFlow issues ready tasks while respecting pipeline device and recurrent state dependencies. During forward execution, boundary-states propagate from earlier chunks to later chunks. During backward exe-cution, boundary-state gradients propagate in the reverse order, and the tensors saved for a chunk can be released after its backward execution completes. The bottom part in Fig-ure 1 (b) shows the two chunk levels. Within each chunk, the existing linear recurrence kernels operate over kernel-level chunks 𝑏 𝑖,𝑗 . Dense tensor kernels expose parallelism across these kernel-level chunks, while recurrent state transitions preserve the sequential dependency between neighboring kernel-level chunks. StateFlow treats the number of sequence chunks 𝑁 as a tunable scheduling parameter and selects the fastest feasible value from 𝑁 ∈ { 2, 4, 6, 8, 16 , 32 } within the GPU memory constraint. 
+
+3.2 Hybrid-Aware Sequence Chunking 
+
+To keep the pipeline bubbles small, the runtime of chunks should be balanced. Equal-length chunks are effective for linear recurrence because their FLOPs depend only on the chunk size. However, for hybrid models, later chunks per-form more softmax attention work because they attend to longer prefixes. Let a sequence of length 𝑇 be partitioned into 𝑁 chunks with boundaries 0 = 𝑐 0 < 𝑐 1 < · · · < 𝑐 𝑁 = 𝑇 , where 
+
+𝑠 𝑖 = 𝑐 𝑖 +1 −𝑐 𝑖 is the length of the 𝑖 -th chunk. The computation cost of the 𝑖 -th chunk can be formulated as Cost 𝑖 = (𝐿 lin 𝐶 lin + 𝐶 dense ) 𝑠 𝑖 + 𝐿 soft 𝐶 soft 
+
+
+
+𝑐 𝑖 𝑠 𝑖 + 𝑠 2
+
+> 𝑖
+
+2
+
+
+
+. (9) Here, 𝐿 lin and 𝐿 soft are the numbers of linear recurrence and softmax attention layers. 𝐶 lin is the per-token FLOPs of one linear recurrence layer, 𝐶 soft is the FLOP coefficient per query–key pair for one softmax attention layer, and 
+
+𝐶 dense represents the remaining token-wise dense FLOPs. StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence Conference’17, July 2017, Washington, DC, USA 
+
+The FLOP-balanced partition satisfies Cost 0 = Cost 1 = · · · = Cost 𝑁 −1. (10) 
+
+Optimal Chunk Search. FLOPs-based balancing does not capture kernel efficiency and memory behavior, etc. State-Flow therefore uses the hybrid balanced partition as an an-chor and generates candidates 
+
+𝑐 𝑖 (𝛼 ) = (1 − 𝛼 )𝑐 equal  
+
+> 𝑖
+
++ 𝛼𝑐 hybrid  
+
+> 𝑖
+
+, 𝑖 = 0, . . . , 𝑁 , (11) where 𝑐 equal  
+
+> 𝑖
+
+= 𝑖𝑇 /𝑁 and 𝑐 hybrid  
+
+> 𝑖
+
+is the chunk boundary that satisfies Eq 10. When 𝛼 = 0, we get equal-length chunking, while 𝛼 = 1 gives the FLOP-balanced partition, and 𝛼 > 1 ex-plores more aggressive imbalance. The generated boundaries are rounded to the closest multiple of 128. For hybrid models, StateFlow profiles 𝑁 ∈ { 2, 4, 6, 8, 16 , 32 }
+
+and 𝛼 ∈ { 0, 0.1, 0.2, . . . , 1.0, 1.25 }, and selects the fastest fea-sible pair within the GPU memory constraint. 
+
+3.3 Efficiency Analysis 
+
+We analyze how StateFlow affects peak memory and training throughput for linear recurrent models under the 1F1B-style schedule shown in Figure 1. Conventional 1F1B schedules 
+
+𝑀 full-sequence microbatches as pipeline units, whereas StateFlow partitions each microbatch into 𝑁 chunks, yielding 
+
+𝑀𝑁 chunk-level scheduling units. 
+
+Memory Reduction. Let 𝐴 𝑟 denote the activation foot-print of one full-sequence microbatch on device 𝑟 , and let 
+
+𝐵 𝑟 denote the boundary-information footprint of one chunk on device 𝑟 . In conventional 1F1B, device 𝑟 stores at most min (𝑀, 𝑃 − 𝑟 ) microbatches: Mem 1F1B (𝑟 ) ≈ min (𝑀, 𝑃 − 𝑟 )𝐴 𝑟 . (12) StateFlow must store one complete 𝑁 -chunk sequence before backward, together with up to 𝑃 − 𝑟 − 1 additional chunks caused by the downstream pipeline delay. Its memory cost is therefore approximated by Mem SF (𝑟 ) ≈ min (𝑀𝑁 , 𝑁 + 𝑃 − 𝑟 − 1)
+
+ 𝐴 𝑟 
+
+𝑁 + 𝐵 𝑟 
+
+
+
+. (13) For linear recurrence models, 𝐵 𝑟 consists of compact re-current and local-convolution boundary states and usually satisfies 𝐵 𝑟 ≪ 𝐴 𝑟 /𝑁 . When 𝑀 ≥ 𝑃 −𝑟 and 𝑀𝑁 ≥ 𝑁 +𝑃 −𝑟 −1, StateFlow reduces the retained activation from 𝐴 𝑟 (𝑃 − 𝑟 ) to 
+
+𝐴 𝑟 (1 + ( 𝑃 − 𝑟 − 1)/ 𝑁 ).For hybrid models, 𝐵 𝑟 additionally accounts for the K/V tensors retained by softmax attention layers and may there-fore be non-negligible. To avoid duplicating prefix K/V across chunks, StateFlow stores each microbatch’s K/V tensors only once in sequence-wide buffers. These buffers are also re-tained under activation recomputation to support efficient chunk replay. This design substantially reduces the remain-ing boundary overhead, so the approximately 1 /𝑁 reduction in activation footprint generally outweighs this additional cost, allowing StateFlow to reduce peak memory in both layer types. Hybrid-aware partitioning might slightly increase peak activation memory. Forward dependencies execute chunks in the sequence order, whereas backward execution releases their saved activations in reverse. Thus, later chunks are released first, while earlier chunks need to remain in memory longer. StateFlow bounds the resulting memory overhead by treating the GPU memory limit as a hard constraint during candidate profiling. 
+
+Throughput Gains. The same decrease in scheduling granularity also reduces pipeline bubbles, leading to higher throughput. Let 𝑡 denote the critical-path forward-backward time of one full-sequence microbatch. Conventional 1F1B takes approximately 
+
+𝑇 1F1B ≈ ( 𝑀 + 𝑃 − 1)𝑡 . (14) If sequence chunks scale ideally, each chunk takes roughly 
+
+𝑡 /𝑁 , and StateFlow takes 
+
+𝑇 SF ≈ ( 𝑀𝑁 + 𝑃 − 1) 𝑡 𝑁 =
+
+
+
+𝑀 + 𝑃 − 1
+
+𝑁 
+
+
+
+𝑡 . (15) This comparison shows that exposing sequence chunks as scheduling units amortizes pipeline bubbles across 𝑁 chunks, leading to better hardware utilization, while overly fine chunks may reduce kernel efficiency. 
+
+3.4 State Transition Grid Optimization and Overlap 
+
+In StateFlow, the microbatch size of each scheduling unit is very small (typically set to 1). In such cases, the state transition (ST) kernel has limited streaming multiproces-sor (SM) coverage, leading to hardware underutilization. StateFlow mitigates this with (1) state transition grid op-timization and (2) split and overlap. 
+
+3.4.1 State Transition Grid Optimization. For state tran-sition implementations that are tiled along the value dimen-sion, the launch grid size of the ST kernel is roughly 
+
+𝐺 = 𝐵 chunk 𝐴 
+
+ 𝑑 𝑣 
+
+𝐵 𝑉 
+
+
+
+, (16) where 𝐵 chunk is the active microbatch count within a chunk and is set to one in the memory-minimal schedule. 𝐴 is the number of linear recurrence heads and is fixed by the model and TP configuration, 𝑑 𝑣 is the value dimension, and 𝐵 𝑉 is the tile size along that dimension. The value dimension tiling therefore becomes the main tuning knob. Reducing 𝐵 𝑉 increases the number of launched blocks and improves SM coverage, but an overly small tile reduces kernel efficiency. StateFlow jointly profiles 𝐵 𝑉 ∈{8, 16 , 32 , 64 } and selects the configuration with the lowest measured latency. 
+
+3.4.2 Split and Overlap. Conference’17, July 2017, Washington, DC, USA Zhao et al. Forward 𝑷𝒓𝒆 (𝟏) 𝑺𝑻 (𝟏) 𝑺𝑻 (𝟐)           
+
+> 𝑷𝒓𝒆 (𝟐) 𝑶𝒖𝒕 (𝟏)
+> 𝑶𝒖𝒕 (𝟐)
+> Backward 𝑶𝒖𝒕𝒑𝒖𝒕𝑮𝒓𝒂𝒅 𝑺𝒕𝒂𝒕𝒆𝑩𝒘𝒅 (𝟏) 𝑺𝒕𝒂𝒕𝒆𝑩𝒘𝒅 (𝟐) 𝑷𝒓𝒆𝒑𝑮𝒓𝒂𝒅 (𝟐)
+> 𝑷𝒓𝒆 𝑺𝑻 𝑶𝒖𝒕
+> 𝑺𝒕𝒂𝒕𝒆𝑹𝒆𝒑𝒍𝒂𝒚 𝑶𝒖𝒕𝒑𝒖𝒕𝑮𝒓𝒂𝒅 𝑺𝒕𝒂𝒕𝒆𝑩𝒘𝒅 𝑷𝒓𝒆𝒑𝑮𝒓𝒂𝒅
+
+Serial Execution StateFlow             
+
+> Forward 𝑷𝒓𝒆 (𝟏) 𝑺𝑻 (𝟏) 𝑺𝑻 (𝟐)
+> 𝑷𝒓𝒆 (𝟐) 𝑶𝒖𝒕 (𝟏)
+> 𝑶𝒖𝒕 (𝟐) 𝑷𝒓𝒆 𝑺𝑻 𝑶𝒖𝒕 𝑶𝒖𝒕𝑨𝑮 𝑺𝒕𝒂𝒕𝒆𝑩𝒘𝒅 𝑶𝒖𝒕𝑮𝒓𝒂𝒅 𝑺𝒕𝒂𝒕𝒆𝑩𝒘𝒅
+> Backward 𝑶𝒖𝒕𝑾𝑮
+> 𝑺𝒕𝒂𝒕𝒆𝑹𝒆𝒑𝒍𝒂𝒚 𝑷𝒓𝒆𝒑𝑮𝒓𝒂𝒅 (𝟏)
+> (a) State Transition Kernels (b) Surrounding Kernels (c) Overlap Windows
+> GDN Mamba-3 State Transition Kernels Surrounding Kernels
+> Covered SMs Idle SMs Full SM coverage Additional SM coverage Co-resident (resources permit)
+
+SM utilization 
+
+Figure 2. Forward and backward overlap schedules for GDN and Mamba-3. The SM utilization diagrams show how surrounding kernels use idle SMs and may co-reside with state transition kernels when resources permit. 
+
+Forward Pass. As mentioned in Section 2.2, each chunk with explicit recurrence kernels can be split into three stages: preparation 𝑃𝑟𝑒 , state transition 𝑆𝑇 , and output computation 
+
+𝑂𝑢𝑡 . For each token/chunk, these stages must be computed sequentially, but stages from different tokens/chunk can be computed in parallel to maximize hardware utilization. As shown in Figure 2, StateFlow splits each chunk along the sequence dimension into two contiguous segments. It overlaps the state transition of the first segment, 𝑆𝑇 (1) , with the preparation of the second segment, 𝑃𝑟𝑒 (2) , and then overlaps the state transition of the second segment, 𝑆𝑇 (2) ,with the output computation of the first segment, 𝑂𝑢𝑡 (1) :
+
+𝑃𝑟𝑒 (1) →
+
+
+
+𝑆𝑇 (1) ∥ 𝑃𝑟𝑒 (2) 
+
+→
+
+
+
+𝑆𝑇 (2) ∥ 𝑂𝑢𝑡 (1) 
+
+→ 𝑂𝑢𝑡 (2) .
+
+(17) The same forward wavefront also applies to the fused Mamba-3 kernel, where 𝑆𝑇 denotes the fused state transition, 
+
+𝑃𝑟𝑒 groups gating and projection computations preceding 
+
+𝑆𝑇 , and 𝑂𝑢𝑡 groups output and MLP projections following 
+
+𝑆𝑇 within the same chunk. 
+
+Backward Pass. During backward propagation, State-Flow overlaps backward state transition with state replay and gradient computation. For GDN, we group the com-putation into state replay 𝑆𝑅 , output gradient computation 
+
+𝑂𝐺 , backward state transition 𝑆𝑇 𝐵 , and preparation gradient computation 𝑃𝐺 . As shown in Figure 2, StateFlow uses the schedule 
+
+h
+
+𝑆𝑅 ∥
+
+
+
+𝑂𝐺 → 𝑆𝑇 𝐵 (1) i 
+
+→
+
+
+
+𝑃𝐺 (1) ∥ 𝑆𝑇 𝐵 (2) 
+
+→ 𝑃𝐺 (2) .
+
+(18) The first overlap window executes state replay concurrently with output gradient computation and the first state back-ward fragment. Once the required replayed states and state gradients are available, the second state backward fragment overlaps with dependency-ready post gradient computation. For Mamba-3, StateFlow decomposes the output-projection backward computation 𝑂𝑢𝑡𝑃𝐺 into its activation-gradient 
+
+𝑂𝑢𝑡𝐴𝐺 and weight-gradient 𝑂𝑢𝑡𝑊 𝐺 components. Since 𝑂𝑢𝑡𝑊 𝐺 
+
+is not required by the recurrent gradient dependency path, StateFlow executes 𝑂𝑢𝑡𝐴𝐺 first and overlaps the deferred 
+
+𝑂𝑢𝑡𝑊 𝐺 with the fused backward state computation 𝑆𝑡𝑎𝑡𝑒𝐵𝑤𝑑 :
+
+𝑂𝑢𝑡𝐴𝐺 → ( 𝑆𝑡𝑎𝑡𝑒𝐵𝑤𝑑 ∥ 𝑂𝑢𝑡𝑊 𝐺 ) . (19) Figure 2 illustrates the overlap opportunity. Figure 2 (a) shows that state transition kernels cover only a subset of the SMs, leaving the remaining SMs idle. Figure 2 (b) shows that the surrounding kernels launch larger grids and can cover the GPU more fully. During the overlap in Figure 2 (c), these surrounding kernels execute on otherwise idle SMs and may also co-reside with the state transition kernels on active SMs when resources permit, thereby hiding part of the state transition latency. For each operator shape, StateFlow profiles a small set of valid tile sizes, split points, and overlap schedules, and selects the configuration with the lowest measured latency. 
+
+## 4 Evaluation 
+
+In this section, we will first describe the evaluation details (Sec-tion 4.1). Then, we report the results on linear recurrence models (Section 4.2) and hybrid models (Section 4.3). Finally, we present the efficiency gains on recurrence kernels using split and overlap (Section 4.4). 
+
+4.1 Experimental Setup 
+
+Implementation Details. Experiments use NVIDIA A100-SXM4-80GB GPUs, with 8, 16, and 32 GPUs for the 3B, 15B, and 32B models, respectively. All experiments use PyTorch 2.6.0, CUDA 12.4, and Triton 3.5.1. We implement StateFlow in Megatron Core r0.12.0 and ms-swift 3.6.4 [35], using their native pipeline implementations as baselines under identi-cal model, recomputation, and parallelism configurations. StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence Conference’17, July 2017, Washington, DC, USA 
+
+Table 2. End-to-end training efficiency results with activation recomputation for (a) GDN and (b) Mamba-3. Each entry reports throughput/peak memory in K tokens/s and GB. Megatron and Swift denote their native pipeline baselines, while “+StateFlow” uses the highest-throughput feasible chunk count 𝑁 for each workload. OOM denotes out of memory. 
+
+(a) GDN Method GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 3B 64K 128K 256K 
+
+Megatron 20.2/43.7G 28.7/43.7G 35.4/43.7G 18.8/75.3G 28.4/76.5G 35.7/76.5G OOM OOM OOM +StateFlow 38.6 /24.3G 42.3 /26.3G 43.2 /27.5G 41.4 /40.6G 43.8 /41.3G 44.2 /46.5G 43.7 /69.9G 45.0 /74.8G 45.7 /73.4G Swift 19.3/25.5G 27.4/26.6G 33.9/26.7G 19.3/46.5G 27.3/48.8G 32.3/48.8G OOM OOM OOM +StateFlow 38.3 /19.5G 40.6 /19.7G 41.7 /19.7G 40.5 /34.3G 42.2 /34.3G 43.1 /34.3G 42.1 /64.3G 43.1 /64.0G 44.0 /64.0G 
+
+15B 64K 128K 256K 
+
+Megatron 12.7/49.8G 15.9/49.8G 18.2/49.8G OOM OOM OOM OOM OOM OOM +StateFlow 16.9 /29.8G 18.3 /29.8G 19.2 /35.7G 18.3 /41.4G 19.1 /44.3G 20.0 /44.5G 19.1 /65.3G 19.9 /66.8G 20.5 /72.2G Swift 13.4/40.5G 17.0/40.5G 19.5/40.6G OOM OOM OOM OOM OOM OOM +StateFlow 19.9 /20.1G 20.9 /20.1G 21.3 /21.4G 20.9 /31.1G 21.3 /31.5G 21.9 /31.5G 21.3 /53.5G 21.9 /53.5G 22.2 /54.4G 
+
+32B 32K 64K 128K 
+
+Megatron 8.4/45.7G 10.6/46.2G 12.2/46.2G 8.7/74.2G 10.9/75.3G 12.6/75.3G OOM OOM OOM +StateFlow 9.9 /34.7G 11.5 /34.7G 12.4 /34.7G 11.4 /40.7G 12.4 /40.7G 13.2 /52.3G 12.4 /52.8G 13.2 /64.3G 13.8 /64.3G Swift 9.3/38.5G 11.8/39.6G 13.7/39.6G 9.5/67.3G 12.0/68.5G 13.8/70.5G OOM OOM OOM +StateFlow 11.4 /27.2G 13.5 /21.4G 14.4 /27.2G 13.6 /27.5G 14.5 /33.1G 15.2 /33.2G 14.5 /45.5G 15.2 /45.5G 15.5 /57.1G 
+
+(b) Mamba-3 Method GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 3B 64K 128K 256K 
+
+Megatron 16.1/43.0G 22.8/43.0G 28.8/43.0G OOM OOM OOM OOM OOM OOM +StateFlow 33.7 /25.7G 35.3 /28.7G 36.8 /29.1G 35.4 /42.5G 36.9 /42.5G 37.7 /42.5G 36.9 /70.5G 37.8 /70.4G 38.2 /70.6G Swift 15.6/26.0G 22.1/31.0G 27.9/31.0G 15.6/47.3G 22.0/57.4G 27.7/57.4G OOM OOM OOM +StateFlow 32.3 /19.8G 33.9 /20.1G 35.4 /20.1G 33.9 /34.7G 35.4 /34.7G 36.2 /35.3G 35.2 /64.7G 36.0 /64.4G 36.6 /64.5G 
+
+15B 64K 128K 256K 
+
+Megatron 9.0/52.9G 11.4/53.0G 13.2/53.0G OOM OOM OOM OOM OOM OOM +StateFlow 11.9 /31.2G 12.9 /31.6G 13.8 /38.6G 12.8 /42.1G 13.8 /45.2G 14.4 /46.2G 13.8 /68.8G 14.4 /68.5G 14.9 /72.9G Swift 9.4/32.4G 11.9/32.5G 13.7/32.5G OOM OOM OOM OOM OOM OOM +StateFlow 14.2 /21.1G 14.8 /21.1G 15.2 /21.9G 14.7 /34.0G 15.2 /34.8G 15.5 /34.8G 15.1 /57.7G 15.5 /58.1G 15.8 /59.1G 
+
+32B 32K 64K 128K 
+
+Megatron 6.0/48.6G 7.5/48.6G 8.7/48.8G OOM OOM OOM OOM OOM OOM +StateFlow 8.2 /31.0G 8.9 /31.0G 9.3 /31.1G 8.9 /37.0G 9.3 /37.1G 9.7 /43.0G 9.3 /54.9G 9.7 /55.0G 9.9 /55.1G Swift 6.3/40.5G 8.0/41.5G 9.2/41.7G OOM OOM OOM OOM OOM OOM +StateFlow 8.7 /22.6G 9.5 /22.7G 9.9 /22.8G 9.4 /28.8G 9.9 /28.9G 10.3 /34.9G 9.8 /47.2G 10.3 /47.1G 10.5 /47.3G 
+
+Unless otherwise specified, all methods use full activation recomputation in uniform one-layer units. Throughput ex-cludes warmup iterations, and peak memory is the maxi-mum PyTorch CUDA allocation across all GPUs. StateFlow is mathematically exact and introduces no approximation. Unless otherwise specified, we use PP8/TP1, PP4/TP4, and PP4/TP8 for the 3B, 15B, and 32B models, respectively. All pipeline-parallel experiments use the 1F1B schedule. Each microbatch contains one training sequence (MBS = 1). We evaluate GBS ∈ { 4, 8, 16 }, where GBS = MBS × DP × 𝑀 
+
+and 𝑀 is the number of microbatches processed per param-eter update. Since all configurations use DP = 1, the three GBS values correspond to 𝑀 = 4, 8, 16, respectively. State-Flow partitions each microbatch into 𝑁 sequence chunks for scheduling without changing MBS or GBS. 
+
+Model Configurations. We use the official default hy-perparameters for GDN and Mamba-3, with Mamba-3 lay-ers having slightly more parameters. The 3B, 15B, and 32B models use 32/40/64 layers and hidden sizes 2560/5120/6144. All models use a 50,304-token vocabulary, untied token em-beddings and output weights, pre-LayerNorm blocks, and SwiGLU MLPs. Their GDN and softmax attention layers use 20/40/64 attention heads, while Mamba-3 uses 80/160/192 SSM heads with head dimension 64 and state dimension 128. Hybrid models use a 3:1 recurrence-to-attention ratio, with GQA group sizes 4/5/4 for softmax attention [1]. 
+
+4.2 Results on Linear Recurrence Models 
+
+Table 2 reports the end-to-end training throughput and mem-ory usage for linear recurrence models across GBS 4, 8, and Conference’17, July 2017, Washington, DC, USA Zhao et al. 0.8 1.0 1.2 1.4 1.6 1.8 2.0             
+
+> GDN | Megatron
+> PP2TP4 PP4TP2 PP4TP2
+> 1.23× 1.20× 1.07×
+> GDN | Swift
+> PP2TP4 PP2TP4 PP4TP2
+> 1.21× 1.16× 1.08×
+> Best baseline 124816 32
+> Sequence chunks N
+> 0.8 1.0 1.2 1.4 1.6 1.8 2.0
+> Mamba-3 | Megatron
+> PP4TP2 PP4TP2 PP8TP1
+> 1.84× 1.54× 1.28×
+> Best baseline 124816 32
+> Sequence chunks N
+> Mamba-3 | Swift
+> PP4TP2 PP4TP2 PP8TP1
+> 1.77× 1.48× 1.27×
+> Normalized throughput
+> Global batch size GBS4 GBS8 GBS16
+
+Figure 3. Comparison with the best-tuned native baseline and sensitivity to the sequence chunk count 𝑁 for 3B linear recurrence models at 64K on eight GPUs. Throughput is normalized to native PP8/TP1. Dashed lines mark the best native configuration, circled points mark the best 𝑁 , and annotations report speedup over the dashed baseline. 16, while Figure 4 visualizes the representative GBS = 8 re-sults. For each workload, we report the best 𝑁 that achieves the highest throughput. StateFlow improves throughput in every case, with speedups ranging from 1 .02 × to 2 .2× and an average of 1 .37 ×. It also reduces peak memory at ev-ery comparable point, with peak-memory reduction ranging from 1 .31 × to 2 .45 × with an average of 1 .63 ×, while en-abling longer sequence configurations that run out of mem-ory for the baseline method. Without activation recompu-tation, StateFlow achieves up to 1 .79 × throughput speedup and 2 .54 × peak-memory reduction on 3B GDN model. Figure 3 shows that StateFlow selects PP8/TP1 in every case and is 1 .07 ×–1 .84 × faster than the best-tuned native topology. Throughput varies nonmonotonically with 𝑁 , as moderate chunking reduces pipeline bubbles, whereas overly fine chunking provides diminishing bubble reductions and lowers kernel efficiency. Peak memory decreases and then plateaus as 𝑁 increases. StateFlow improves throughput across all GBS values. The gains are larger at smaller GBS, where the native pipeline has fewer microbatches to amortize pipeline bubbles. At larger GBS, StateFlow continues to improve throughput while re-ducing peak memory. The smaller gains on the 15B and 32B models likely reflect heavier tensor-parallel communication and fewer baseline pipeline bubbles, leaving less overhead for StateFlow to remove. StateFlow supports all of our evaluation configurations, whereas the native pipelines run out of memory in many long-context settings. The additional capacity results from releasing activations after chunk-level backward computa-tion instead of retaining entire sequences. The improvement is consistent across GDN and Mamba-3. Although Swift is generally more memory-efficient than Megatron, StateFlow further reduces its peak memory, indicating that StateFlow’s benefits are not tied to a specific training backend. 
+
+4.3 Results on Hybrid Models 
+
+Table 3 reports the end-to-end results for hybrid models. Each StateFlow entry uses the fastest feasible (𝑁 , 𝛼 ) pair selected for that workload. Across settings where the native pipeline completes, StateFlow matches or improves through-put, achieving an average speedup of 1 .35 × and a maximum of 2 .22 ×. It reduces peak memory by 1 .56 × on average and up to 2 .44 ×. These benefits are consistent across GDN and Mamba-3 and across Megatron and Swift frameworks. The improvements persist as both model size and context length increase, and each result includes inter-chunk state propagation and kernel-launch overhead. Despite retaining additional K/V boundary buffers for softmax-attention layers, StateFlow substantially expands the feasible workload range: it completes every GBS setting at 256K for 3B and 15B and at 128K for 32B, where all native pipelines run out of memory. Figure 5 isolates the effect of 𝛼 with 𝑁 fixed. For all four 3B configurations, 𝛼 = 0.75 achieves the highest throughput, providing 1 .20 ×–1 .23 × speedups over equal-length partition-ing. For 15B and 32B, the selected 𝛼 ranges from 0 .5 to 1 .0, with speedups of 1 .04 ×–1 .14 ×. Throughput generally first increases and then decreases as the partition moves from equal-length toward and beyond FLOP-balanced chunking. FLOP balance does not necessarily imply runtime balance be-cause kernel efficiency, memory behavior, and other system effects also vary with chunk shape. Consequently, neither equal-length nor FLOP-balanced partitioning is consistently optimal, demonstrating the value of profile-guided selection. Although peak memory generally increases with 𝛼 , all eval-uated configurations remain within the GPU memory limit. 
+
+4.4 State Transition Grid Optimization and Overlap 
+
+Table 4 summarizes the state transition optimization results for GDN and Mamba-3. Table 4 (a) reports GDN kernel speedups and the selected 𝐵 𝑉 /split fraction. Each forward and backward entry shows the speedup on the first line and the sweep-selected best configuration on the second. For example, BV32/f.7 indicates 𝐵 𝑉 = 32 and a sequence split whose first segment contains 70% of the chunk. The total GDN core speedup reaches 1 .34 ×, 1 .41 ×, and 1.58 × for the 3B, 15B, and 32B configurations, respectively. The gains remain relatively stable from 8K to 64K, as state transition and the surrounding GDN computation scale sim-ilarly with sequence length. In the evaluated configurations, higher TP degrees reduce the per-rank state transition launch grid and its SM coverage, leaving more capacity for concur-rent surrounding kernels. Backward generally favors larger StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence Conference’17, July 2017, Washington, DC, USA 64K 128K 256K 025 50 
+
+> K tokens/s
+> OOM 1.47× 1.54× OOM 1.48× 1.55×
+
+3B GDN Throughput 
+
+64K 128K 256K 050 100 
+
+> GB
+> OOM 1.66× 1.82× OOM 1.35× 1.42×
+
+3B GDN Memory 
+
+64K 128K 256K 020 40 
+
+> K tokens/s
+> OOM OOM 1.55× OOM 1.54× 1.61×
+
+3B Mamba-3 Throughput 
+
+64K 128K 256K 050 
+
+> GB
+> OOM OOM 1.50× OOM 1.54× 1.65×
+
+3B Mamba-3 Memory 
+
+64K 128K 256K 020 
+
+> K tokens/s
+> OOM OOM 1.15× OOM OOM 1.23×
+
+15B GDN Throughput 
+
+64K 128K 256K 050 
+
+> GB
+> OOM OOM 1.67× OOM OOM 2.01×
+
+15B GDN Memory 
+
+64K 128K 256K 010 20 
+
+> K tokens/s
+> OOM OOM 1.13× OOM OOM 1.25×
+
+15B Mamba-3 Throughput 
+
+64K 128K 256K 050 
+
+> GB
+> OOM OOM 1.68× OOM OOM 1.54×
+
+15B Mamba-3 Memory 
+
+32K 64K 128K 010 20 
+
+> K tokens/s
+> OOM 1.08× 1.13× OOM 1.14× 1.21×
+
+32B GDN Throughput 
+
+32K 64K 128K 050 100 
+
+> GB
+> OOM 1.33× 1.85× OOM 1.85× 2.07×
+
+32B GDN Memory 
+
+32K 64K 128K 0510 
+
+> K tokens/s
+> OOM OOM 1.19× OOM OOM 1.19×
+
+32B Mamba-3 Throughput 
+
+32K 64K 128K 050 
+
+> GB
+> OOM OOM 1.57× OOM OOM 1.83×
+
+32B Mamba-3 Memory 
+
+Sequence length (GBS = 8) Megatron Megatron + StateFlow Swift Swift + StateFlow 
+
+Figure 4. End-to-end throughput and peak memory at 𝐺𝐵𝑆 = 8 with activation recomputation. Light and dark bars show the native pipelines and StateFlow using the fastest feasible 𝑁 . Annotations show throughput speedup and peak memory reduction. OOM denotes out of memory. 0 .25 .5 .75 1 1.25 
+
+010 20 30 
+
+GDN   
+
+> 0.25 .5 .75 1 1.25
+
+Mamba-3   
+
+> 0.25 .5 .75 1 1.25
+
+0510 15 
+
+GDN   
+
+> 0.25 .5 .75 1 1.25
+
+Mamba-3   
+
+> 0.25 .5 .75 1 1.25
+
+0510 15 GDN   
+
+> 0.25 .5 .75 1 1.25
+
+Mamba-3   
+
+> 0.25 .5 .75 1 1.25
+
+010 20 30      
+
+> 0.25 .5 .75 1 1.25 0.25 .5 .75 1 1.25
+
+0510 15      
+
+> 0.25 .5 .75 1 1.25 0.25 .5 .75 1 1.25
+
+0510 15   
+
+> 0.25 .5 .75 1 1.25
+> 1.213×
+
+40 50 60 70 
+
+> 1.201× 1.121×
+
+40 50 60 70 
+
+> 1.094× 1.071×
+
+40 50 60 70 
+
+> 1.043× 1.227×
+
+40 50 60 70 
+
+> 1.209× 1.136×
+
+40 50 60 70 
+
+> 1.115× 1.097×
+
+40 50 60 70 
+
+> 1.063×
+
+Skew factor α
+
+> Throughput (K tokens/s) Peak memory (GB)
+
+3B | 128K / GBS8 / N8 15B | 128K / GBS8 / N4 32B | 128K / GBS4 / N8 Megatron + StateFlow Swift + StateFlow 
+
+Throughput Peak memory 
+
+Figure 5. Sensitivity to the hybrid partition parameter 𝛼 on representative 128K context length. GBS and the chunk number 
+
+𝑁 are fixed as labeled. Bars and lines denote throughput and peak memory, respectively. The dark bar marks the highest-throughput feasible 𝛼 , annotated with its speedup over equal-length partitioning ( 𝛼 = 0). OOM denotes out of memory. Conference’17, July 2017, Washington, DC, USA Zhao et al. 
+
+Table 3. Hybrid Period-4 activation recomputation results for (a) GDN and (b) Mamba-3. All entries report throughput/peak memory in K tokens/s and GB. Megatron and Swift denote the native pipelines, while “+StateFlow” uses the fastest feasible 
+
+(𝑁 , 𝛼 ) configuration for each workload. OOM denotes out of memory. 
+
+(a) GDN Method GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 3B 64K 128K 256K 
+
+Megatron 14.9/43.1G 21.7/42.8G 26.8/43.1G 11.5/76.5G 15.4/76.5G 20.5/76.5G OOM OOM OOM +StateFlow 30.1 /29.3G 30.5 /27.8G 33.7 /35.9G 25.5 /54.3G 23.6 /42.5G 26.7 /57.3G 14.5 /76.4G 14.8 /75.3G 15.0 /76.1G Swift 14.5/25.1G 20.9/26.4G 26.1/26.5G 11.1/45.7G 16.1/48.6G 19.7/48.7G OOM OOM OOM +StateFlow 29.2 /20.1G 30.9 /21.5G 32.2 /21.5G 24.1 /39.5G 25.4 /39.5G 26.0 /39.9G 14.1 /64.4G 14.4 /64.4G 13.1 /65.6G 
+
+15B 64K 128K 256K 
+
+Megatron 10.5/49.2G 13.1/49.2G 15.2/49.2G OOM OOM OOM OOM OOM OOM +StateFlow 14.1 /31.3G 15.3 /30.8G 15.9 /32.2G 12.8 /45.2G 13.2 /49.3G 12.8 /43.6G 9.8 /74.2G 9.4 /77.1G 10.1 /72.9G Swift 11.1/44.8G 14.0/46.7G 16.0/49.4G OOM OOM OOM OOM OOM OOM +StateFlow 15.3 /24.3G 16.4 /25.0G 17.0 /25.6G 13.5 /37.0G 13.9 /43.7G 14.1 /36.6G 9.2 /57.5G 8.6 /65.8G 10.2 /55.9G 
+
+32B 32K 64K 128K 
+
+Megatron 8.2/45.0G 10.4/45.0G 11.8/45.0G 7.9/73.7G 10.0/73.7G 11.5/73.7G OOM OOM OOM +StateFlow 9.6 /34.5G 11.4 /34.6G 12.4 /34.7G 10.7 /42.2G 11.7 /42.8G 12.1 /43.5G 10.6 /56.6G 10.2 /53.8G 9.9 /56.1G Swift 9.5/38.0G 12.1/40.3G 14.0/40.3G 8.9/66.6G 11.3/68.6G 12.8/74.5G OOM OOM OOM +StateFlow 12.0 /22.9G 13.0 /23.1G 14.1 /27.4G 11.8 /29.4G 12.2 /28.1G 12.8 /33.8G 10.6 /46.7G 11.0 /46.9G 11.4 /42.6G 
+
+(b) Mamba-3 Method GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 GBS4 GBS8 GBS16 3B 64K 128K 256K 
+
+Megatron 13.1/42.3G 18.6/42.3G 23.5/42.3G OOM OOM OOM OOM OOM OOM +StateFlow 27.3 /25.3G 28.4 /33.0G 29.7 /33.6G 22.9 /40.5G 22.7 /56.4G 23.2 /58.6G 15.8 /72.7G 14.0 /73.0G 14.2 /73.0G Swift 12.9/25.6G 18.4/30.6G 23.3/30.6G 10.1/46.8G 14.5/56.8G 18.6/56.8G OOM OOM OOM +StateFlow 26.6 /19.7G 27.3 /20.5G 27.9 /21.3G 22.2 /35.1G 22.6 /35.2G 22.4 /36.4G 15.2 /65.4G 13.6 /64.7G 13.8 /64.8G 
+
+15B 64K 128K 256K 
+
+Megatron 8.3/52.1G 10.6/52.2G 12.2/52.2G OOM OOM OOM OOM OOM OOM +StateFlow 11.0 /32.8G 11.9 /32.5G 12.5 /33.9G 10.4 /46.3G 10.6 /49.0G 10.0 /45.4G 8.4 /73.4G 7.5 /73.5G 8.6 /73.4G Swift 8.9/48.7G 11.2/51.3G 12.9/54.1G OOM OOM OOM OOM OOM OOM +StateFlow 12.6 /26.1G 13.7 /27.2G 14.3 /27.9G 11.7 /38.2G 11.9 /46.3G 12.0 /37.2G 8.2 /58.0G 8.4 /58.2G 9.1 /57.0G 
+
+32B 32K 64K 128K 
+
+Megatron 6.1/47.4G 7.6/47.4G 8.9/47.4G OOM OOM OOM OOM OOM OOM +StateFlow 6.7 /30.2G 8.1 /36.2G 9.2 /47.1G 7.8 /43.1G 8.5 /43.1G 8.5 /42.5G 7.5 /55.2G 7.7 /55.4G 7.2 /52.0G Swift 6.9/40.3G 8.7/42.6G 10.1/42.9G OOM OOM OOM OOM OOM OOM +StateFlow 9.2 /22.9G 9.8 /29.8G 10.6 /24.9G 9.1 /37.5G 10.1 /38.7G 10.1 /35.3G 8.6 /48.3G 8.9 /48.4G 9.3 /43.6G 
+
+𝐵 𝑉 values, reflecting a different tradeoff between grid size and per-block efficiency. The selected split fractions also vary across passes and model configurations, motivating independent profiling rather than a fixed split. Table 4 (b) reports Mamba-3 speedup on the overlap ker-nel regions defined by Equations 17 and 19. Forward and backward are tuned independently, and the Total entry is computed from the summed forward and backward latencies before and after optimization. StateFlow accelerates Mamba-3’s overlapped regions by up to 1 .51 ×. This means that State-Flow hides up to 35 .7%, 71 .3%, and 84 .8% of the fused Mamba-3 kernel latency from the critical path for the 3B, 15B, and 32B configurations, respectively. The larger gains on the 15B and 32B configurations are consistent with their smaller fused-kernel launch grids: the 3B, 15B, and 32B configurations launch 80, 40, and 24 CTAs, respectively. Smaller grids leave more idle SM capacity for concurrent projection and weight gradient kernels. For for-ward, StateFlow profiles split points and the composition of the 𝑂𝑢𝑡 group. For 3B, 𝑂𝑢𝑡 contains the split output projec-tion; for 15B and 32B, it additionally includes the MLP gate projection to better match the fused-kernel duration. 
+
+## 5 Conclusion 
+
+We have proposed StateFlow, an SPP system for training long-context linear recurrence and hybrid models. StateFlow uses chunks as pipeline units instead of full sequences, and uses compact boundary states to preserve forward/backward dependencies, enabling earlier activation release and finer-grained execution. It combines profile-guided hybrid par-titioning with resource-aware state transition overlap to increase hardware utilization. Together, these techniques StateFlow: Sequence Pipeline Parallelism for Long-Context Modeling with Linear Recurrence Conference’17, July 2017, Washington, DC, USA 
+
+Table 4. State transition overlap results. (a) GDN speedup over the official implementation, with the “ 𝐵 𝑉 /split fraction”. (b) Mamba-3 speedup on the selected overlap kernel region. Mamba-3’s split fraction is always 0.5 and omitted. 
+
+(a) GDN speedup 
+
+Model Pass 8K 16K 32K 64K 3B PP8/TP1 Forward 1.34 × 1.37 × 1.37 × 1.30 ×
+
+BV32/f.7 BV32/f.7 BV32/f.7 BV32/f.7 
+
+Backward 1.27 × 1.30 × 1.34 × 1.28 ×
+
+BV32/f.7 BV32/f.5 BV32/f.7 BV32/f.5 
+
+Total 1.29 × 1.31 × 1.34 × 1.28 ×
+
+15B PP4/TP4 Forward 1.37 × 1.37 × 1.39 × 1.35 ×
+
+BV16/f.3 BV16/f.9 BV16/f.9 BV16/f.5 
+
+Backward 1.35 × 1.37 × 1.42 × 1.42 ×
+
+BV32/f.5 BV32/f.7 BV32/f.5 BV32/f.6 
+
+Total 1.35 × 1.37 × 1.41 × 1.40 ×
+
+32B PP4/TP8 Forward 1.48 × 1.49 × 1.49 × 1.48 ×
+
+BV8/f.4 BV8/f.3 BV8/f.9 BV8/f.9 
+
+Backward 1.49 × 1.54 × 1.62 × 1.59 ×
+
+BV32/f.6 BV32/f.5 BV16/f.6 BV32/f.5 
+
+Total 1.49 × 1.52 × 1.58 × 1.56 ×
+
+(b) Mamba-3 speedup 
+
+Model Pass 8K 16K 32K 64K 3B PP8/TP1 Forward 1.08 × 1.10 × 1.12 × 1.13 ×
+
+Backward 1.19 × 1.17 × 1.24 × 1.17 ×
+
+Total 1.14 × 1.13 × 1.18 × 1.15 ×
+
+15B PP4/TP4 Forward 1.30 × 1.30 × 1.27 × 1.21 ×
+
+Backward 1.52 × 1.54 × 1.64 × 1.53 ×
+
+Total 1.39 × 1.40 × 1.41 × 1.34 ×
+
+32B PP4/TP8 Forward 1.27 × 1.40 × 1.35 × 1.29 ×
+
+Backward 1.73 × 1.72 × 1.72 × 1.57 ×
+
+Total 1.44 × 1.51 × 1.50 × 1.41 ×
+
+make StateFlow an efficient and scalable parallelism solution for training long-context models with linear recurrence. 
+
+## References 
+
+[1] Joshua Ainslie, James Lee-Thorp, Michiel de Jong, Yury Zemlyanskiy, Federico Lebron, and Sumit Sanghai. 2023. GQA: Training General-ized Multi-Query Transformer Models from Multi-Head Checkpoints. In Proceedings of the 2023 Conference on Empirical Methods in Natu-ral Language Processing , Houda Bouamor, Juan Pino, and Kalika Bali (Eds.). Association for Computational Linguistics, Singapore, 4895– 4901. doi: 10.18653/v1/2023.emnlp-main.298 
+
+[2] Yingfa Chen, Zhen Leng Thai, Zihan Zhou, Zhu Zhang, Xingyu Shen, Shuo Wang, Chaojun Xiao, Xu Han, and Zhiyuan Liu. 2026. Hybrid Linear Attention Done Right: Efficient Distillation and Effective Ar-chitectures for Extremely Long Contexts. arXiv:2601.22156 [cs.CL] 
+
+https://arxiv.org/abs/2601.22156 
+
+[3] Yuhong CHOU, Zehao Liu, Rui-Jie Zhu, Xinyi Wan, Tianjian Li, Congying Chu, Qian Liu, Jibin Wu, and Zejun MA. 2025. ZeCO: Zero-Communication Overhead Sequence Parallelism for Linear Attention. In Advances in Neural Information Processing Systems ,D. Belgrave, C. Zhang, H. Lin, R. Pascanu, P. Koniusz, M. Ghas-semi, and N. Chen (Eds.), Vol. 38. Curran Associates, Inc., 136757– 136780. https://proceedings.neurips.cc/paper_files/paper/2025/file/ c7de4d7804077094c10c8f1ba960241c-Paper-Conference.pdf 
+
+[4] Tri Dao and Albert Gu. 2024. Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Du-ality. In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) , Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp (Eds.). PMLR, 10041– 10071. https://proceedings.mlr.press/v235/dao24a.html 
+
+[5] Shiqing Fan, Yi Rong, Chen Meng, Zongyan Cao, Siyu Wang, Zhen Zheng, Chuan Wu, Guoping Long, Jun Yang, Lixue Xia, Lansong Diao, Xiaoyong Liu, and Wei Lin. 2021. DAPPLE: a pipelined data parallel approach for training large models. In Proceedings of the 26th ACM SIGPLAN Symposium on Principles and Practice of Paral-lel Programming (Virtual Event, Republic of Korea) (PPoPP ’21) . As-sociation for Computing Machinery, New York, NY, USA, 431–445. doi: 10.1145/3437801.3441593 
+
+[6] Jiarui Fang and Shangchun Zhao. 2024. USP: A Unified Se-quence Parallelism Approach for Long Context Generative AI. arXiv:2405.07719 [cs.LG] https://arxiv.org/abs/2405.07719 
+
+[7] Albert Gu and Tri Dao. 2024. Mamba: Linear-Time Sequence Modeling with Selective State Spaces. In First Conference on Language Modeling .
+
+https://openreview.net/forum?id=tEYskw1VY2 
+
+[8] Diandian Gu, Peng Sun, Qinghao Hu, Ting Huang, Xun Chen, Yingtong Xiong, Guoteng Wang, Qiaoling Chen, Shangchun Zhao, Jiarui Fang, Yonggang Wen, Tianwei Zhang, Xin Jin, and Xuanzhe Liu. 2024. Loong-Train: Efficient Training of Long-Sequence LLMs with Head-Context Parallelism. arXiv:2406.18485 [cs.DC] https://arxiv.org/abs/2406.18485 
+
+[9] Yanping Huang, Youlong Cheng, Ankur Bapna, Orhan Firat, Dehao Chen, Mia Chen, HyoukJoong Lee, Jiquan Ngiam, Quoc V Le, Yonghui Wu, and zhifeng Chen. 2019. GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism. In Advances in Neural Informa-tion Processing Systems , H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alché-Buc, E. Fox, and R. Garnett (Eds.), Vol. 32. Curran Asso-ciates, Inc. https://proceedings.neurips.cc/paper_files/paper/2019/file/ 093f65e080a295f8076b1c5722a46aa2-Paper.pdf 
+
+[10] Sam Ade Jacobs, Masahiro Tanaka, Chengming Zhang, Minjia Zhang, Shuaiwen Leon Song, Samyam Rajbhandari, and Yuxiong He. 2023. DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509 [cs.LG] 
+
+https://arxiv.org/abs/2309.14509 
+
+[11] Kimi Team. 2025. Kimi Linear: An Expressive, Efficient Attention Architecture. arXiv:2510.26692 [cs.CL] https://arxiv.org/abs/2510. 26692 
+
+[12] Kimi Team. 2026. Kimi K3: Open Frontier Intelligence. arXiv:2607.24653 [cs.CL] https://arxiv.org/abs/2607.24653 
+
+[13] Vijay Anand Korthikanti, Jared Casper, Sangkug Lym, Lawrence McAfee, Michael Andersch, Mohammad Shoeybi, and Bryan Catan-zaro. 2023. Reducing Activation Recomputation in Large Trans-former Models. In Proceedings of Machine Learning and Systems ,D. Song, M. Carbin, and T. Chen (Eds.), Vol. 5. Curan, 341– 353. https://proceedings.mlsys.org/paper_files/paper/2023/file/ 80083951326cf5b35e5100260d64ed81-Paper-mlsys2023.pdf 
+
+[14] Aakash Lahoti, Kevin Y. Li, Berlin Chen, Caitlin Wang, Aviv Bick, J. Zico Kolter, Tri Dao, and Albert Gu. 2026. Mamba-3: Improved Sequence Modeling using State Space Principles. arXiv:2603.15569 [cs.LG] https://arxiv.org/abs/2603.15569 
+
+[15] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. In Ad-vances in Neural Information Processing Systems , H. Larochelle, M. Ran-zato, R. Hadsell, M.F. Balcan, and H. Lin (Eds.), Vol. 33. Curran Asso-ciates, Inc., 9459–9474. https://proceedings.neurips.cc/paper_files/ paper/2020/file/6b493230205f780e1bc26945df7481e5-Paper.pdf Conference’17, July 2017, Washington, DC, USA Zhao et al. 
+
+[16] Zhouyang Li, Yuliang Liu, Wei Zhang, Tailing Yuan, Bin Chen, and Chengru Song. 2025. SlimPipe: Memory-Thrifty and Efficient Pipeline Parallelism for Long-Context LLM Training. In Proceedings of the In-ternational Conference for High Performance Computing, Networking, Storage and Analysis (SC ’25) . Association for Computing Machinery, New York, NY, USA, 1409–1428. doi: 10.1145/3712285.3759855 
+
+[17] Zhuohan Li, Siyuan Zhuang, Shiyuan Guo, Danyang Zhuo, Hao Zhang, Dawn Song, and Ion Stoica. 2021. TeraPipe: Token-Level Pipeline Parallelism for Training Large-Scale Language Models. In Proceedings of the 38th International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 139) , Marina Meila and Tong Zhang (Eds.). PMLR, 6543–6552. https://proceedings.mlr.press/v139/li21y. html 
+
+[18] Opher Lieber, Barak Lenz, Hofit Bata, Gal Cohen, Jhonathan Osin, Itay Dalmedigos, Erez Safahi, Shaked Meirom, Yonatan Belinkov, Shai Shalev-Shwartz, Omri Abend, Raz Alon, Tomer Asida, Amir Bergman, Roman Glozman, Michael Gokhman, Avashalom Manevich, Nir Ratner, Noam Rozen, Erez Shwartz, Mor Zusman, and Yoav Shoham. 2024. Jamba: A Hybrid Transformer-Mamba Language Model. arXiv:2403.19887 [cs.CL] https://arxiv.org/abs/2403.19887 
+
+[19] Hao Liu, Matei Zaharia, and Pieter Abbeel. 2023. Ring Attention with Blockwise Transformers for Near-Infinite Context. In NeurIPS 2023 Foundation Models for Decision Making Workshop . https://openreview. net/forum?id=fXugVDtCQO 
+
+[20] Deepak Narayanan, Aaron Harlap, Amar Phanishayee, Vivek Seshadri, Nikhil R. Devanur, Gregory R. Ganger, Phillip B. Gibbons, and Matei Zaharia. 2019. PipeDream: generalized pipeline parallelism for DNN training. In Proceedings of the 27th ACM Symposium on Operating Systems Principles (Huntsville, Ontario, Canada) (SOSP ’19) . Association for Computing Machinery, New York, NY, USA, 1–15. doi: 10.1145/ 3341301.3359646 
+
+[21] Deepak Narayanan, Mohammad Shoeybi, Jared Casper, Patrick LeGres-ley, Mostofa Patwary, Vijay Korthikanti, Dmitri Vainbrand, Prethvi Kashinkunti, Julie Bernauer, Bryan Catanzaro, Amar Phanishayee, and Matei Zaharia. 2021. Efficient large-scale language model training on GPU clusters using megatron-LM. In Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC ’21) . ACM, 1–15. doi: 10.1145/3458817.3476209 
+
+[22] NVIDIA. 2026. Nemotron 3 Ultra: Open, Efficient Mixture-of-Experts Hybrid Mamba-Transformer Model for Agentic Reasoning. arXiv:2606.15007 [cs.CL] https://arxiv.org/abs/2606.15007 
+
+[23] Penghui Qi, Xinyi Wan, Nyamdavaa Amar, and Min Lin. 2024. Pipeline Parallelism with Controllable Memory. In Advances in Neural Informa-tion Processing Systems , A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang (Eds.), Vol. 37. Curran Associates, Inc., 46539–46566. doi: 10.52202/079017-1476 
+
+[24] Qwen Team. 2026. Qwen3.6-35B-A3B: Agentic Coding Power, Now Open to All. Qwen Technical Blog. https://qwen.ai/blog?id=qwen3.6-35b-a3b 
+
+[25] Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. 2020. ZeRO: Memory optimizations Toward Training Trillion Parameter Models. In SC20: International Conference for High Per-formance Computing, Networking, Storage and Analysis . IEEE, 1–16. doi: 10.1109/sc41405.2020.00024 
+
+[26] Xingyu Shen, Yingfa Chen, Zhen Leng Thai, Xu Han, Zhiyuan Liu, and Maosong Sun. 2026. StateX: Enhancing RNN Recall via Post-training State Expansion. arXiv:2509.22630 [cs.CL] https://arxiv.org/abs/2509. 22630 
+
+[27] Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan Catanzaro. 2020. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. arXiv:1909.08053 [cs.CL] https://arxiv.org/abs/1909.08053 
+
+[28] Ao Sun, Weilin Zhao, Xu Han, Cheng Yang, Xinrong Zhang, Zhiyuan Liu, Chuan Shi, and Maosong Sun. 2025. Seq1F1B: Efficient Sequence-Level Pipeline Parallelism for Large Language Model Training. In 
+
+Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Lan-guage Technologies (Volume 1: Long Papers) , Luis Chiruzzo, Alan Rit-ter, and Lu Wang (Eds.). Association for Computational Linguistics, Albuquerque, New Mexico, 8998–9008. doi: 10.18653/v1/2025.naacl-long.454 
+
+[29] Weigao Sun, Disen Lan, Yiran Zhong, Xiaoye Qu, and Yu Cheng. 2025. LASP-2: Rethinking Sequence Parallelism for Linear Attention and Its Hybrid. arXiv:2502.07563 [cs.LG] https://arxiv.org/abs/2502.07563 
+
+[30] Zhenbo Sun, Shengqi Chen, Yuanwei Wang, Jian Sha, Guanyu Feng, and Wenguang Chen. 2025. MEPipe: Democratizing LLM Training with Memory-Efficient Slice-Level Pipeline Scheduling on Cost-Effective Accelerators. In Proceedings of the Twentieth European Conference on Computer Systems (Rotterdam, Netherlands) (EuroSys ’25) . Association for Computing Machinery, New York, NY, USA, 1263–1278. doi: 10. 1145/3689031.3717469 
+
+[31] Xindi Wang, Mahsa Salmani, Parsa Omidi, Xiangyu Ren, Mehdi Reza-gholizadeh, and Armaghan Eshaghi. 2024. Beyond the Limits: A Survey of Techniques to Extend the Context Length in Large Language Models. arXiv:2402.02244 [cs.CL] https://arxiv.org/abs/2402.02244 
+
+[32] Songlin Yang, Jan Kautz, and Ali Hatamizadeh. 2025. Gated Delta Networks: Improving Mamba2 with Delta Rule. In The Thirteenth In-ternational Conference on Learning Representations . https://openreview. net/forum?id=r8H7xhYPwz 
+
+[33] Songlin Yang, Bailin Wang, Yikang Shen, Rameswar Panda, and Yoon Kim. 2024. Gated Linear Attention Transformers with Hardware-Efficient Training. In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) ,Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp (Eds.). PMLR, 56501–56523. https://proceedings.mlr.press/v235/yang24ab.html 
+
+[34] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language Models. In The Eleventh International Conference on Learning Representations . https://openreview.net/forum?id=WE_ vluYUL-X 
+
+[35] Yuze Zhao, Jintao Huang, Jinghan Hu, Xingjun Wang, Yunlin Mao, Daoze Zhang, Zeyinzi Jiang, Zhikai Wu, Baole Ai, Ang Wang, Wen-meng Zhou, and Yingda Chen. 2025. SWIFT: A Scalable Light-weight Infrastructure for Fine-Tuning. Proceedings of the AAAI Conference on Artificial Intelligence 39, 28 (April 2025), 29733–29735. doi: 10.1609/aaai.v39i28.35383

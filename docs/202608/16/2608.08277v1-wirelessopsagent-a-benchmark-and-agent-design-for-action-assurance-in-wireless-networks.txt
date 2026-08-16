@@ -1,0 +1,505 @@
+Title: WirelessOpsAgent: A Benchmark and Agent Design for Action Assurance in Wireless Networks
+
+URL Source: https://arxiv.org/pdf/2608.08277v1
+
+Published Time: Tue, 11 Aug 2026 00:52:14 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# WirelessOpsAgent: A Benchmark and Agent Design for Action Assurance in Wireless Networks 
+
+Zijian Lu ∗, Yiping Zuo ∗, Hao Xu †, Weicong Chen †, Xin He ∗, Jiajia Guo †, and Shi Jin †∗Nanjing University of Posts and Telecommunications, Nanjing, China 18818732360@163.com, {zuoyiping, xhe }@njupt.edu.cn 
+
+†National Mobile Communications Research Laboratory, Southeast University, Nanjing, China 
+
+{hao.xu, cwc, jiajiaguo, jinshi }@seu.edu.cn 
+
+Abstract —Large language model (LLM) agents are emerging as planners for autonomous wireless network operations. Yet a task answer that is correct at proposal time can still be unsafe at execution time if supporting telemetry is stale or inconsistent. Existing benchmarks, however, mainly evaluate task solving from fixed observations and leave support checking at execution time untested. We introduce WirelessOptBench, a benchmark for action assurance in wireless operations. It turns wireless tasks into execution state decision episodes with controlled telemetry faults and action constraints. We further develop WirelessOpsAgent, which grounds candidate actions in current evidence and repairs recoverable support failures before execution. Across three backbone evaluations with 600 episodes each, WirelessOpsAgent achieves up to 0.983 Exact Action Accuracy. On Claude Sonnet 4.6, the Unsafe APPLY Rate decreases from 82.2% to 10.3% relative to the safest baseline. We make WirelessOptBench available at https://anonymous.4open.science/r/ wirelessopsbench-artifact-D969/ .
+
+Index Terms —Wireless networks, large language model agent, autonomous network operation, benchmark 
+
+I. I NTRODUCTION 
+
+Modern wireless networks expose increasingly pro-grammable control loops. Network slicing and Open Radio Access Network (O-RAN) architectures allow software to reconfigure radio resources, service policies, and mobility actions, while intent based management lets operators specify objectives at a higher level [1]–[3]. These interfaces broaden automated control, but they also make operation depend on telemetry collected across distributed network functions and updated at different rates. A control decision must therefore account for both the service objective and the network state at execution. Large language model (LLM) agents are attractive in this setting because they can connect operator intent, wireless reasoning, and tool use within one workflow. In these loops, support can expire between proposal and execution. Large scale monitoring studies show that coverage gaps can hide operational failures [4], while mitigation ranking improves when it accounts for predicted end to end impact [5]. These findings align with classical results showing that dis-tributed software-defined networking (SDN) correctness de-pends on state consistency [6] and that even correct endpoint configurations can traverse incorrect intermediate states during updates [7]. Freshness, consistency, coverage, and availability Task Evaluation  Real Deployment 
+
+> Correctness Alone Is Insufficient for Action Assurance
+> LLM
+> Agent
+> Is the decision correct?
+> LLM
+> Agent
+> Is the action sufficiently supported?
+> APPLY
+> HOLD / RETRY /
+> ESCALATE/ABSTAIN
+
+Fig. 1. Task evaluation checks decision correctness. Action assurance also checks whether current evidence supports execution. 
+
+therefore determine whether a previously justified decision remains admissible when execution begins. Despite this concern, recent LLM agent benchmarks mainly test task solving. WirelessAgent connects wireless percep-tion and planning to tool assisted action generation, and WirelessAgent++ further automates workflow construction [8], [9]. WirelessBench evaluates reasoning, network slicing, and mobility service assurance [10]. Configuration oriented agents also generate or repair network configurations with simula-tors and formal verification [11], [12]. This body of work establishes whether an agent can derive an appropriate answer or plan from a well formed input. The supplied observations usually remain fixed task context, and assessment stops before the proposed action reaches the control plane. At that boundary, task correctness is only the first gate. An allocation computed from current load, channel quality indicator (CQI), and bandwidth may be valid when proposed, yet unsafe after one measurement expires. The same proposal may need to wait for a newer observation, retry an unavailable source, or be referred to an operator when trusted sources disagree. Schema changes, unit mismatches, and out of order updates create a similar problem: the final answer can remain plausible even though one critical field has lost valid support. Fig. 1 illustrates the separation between solving the wireless task and authorizing the resulting action. These cases define the need for action assurance : checking whether a proposed action still has valid support from the network state. Agent risk constraints, guarded control, and functional verification can prevent some unsafe actions [13]– [16], but they do not show that every critical field is backed by arXiv:2608.08277v1 [cs.NI] 8 Aug 2026 admissible observations. Safety prompts and anomaly scores have the same limitation. Response revision methods such as Self-Refine and CRITIC can revisit a candidate through self feedback or tool interaction [17], [18]. In network control, rewriting the whole response may disturb fields that are already valid, while refusing every irregular case discards repairable schema aliases, unit conversions, and verified re-computations. WirelessOpsAgent implements this check in two stages. The first binds the public observations into a canonical ledger before generation. This improves the input but cannot certify the later answer or plan. The second treats the output as a proposal, links its fields to their support, and checks it before release. Recoverable failures are repaired only inside the affected dependency region, and the rebuilt state is revali-dated. Each decision carries a record of the observations used, accepted repairs, and unresolved risk. To evaluate this boundary, WirelessOptBench preserves the original wireless questions while varying the execution state. Each episode couples the question with a task specific evi-dence graph, an execution contract, a stress realization, and a rule based reference action. The nominal answer stays fixed. The realized state determines whether the action is executable. This separates task solving from authorization and avoids assuming that the final split contains every stress realization for each base item. WirelessOptBench measures this problem before execution, while WirelessOpsAgent addresses it in the agent loop. The main contributions are:  
+
+> •
+
+We introduce WirelessOptBench, an action assurance benchmark that converts wireless reasoning, network slic-ing, and mobility service assurance tasks into execution state decision episodes with evidence graphs, execution contracts, telemetry stresses, and rule based reference actions.  
+
+> •
+
+We design WirelessOpsAgent, a closed loop wireless network agent that treats model outputs as proposals, grounds critical fields in network evidence, diagnoses integrity violations, repairs affected dependencies, and authorizes actions only after revalidation.  
+
+> •
+
+We provide an auditable evaluation protocol based on observable decision bundles and replayable authoriza-tion records, enabling matched measurement of action correctness, safe progress, and unsafe execution across backbones and baselines. II. R ELATED WORK 
+
+This work connects three lines: network agents, execution guards, and operations benchmarks. The common issue is whether supporting observations remain valid as agents move from answers to actions. 
+
+Agents for Network Operations 
+
+Tool using agents interleave reasoning with external ob-servations [19]–[21]. WirelessAgent introduced LLM based wireless management, and WirelessAgent++ searches for workflows over calculation, slicing, and mobility tasks [8], [9]. NetConfEval and Cornetto connect configuration gener-ation or repair to network analysis [11], [12], while Self-Refine, CRITIC, and AgentSpec improve revision, critique, and constraint enforcement [14], [17], [18]. However, longer tool chains depend on observations that may become stale, inconsistent, or detached from their derivations. Revision or behavioral enforcement alone does not restore current field level support. 
+
+Programmable and Verifiable Network Operations 
+
+Intent based management translates goals into policies, slicing exposes service specific resource control, and FlexRAN and O-RAN open programmable radio interfaces [1]–[3], [22]. Wireless controllers then adapt decisions from time varying measurements [23]. Header Space Analysis, NetPlumber, Veri-Flow, and Batfish check network invariants [24]–[27]. Simplex and ModelPlex guard controller execution [15], [16]. The World Wide Web Consortium (W3C) provenance (PROV) data model represents data lineage [28]. These mechanisms generally assume observations have already been mapped into a reliable control state. Our setting instead checks that mapping when an action is released. 
+
+Network Operations Datasets and Benchmarks 
+
+Existing network operation benchmarks fall into two main settings. TeleLogs and AgenticOpsEval evaluate diagnosis from fixed logs, metrics, and traces, including fifth-generation (5G) root cause identification [29], [30]. NetConfEval and Cornetto evaluate configuration generation or repair from static network inputs [11], [12]. WirelessBench instead evaluates wireless calculation, slicing, and mobility answers from a given observation set [10]. These settings are valuable, but they either treat evidence as an offline snapshot or focus on solving the wireless task itself. They do not test the execution boundary where the task and candidate decision stay fixed while the supporting observations change. WirelessOptBench targets this boundary with execution state observations and an explicit authorization contract. III. W IRELESS OPT BENCH 
+
+The benchmark measures the transition from a plausible wireless solution to an executable operational decision. Wire-lessBench provides the underlying wireless tasks [10]. TeleL-ogs contributes annotated 5G troubleshooting cases, while AIOps2025 and RCA100 provide expert labeled failures over multimodal service telemetry [29], [30]. These public sources ground the operational fault vocabulary and anti shortcut design. Because they do not model whether a proposed action can be executed, we convert the inherited tasks into new execution state decision episodes that preserve task semantics while changing the available observations. Fig. 2 summarizes this conversion. 
+
+A. Wireless Execution Model 
+
+WirelessOptBench ties executable actions to radio checks at the task level. Consider user u served by base station b, with 1) WirelessBench Task Sources  2) Execution-State Episode Construction  3) Label-Free Agent Evaluation 
+
+WCHW 
+
+WCNS 
+
+WCMSA        
+
+> Task +
+> Gold Answer
+> Evidence
+> Graph
+> Execution
+> Contract
+> Reference
+> Action
+> Schema /
+> Unit
+> Freshness /
+> Order
+> Availability /
+> Brownout
+> Conflict /
+> Provenance
+> Mixed
+> Evidence
+> Supported Evidence State
+> same task ，
+> same answer,
+> evidence changes
+> Stressed Evidence State Replayable Decision Records
+> ...
+> Scoring
+> task
+> quality
+> action
+> accuracy
+> safe
+> progress
+> unsafe
+> execution
+> Wireless Knowledge
+> and Calculation
+> Network Slicing
+> Mobility Service Assurance
+> Hidden Oracle and Contracts
+> reference
+> answer policies metadata
+> Agent View
+> proposal check authorize record
+
+Fig. 2. WirelessOptBench pairs fixed wireless tasks with execution state observations and scores decisions against state derived reference actions. TABLE I WIRELESS OPT BENCH STRESS SET COMPOSITION (EPISODES ). W IRELESS KNOWLEDGE AND CALCULATION (WCHW), 5G NETWORK SLICING 
+
+(WCNS), AND MOBILITY SERVICE ASSURANCE (WCMSA) DENOTE THE THREE TASK FAMILIES .                              
+
+> Task Schema Fresh. Avail. Conflict Mixed Total WCHW 40 40 40 40 40 200 WCNS 40 40 40 40 40 200 WCMSA 40 40 40 40 40 200 Total 120 120 120 120 120 600
+
+j indexing other base stations. Its signal-to-interference-plus-noise ratio (SINR) at execution time is 
+
+γu(t) = Pbhu,b (t)
+
+N0 + P  
+
+> j̸=b
+
+Pj hu,j (t) . (1) Here, Pb is transmit power, hu,b (t) is channel gain, and N0 is noise power. With bandwidth Wu(t), the achievable rate is 
+
+ru(t) = Wu(t) log 2(1 + γu(t)) . (2) This gives the calculator check for wireless questions. For a slicing plan, the assigned bandwidth must fit the cell budget 
+
+W , and each admitted user must meet its minimum rate: 
+
+X
+
+> u
+
+Wu(t) ≤ W, ru(t) ≥ rmin  
+
+> u
+
+. (3) A mobility plan uses a separate handover condition. The target base station j must sustain a reference signal received power (RSRP) margin H for trigger time T :
+
+RSRP u,j (τ ) − RSRP u,b (τ ) ≥ H, τ ∈ [t − T, t ]. (4) These checks are unsafe when their measurements have ex-pired. If field k was observed at tk and has freshness limit δk,its age must satisfy 
+
+∆k(t) = t − tk, ∆k(t) ≤ δk. (5) A derived value inherits the largest age among its inputs. Each episode instantiates only checks supported by its public fields, so an apparently feasible plan cannot bypass stale or unavailable radio state. 
+
+B. Benchmark Construction 
+
+With the execution checks fixed, WirelessOptBench samples 200 unique base items from each of three WirelessBench task families: wireless knowledge and calculation (WCHW), 5G network slicing (WCNS), and mobility service assurance (WCMSA). WCHW is restricted to items covered by tools for which formula lookup and calculator observations can be generated. Each base item retains its question and reference answer, while an observation ledger, an execution contract, and a stress realization define the execution state episode. The ledger exposes metadata and dependencies. The contract specifies the fields and network constraints required before execution. 
+
+C. Reference Answers and Action Labels 
+
+The evaluator must distinguish the nominal wireless answer from the execution decision. Each episode therefore retains the WirelessBench reference answer and adds a four action reference policy. The agent output space contains five actions because ABSTAIN remains available as a fallback, but it is never a reference action. A predicted ABSTAIN is retained as an incorrect action rather than dropped. For APPLY, WCHW requires only the reference answer, while WCNS and WCMSA also require a contract compliant allocation or mobility plan. The evaluator recomputes plan completeness, capacity or qual-ity of service (QoS) feasibility, and action budget compliance. Labels follow an ordered policy over six predicates. Am-biguous schema, material conflict, or independent failures yield ESCALATE. Otherwise, a required source in a retryable outage yields RETRY, unknown critical schema or stale re-quired state yields HOLD, and no blocker yields APPLY. The policy reads the realized state and contract rather than the stress domain name, allowing both safe and blocking cases within a domain. The generator receives no requested action. After realiza-tion, a fact level oracle and a public view certificate checker must agree, and every blocking label must cite blocking obser-vations. Deterministic selection retains 600 of 7,680 candidates with no overlap between development and final anchors and a label distribution of 200 APPLY, 100 HOLD, 100 RETRY, and 200 ESCALATE. Their agreement is an internal consistency check because both paths implement the same benchmark specification. 
+
+D. Fairness and Audit 
+
+All methods receive the same frozen episodes: task input, public observation ledger, metadata, action semantics, and execution contract. Although the public contract defines the meanings of APPLY, HOLD, RETRY, and ESCALATE, the realized reference action is never exposed. WirelessOpsAgent and the baselines see no hidden stress identifiers, oracle certificates, injected originals, reference answers, or reference actions. Differences are limited to how each workflow inspects, revises, and authorizes its proposal, so the governor is evalu-ated on reconstructing authorization state from public evidence rather than on access to evaluator labels. The suite combines 200 reference APPLY hard negatives with 400 supported blocking cases across 32 realization families, so neither always applying nor always blocking is rewarded. Across 1,200 label only mutations, changing the hidden action leaves the public view and prompt unchanged. Invalid outputs remain in the denominator, and plan feasibility and support are recomputed from the immutable evaluator ledger. These controls support reproducible comparison on un-seen base items, but the taxonomy and oracle are benchmark-defined rather than drawn from an unseen generator or in-dependent deployment study. Record coverage is therefore reported separately from the shared primary metrics. IV. W IRELESS OPS AGENT ARCHITECTURE 
+
+WirelessOpsAgent puts the benchmark check inside the agent loop. 
+
+A. Closed Loop Architecture 
+
+WirelessOpsAgent is organized around input binding and output authorization. Given a wireless task, a network ob-servation snapshot, and an execution contract, the first stage preserves the exposed observations in an immutable ledger and constructs a lineage preserving canonical view for proposal generation. Input binding secures the observations presented to the model, but generation occurs afterward and can in-troduce new errors. The model may misstate a unit, omit a required schema field, produce an incomplete allocation or mobility plan, or select APPLY despite unresolved conflict. A nominally correct answer may therefore remain operationally unsafe. WirelessOpsAgent treats the answer, intended action, and plan as a proposal, binds its fields to their dependencies, and checks plan completeness, network constraints, and sup-port. Recoverable dependencies are repaired and revalidated before the action governor releases or blocks execution. This proposal interface can wrap an existing network agent without changing its internal reasoning. Fig. 3 gives the overall flow. 
+
+B. Decision Linked Evidence Graph 
+
+Authorization first requires an evidence graph. Each critical field k is represented by its value, schema, unit, source identi-fier, provenance, event time, ingest time, freshness limit, qual-ity state, and parent identifiers. WirelessOpsAgent maintains three linked views of this information. The raw state preserves observations exactly as exposed by tools. The normalized state maps aliases to canonical task fields and converts compatible units without discarding lineage. The decision state parses dt
+
+into task fields and attaches the dependencies that support them, such as throughput depending on bandwidth and CQI, or QoS depending on throughput and the minimum service rate. These links form an evidence graph from raw observations to the candidate action. They prevent normalization from hiding a source and prevent a newly computed value from being treated as fresh when one of its parents has expired. Authorization therefore follows dependency edges rather than checking only the final text. 
+
+C. Typed Integrity Diagnosis 
+
+Given these links, the integrity monitor evaluates each critical field k at time t using five explicit checks: 
+
+Valid( k, t ) = SchemaOK( k) ∧ UnitOK( k)
+
+∧ SourceOK( k, t ) ∧ Fresh( k, t )
+
+∧ ConflictFree( k, t ).
+
+(6) The five terms correspond to schema validity, unit validity, provenance support, temporal validity, and conflict freedom. Schema and unit checks recognize aliases and compatible conversions such as channel quality index to CQI or Gbps to Mbps. Temporal checks combine event to ingest age, the de-clared freshness requirement, state version order, and bounded clock skew instead of trusting arrival order alone. Provenance checks require each critical field and each repair to resolve to an existing ledger source. Conflict checks group observations for the same quantity and reject unresolved disagreement or an older event that overwrites a newer trusted value. Domain and cross field checks enforce legal CQI and bandwidth ranges, recompute throughput from authorized inputs, and validate QoS against the resulting rate. Validation runs at both the field and dependency levels. A successfully canonicalized alias is recorded as a resolved transformation rather than a reason to refuse. A stale parent remains a blocking violation even when its downstream value was computed recently. A tool brownout carries retry eligi-bility and budget semantics. The monitor therefore produces typed violations rather than a single anomaly score. These types determine both what can be repaired and which blocking action is appropriate when repair fails. Wireless Context Input  Proposal  Action Assurance Engine  Risk -Aware Authorization       
+
+> Wireless
+> Task &
+> Operator
+> Intent
+> Live Network Evidence
+> Execution Contract
+> Capacity Qos Budget…
+> Network Control
+> Memory&History PROPOSAL
+> NOT
+> EXECUTABLE!
+> Ordered
+> Action Governor
+> APPLY RETRY HOLD ESCALATE
+> ABSTAIN
+
+Replayable 
+
+Authorization Record                        
+
+> •Used Sources
+> •Accepted Repairs
+> •Unresolved Risks
+> •State Version
+> Typed Integrity Diagnosis
+> Schema Unit Source Freshness Conflict Blocker Set
+> Dependency -Scoped Bounded Recovery
+> 1Affected Closure 2Bounded Operators 3Rebuilt State
+> Canonicalize
+> Convert
+> unit
+> Recompute/Refetch
+> failed fields (in )
+> affected
+> fields (in )
+> clean fields (frozen
+> )
+
+Revalidate    
+
+> Revalidate Gate
+> Ready Reject /
+> Block
+> Revalidate
+> Decision -Linked Evidence Grounding
+> Field Support Map Evidence
+> Resolution
+> fresh
+> trusted
+> consistent
+> Observation
+> Envelope
+> value/source/
+> time/version
+> Task -conditioned support view
+
+Fig. 3. WirelessOpsAgent binds evidence, checks a proposed decision, repairs affected fields, and authorizes the resulting action. 
+
+D. Dependency Scoped Bounded Recovery 
+
+To avoid unnecessary blocking or broad rewriting, let Bt de-note the critical fields that fail integrity diagnosis. WirelessOp-sAgent limits recovery to these fields and their descendants in the evidence graph: 
+
+Dt = Bt ∪ Desc Gt (Bt). (7) The agent computes rt = Repair Bt (xt, G t), rebuilds the val-ues in Dt, and copies all fields outside this scope unchanged. A repair is accepted only when its changed fields remain supported, pass revalidation, and do not reduce task utility: 
+
+Accept( x′
+
+t) = Supported t ∧ ^
+
+k∈D t
+
+Valid( k, t +1) 
+
+∧ [V (d′
+
+t) ≥ V (dt)] .
+
+(8) Here, V is the task verifier, and Supported t requires every changed field and repair to resolve to recorded evidence. This scoped update permits an aliased field to be renamed, a compatible unit converted, or a derived descendant recomputed while unrelated clean fields remain unchanged. A rejected repair leaves the violation blocked. Replacing newer evidence with stale, conflicting, or memory derived state is counted as an unsafe overwrite. After an accepted repair, WirelessOpsAgent uses the rebuilt state rather than the original candidate. This loop permits a cur-rent secondary source, canonical conversion, verified recom-putation, or bounded retry to restore authorization. Unresolved stale, unavailable, or conflicting evidence remains blocked, so answer plausibility cannot override source admissibility. Memory is treated as an untrusted source rather than a privileged answer cache. It is considered only when current public tools leave a critical field missing or unsafe, and it must pass the same task, freshness, provenance, and dependency checks as a tool observation. Current valid evidence dominates memory. The design therefore separates retrieval utility from admission authority and permits an ablation with memory disabled. 
+
+E. Risk Aware Authorization and Replayable Records 
+
+After validation and bounded recovery, authorization de-cides whether the proposal can be released. A candidate is ready only when its evidence, network constraints, and autho-rization record all pass. Formally, Ready t = FieldsValid t ∧
+
+ConstraintsPass t ∧ RecordComplete t, where FieldsValid t
+
+means that every critical field satisfies Eq. (6). The action governor then evaluates the following ordered policy from top to bottom: 
+
+at =
+
+
+
+APPLY , Ready t = 1 ,
+
+ESCALATE , ambiguity or conflict remains ,
+
+RETRY , a required tool can be retried ,
+
+HOLD , required state is not yet current ,
+
+ABSTAIN , otherwise .
+
+(9) APPLY is selected only when every critical field, network constraint, and record consistency check passes. ESCALATE takes precedence when ambiguous schema, unresolved con-flict, or independent mixed risks remain. RETRY is used when a required source exposes a retryable protocol state and finite backoff, while HOLD prevents execution until time sensitive evidence becomes current. ABSTAIN is the fallback when no supported action is available. The authorization record zt contains the normalized action, state version, structured decision, field level used sources, blocked sources, integrity results, repair actions, unresolved risks, and provenance coverage. Hard integrity failures take precedence over verifier confidence. The record preserves both the violations before repair and the support graph after repair, allowing the evaluator to replay why a candidate was released or blocked. A record is faithful only when its claims agree with the public observation ledger. V. E XPERIMENTAL RESULTS 
+
+The evaluation moves from aggregate outcomes to condition and ablation analyses, keeping each result tied to the claim it supports. 
+
+A. Experimental Protocol 
+
+We compare WirelessOpsAgent with three baselines: Direct, WirelessAgent++ + contract, and CRITIC style. Direct is the single pass comparator on the common label free execution state interface. WirelessAgent++ + contract augments the official source and paper workflow with the same explicit action contract [9], while CRITIC style adds tool mediated checking [18]. Every method is evaluated on the frozen 600 episode split from Section III. We keep the separately exported Direct minimal/no contract sensitivity outside the headline comparison and report the seven GPT-5.4-mini ablations only in the matched ablation study. The backbone comparison covers GPT-5.4-mini, Qwen3-8B, and Claude Sonnet 4.6, with 600 episodes for each method on each backbone under one evaluator. Qwen and Claude use the corrected endpoint mapping. The release retains the original recorded labels and source hashes, while each backbone shares a frozen episode inventory across methods. All selected rows are valid and have no runtime errors. The condition and ablation studies keep the GPT-5.4-mini inference configuration fixed and use the same frozen hard violation scorer. 
+
+B. Metric Definitions 
+
+Because outputs contain both task answers and actions, the metrics separate task quality from execution readiness. Our primary operational metrics are Exact Action Accuracy, Safe APPLY Recall, and Unsafe APPLY Rate. Together they separate correct routing, retained executable actions, and authorization failures. Task Score captures nominal answer quality, while Safe APPLY Utility measures how much task utility remains after execution requirements are enforced. OPS is a gated secondary summary, and Action Choice Macro F1 is used only for the matched ablation replay. Table II gives the definitions. Invalid responses and model call failures remain in every relevant denominator. Binary integrity audits are indicator means on their declared split. Confidence intervals are the 2.5th and 97.5th percentiles of 10,000 paired bootstrap mean differences stratified by task. Each stress domain contains 120 episodes, so the equally weighted domain average equals the overall mean. 
+
+C. Action Correctness, Safety, and Progress 
+
+Table III tests whether proposal checks reduce unsafe ex-ecution without collapsing safe progress. WirelessOpsAgent attains Exact Action Accuracy between 0.972 and 0.983, whereas the strongest baseline reaches at most 0.707. Its Unsafe APPLY Rate falls to 7.8%, 17.2%, and 10.3% on GPT-5.4-mini, Qwen3-8B, and Claude Sonnet 4.6. Relative to the safest baseline on each backbone, these values are lower by 10.9, 12.8, and 71.9 percentage points. The safety gain does not eliminate safe progress. Safe APPLY Recall rises to 72.5%, 48.0%, and 66.0%, compared with best baseline values of 25.5%, 22.0%, and 17.0%. WirelessOpsAgent also records the highest Task Score and OPS in every backbone block. The backbone results also separate answer quality from ex-ecution readiness. On Claude Sonnet 4.6, Direct and CRITIC style retain Task Scores near 0.5 but collapse in OPS because they frequently apply under blockers. On Qwen3-8B, Wire-lessOpsAgent has a lower Task Score than on GPT-5.4-mini but the highest Exact Action Accuracy. The claim is therefore not that the backbone solves every wireless calculation better, but that the assurance loop converts imperfect proposals into safer operational decisions. A trivial safe policy would lower unsafe APPLY by re-fusing most executions. The results show a different pattern. WirelessOpsAgent keeps the largest Safe APPLY Recall on every backbone and improves exact routing at the same time, so the safety improvement is coupled with useful progress. The gap between Task Score and OPS in the baselines also explains why nominal answer quality is insufficient: a model can compute a plausible wireless answer and still release it under stale, missing, or conflicting support. The OPS survival curves in Fig. 4 show that this advantage extends across the episode distribution. At τ = 0 .8, Wire-lessOpsAgent retains 90.8%, 81.8%, and 86.5% of episodes for the three backbones, while every baseline curve has reached zero. OPS is supporting evidence because it includes record faithfulness. The primary conclusion remains grounded in exact actions, safe progress, and unsafe execution. One possible explanation for the lower Unsafe APPLY Rate is indiscriminate blocking. Table IV rules out that explanation at the binary authorization level. After repair, false APPLY decisions fall to zero on all 400 blocking reference episodes for each backbone, while APPLY recall remains between 96.0% and 99.5%. This audit is deliberately narrower than Unsafe APPLY Rate, which also counts hard violations when APPLY is the reference action. The before and after rows expose the source of this gain. Before repair, all backbones propose APPLY for most blocking episodes, with FPR between 85.5% and 92.2%. After diagnosis and scoped recovery, FPR drops to zero while recall remains high. The remaining false negatives are therefore not evidence of generic rejection. They are cases where the rebuilt proposal still lacks a complete, supported, and feasible APPLY decision. TABLE II METRIC DEFINITIONS . N INCLUDES INVALID OUTPUTS . NA COUNTS REFERENCE APPLY EPISODES . Aref CONTAINS THE FOUR REFERENCE ACTIONS .
+
+Si MARKS A FEASIBLE APPLY WITHOUT VIOLATIONS . Ui MARKS AN APPLY WITH A HARD BLOCKER . R EADINESS SCORE (OPS) AVERAGES 
+
+di, u i, s i, e i (DECISION , UTILITY , STATE , RECORD ), WITH gi = 0 ON HARD VIOLATIONS . B LOCKERS COVER EVIDENCE , FEASIBILITY , AUTHORIZATION ,
+
+AND UNSAFE OVERWRITE .
+
+Metric Formula Plain language meaning Task Score 1
+
+> N
+
+P 
+
+> i
+
+Score i Measures nominal wireless task quality without considering whether the action is safe to execute. Readiness Score (OPS) 1
+
+> N
+
+P 
+
+> i
+
+gi(di + ui + si + ei)/4 Summarizes overall episode quality after hard violations are gated. It is inter-preted together with the primary metrics. Exact Action Accuracy 1
+
+> N
+
+P 
+
+> i
+
+1[ˆ ai = ri] Measures the fraction of episodes whose predicted action exactly matches the reference action. Action Choice Macro F1 14
+
+P 
+
+> c∈A ref
+
+F1 c Provides a balanced action diagnostic for the matched ablation replay. Safe APPLY Recall 1
+
+> NA
+
+P 
+
+> ri=APPLY
+
+Si Measures the fraction of reference APPLY episodes that produce a complete, feasible, and violation free APPLY decision. Unsafe APPLY Rate 1
+
+> N
+
+P 
+
+> i
+
+Ui Measures the fraction of all episodes in which the agent selects APPLY despite a hard blocker. Safe APPLY Utility 1
+
+> NA
+
+P 
+
+> ri=APPLY
+
+SiScore i Measures the WirelessBench task utility retained by complete, feasible, and violation free APPLY decisions. 
+
+TABLE III STRESS RESULTS ACROSS BACKBONES (600 EPISODES FOR EACH METHOD ON EACH BACKBONE ). S AFE -R IS SAFE APPLY R ECALL OVER 200 
+
+REFERENCE APPLY EPISODES . U NSAFE IS UNSAFE APPLY R ATE OVER ALL 600 EPISODES .
+
+Method Task ↑ OPS ↑ Exact ↑ Safe-R ↑ Unsafe ↓
+
+GPT-5.4-mini (N = 600 )Direct 0.539 0.355 0.538 25.5% 49.0% WirelessAgent++ + contract 0.424 0.351 0.517 14.5% 49.0% CRITIC style 0.324 0.555 0.560 18.5% 18.7% WirelessOpsAgent 0.802 0.912 0.972 72.5% 7.8% 
+
+Qwen3-8B (N = 600 )Direct 0.315 0.386 0.675 22.0% 47.5% WirelessAgent++ + contract 0.300 0.452 0.707 17.0% 36.3% CRITIC style 0.236 0.489 0.632 19.0% 30.0% WirelessOpsAgent 0.389 0.815 0.983 48.0% 17.2% 
+
+Claude Sonnet 4.6 (N = 600 )Direct 0.508 0.076 0.370 17.0% 88.7% WirelessAgent++ + contract 0.468 0.122 0.407 12.0% 82.2% CRITIC style 0.483 0.076 0.363 16.5% 88.5% WirelessOpsAgent 0.520 0.878 0.975 66.0% 10.3% 
+
+TABLE IV APPLY DECISIONS BEFORE AND AFTER REPAIR . APPLY IS POSITIVE .TRUE POSITIVES (TP), FALSE POSITIVES (FP), FALSE NEGATIVES (FN), 
+
+TRUE NEGATIVES (TN), FALSE POSITIVE RATE (FPR), AND ACCURACY 
+
+(A CC .) ARE COMPUTED OVER THE 600 EPISODE SPLIT .
+
+Backbone Stage TP FP FN TN Recall FPR Acc. GPT-5.4-mini Before repair 187 369 13 31 93.5% 92.2% 36.3% After repair 192 0 8 400 96.0% 0.0% 98.7% Qwen3-8B Before repair 198 342 2 58 99.0% 85.5% 42.7% After repair 199 0 1 400 99.5% 0.0% 99.8% Claude Sonnet 4.6 Before repair 194 357 6 43 97.0% 89.2% 39.5% After repair 194 0 6 400 97.0% 0.0% 99.0% 
+
+We next trace where blocked APPLY proposals go. Fig. 5 shows condition specific routing rather than a generic rejection response. Across backbones, freshness/order faults send 57% of initial APPLY proposals to HOLD, availability/brownout faults send 44–63% to RETRY, and conflict/provenance faults Direct WirelessAgent++ CRITIC-style WirelessOpsAgent 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Readiness threshold 
+
+> 020 40 60 80 100
+> OPS survival (%)
+> n = 600/method
+
+(a) GPT-5.4-mini 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Readiness threshold 
+
+> 020 40 60 80 100
+> OPS survival (%)
+> n = 600/method
+
+(b) Qwen3-8B 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Readiness threshold 
+
+> 020 40 60 80 100
+> OPS survival (%)
+> n = 600/method
+
+(c) Claude Sonnet 4.6 Fig. 4. OPS survival over 600 episodes for each method on each backbone. The ordinate is the fraction with OPS at least τ .
+
+send 66–67% to ESCALATE. Mixed evidence invokes all three alternatives. The governor therefore maps distinct failures to distinct operational responses. This routing matters because the blocking actions have different operational meanings. HOLD waits for a current APPLY HOLD RETRY ESCALATE S/U F/O A/B C/P Mixed        
+
+> Stress condition
+> 020 40 60 80 100
+> Final action share (%)
+> 65 33 37 34 18 57 16 63 18 17 66 67
+> n=112 n=117 n=98 n=115 n=114
+
+(a) GPT-5.4-mini S/U F/O A/B C/P Mixed      
+
+> Stress condition
+> 020 40 60 80 100
+> Final action share (%)
+> 67 33 56 35 17 57 17 44 16 17 65 67
+> n=120 n=120 n=68 n=113 n=119
+
+(b) Qwen3-8B S/U F/O A/B C/P Mixed        
+
+> Stress condition
+> 020 40 60 80 100
+> Final action share (%)
+> 67 33 39 33 17 57 18 61 17 17 67 64
+> n=120 n=120 n=87 n=120 n=104
+
+(c) Claude Sonnet 4.6 Fig. 5. Final routing of proposals initially marked APPLY. Bars are normal-ized by the count shown above them. The conditions are schema/unit (S/U), freshness/order (F/O), availability/brownout (A/B), and conflict/provenance (C/P). 
+
+state, RETRY reissues a bounded telemetry request, and ESCALATE asks for human resolution when ambiguity or conflict remains. Exact action scoring therefore tests more than whether an agent refuses APPLY. It tests whether the refusal is useful for the operator and consistent with the evidence fault. Fig. 6 then places these repairs in the full four action space. All three baselines over select APPLY on blocking cases, de-spite differences in their remaining errors. WirelessOpsAgent is nearly diagonal across backbones. Its limited residual mass shifts mainly from APPLY toward RETRY or ESCALATE, or from ESCALATE toward HOLD, which is consistent with conservative handling rather than unguarded execution. 
+
+D. Condition Diagnostics 
+
+Having established the aggregate pattern, we examine where it holds and where the evaluator needs care. Table V re-ports zero frozen unsafe APPLY decisions for freshness/order, availability/brownout, and mixed evidence. Schema/unit stress remains harder, with an Unsafe APPLY Rate of 0.067, but still retains 0.752 Safe APPLY Utility. 
+
+TABLE V WIRELESS OPS AGENT RESULTS BY CONDITION , MACRO AVERAGED OVER THREE TASK FAMILIES (120 EPISODES EACH ). L ABELS FOLLOW THE ROW LEVEL EXECUTION CONTRACT . D ASHES INDICATE NO REFERENCE 
+
+APPLY EPISODES .                                  
+
+> Condition nExact ↑Safe util. ↑Safe rec. ↑Unsafe ↓
+> Schema/unit 120 0.967 0.752 0.850 0.067 Freshness/order 120 0.917 0.917 0.975 0.000 Availability/brownout 120 0.983 0.776 0.950 0.000 Conflict/provenance 120 0.992 0.000 0.000 0.325 Mixed evidence 120 1.000 --0.000
+
+TABLE VI MATCHED ABLATION ON 600 GPT-5.4-MINI EPISODES . M ACRO F1 
+
+> AVERAGES THE FOUR REFERENCE ACTIONS
+
+. F ULL REPRODUCES THE MAIN RESULT .                                    
+
+> Variant Macro F1 ↑Safe util. ↑Safe rec. ↑Unsafe ↓
+> WirelessOpsAgent full 0.972 0.639 0.725 0.078
+> Monitor only 0.983 0.224 0.250 0.250 No integrity monitor 0.216 0.632 0.715 0.688 No action governor 0.219 0.639 0.725 0.693 No utility repair 0.964 0.224 0.245 0.230 No schema and unit normalizer 0.889 0.639 0.725 0.157 No conflict and freshness checks 0.514 0.639 0.725 0.355
+
+The conflict/provenance value of 0.325 is confounded by the frozen evaluator and should not be read as a material conflict failure rate. A post freeze audit found that nonmaterial hard negatives were scored as conflicts, which marked 39 of 40 correct WirelessOpsAgent APPLY decisions and 22 of 40 CRITIC style decisions unsafe. Neither method selected APPLY on the 80 material conflict positives. We retain the frozen score for reproducibility and exclude this slice from claims about material conflict handling. Across the other four domains, WirelessOpsAgent produces 8 unsafe APPLY decisions among 480 episodes, compared with 89 for CRITIC style. The cell view in Fig. 7 checks whether the aggregate gain depends on a small subset of tasks or backbones. WirelessOp-sAgent exceeds the strongest baseline in 40 of 45 cells defined by backbone, task, and condition, and ties in the other five. No cell is negative. Gains are largest under mixed evidence, where a correct decision must reconcile several simultaneous blockers, while the ties occur where a baseline already selects every reference action correctly. The cell pattern strengthens the benchmark claim. Gains appear in WCHW, WCNS, and WCMSA rather than only in calculation heavy WCHW cases, so the effect is not confined to one task family. The zero gain cells are ceiling cases in which a baseline already matches the reference action. This makes the aggregate improvement less vulnerable to a single backbone, task, or stress condition. 
+
+E. Ablations and Faithfulness 
+
+Table VI explains which parts of the loop produce both safety and progress. The integrity monitor and action governor form the main authorization path. Removing either reduces Action Choice Macro F1 from 0.972 to about 0.22 and Fig. 6. Row normalized action confusion matrices averaged over three 600 episode backbone runs. Rows are reference actions. Columns include the four benchmark actions and fallback ABSTAIN. S/U F/O A/B C/P Mixed             
+
+> Stress condition
+> WCHW WCNS WCMSA
+> Wireless task  +28 +35 +12 +0 +82 +30 +35 +15 +5 +75 +38 +48 +20 +10 +78
+
+(a) GPT-5.4-mini S/U F/O A/B C/P Mixed             
+
+> Stress condition
+> WCHW WCNS WCMSA
+> Wireless task  +20 +43 +7 +0 +30
+> +15 +48 +3 +0 +40
+> +18 +43 +10 +0 +52
+
+(b) Qwen3-8B S/U F/O A/B C/P Mixed             
+
+> Stress condition
+> WCHW WCNS WCMSA
+> Wireless task  +32 +58 +0 +20 +88 +32 +60 +65 +68 +100 +35 +60 +60 +65 +100
+
+(c) Claude Sonnet 4.6 0 20 40 60 80 100 
+
+> Exact-Action Accuracy gain vs. strongest baseline (pp)
+
+Fig. 7. Exact Action Accuracy gain over the strongest baseline in each back-bone, task, and condition cell (percentage points, 40 episodes per method). The conditions are schema/unit (S/U), freshness/order (F/O), availability/brownout (A/B), and conflict/provenance (C/P). 
+
+raises Unsafe APPLY Rate from 0.078 to about 0.69. Conflict and freshness checks provide a second safety layer, as their removal raises unsafe execution to 0.355 and lowers Macro F1 to 0.514. Safety checks alone are not enough. The monitor only variant attains 0.983 Macro F1, yet its Safe APPLY Recall is only 0.250 and its Unsafe APPLY Rate is 0.250. Utility repair recovers safe progress from recoverable inputs. With-out it, Safe APPLY Utility falls from 0.639 to 0.224 and Safe APPLY Recall from 0.725 to 0.245. Schema and unit normalization addresses a narrower but measurable risk, with its removal doubling unsafe execution from 0.078 to 0.157. All variants preserve clean fields at 1.000 and record zero unsafe overwrites, so the differences arise from authorization and recovery rather than broad state rewriting. The ablations therefore separate three failure modes: miss-ing monitors hide blockers, missing governors release unsup-ported actions, and missing repair sacrifices recoverable safe progress. Taken together, the ablations rule out three simpler expla-nations: a conservative reject policy, a stronger prompt, or a formatting artifact. The full system is the only variant that combines low Unsafe APPLY Rate with high Safe APPLY Utility. The zero unsafe overwrite rate further shows that re-covery is scoped because it repairs compromised dependencies without rewriting fields that already satisfy the contract. VI. L IMITATIONS 
+
+WirelessOptBench is a controlled benchmark rather than a live network deployment study. Its stress domains are designed to test execution state reasoning, so they should not be inter-preted as production fault frequencies or an exhaustive catalog of wireless operations. The backbone comparison covers three LLMs, and the ablations use GPT-5.4-mini. WirelessOpsAgent also assumes that exposed telemetry metadata and provenance fields are correctly reported. Actuator security and concurrent control are outside the present evaluation. VII. C ONCLUSION 
+
+Reliable wireless network operations require agents to de-termine not only what action to take, but also whether that action is supported by the current network state. This paper introduced WirelessOptBench to evaluate this requirement and WirelessOpsAgent to establish action assurance before execution. The results show that evidence grounding, bounded recovery, and revalidation can improve operational decision making under imperfect network observations. Together, the benchmark and agent provide a foundation for developing wireless network agents whose actions are effective, depend-able, and auditable. REFERENCES [1] A. Leivadeas and M. Falkner, “A survey on intent-based networking,” 
+
+IEEE Commun. Surveys Tuts. , vol. 25, no. 1, pp. 625–655, 2023. [2] X. Foukas, G. Patounas, A. Elmokashfi, and M. K. Marina, “Network slicing in 5G: Survey and challenges,” IEEE Commun. Mag. , vol. 55, no. 5, pp. 94–100, 2017. [3] A. Garcia-Saavedra and X. Costa-P´ erez, “O-RAN: Disrupting the virtu-alized RAN ecosystem,” IEEE Commun. Standards Mag. , vol. 5, no. 4, pp. 96–103, 2021. [4] R. Ding, X. Liu, S. Yang, Q. Huang, B. Xie, R. Sun, Z. Zhang, and B. Cui, “RD-Probe: Scalable monitoring with sufficient coverage in complex datacenter networks,” in Proc. ACM SIGCOMM , Aug. 2024, pp. 258–273. [5] P. Namyar, A. Ghavidel, D. Crankshaw, D. S. Berger, K. Hsieh, S. Kandula, R. Govindan, and B. Arzani, “Enhancing network failure mitigation with performance-aware ranking,” in 22nd USENIX Symposium on Networked Systems Design and Implementation (NSDI 25) . USENIX Association, Apr. 2025, pp. 335–357. [Online]. Available: https://www.usenix.org/conference/nsdi25/presentation/namyar [6] E. Sakic and W. Kellerer, “Impact of adaptive consistency on distributed SDN applications: An empirical study,” IEEE J. Sel. Areas Commun. ,vol. 36, no. 12, pp. 2702–2715, Dec. 2018. [7] M. Reitblatt, N. Foster, J. Rexford, C. Schlesinger, and D. Walker, “Abstractions for network update,” in Proc. ACM SIGCOMM , Aug. 2012, pp. 323–334. [8] J. Tong, W. Guo, J. Shao, Q. Wu, Z. Li, Z. Lin, and J. Zhang, “WirelessAgent: Large language model agents for intelligent wireless networks,” China Commun. , vol. 23, no. 3, pp. 265–285, Mar. 2026. [9] J. Tong, Z. Li, F. Liu, W. Guo, and J. Zhang, “WirelessAgent++: Automated agentic workflow design and benchmarking for wireless networks,” arXiv preprint arXiv:2603.00501, 2026. [10] J. Tong, F. Liu, L. Xv, S. Lu, K. Li, Y. Zhang, Y. Song, Z. Xue, and J. Zhang, “WirelessBench: A tolerance-aware LLM agent benchmark for wireless network intelligence,” arXiv preprint arXiv:2603.21251, 2026. [11] C. Wang, M. Scazzariello, A. Farshin, S. Ferlin, D. Kosti´ c, and M. Chiesa, “NetConfEval: Can LLMs facilitate network configuration?” 
+
+Proc. ACM Netw. , vol. 2, no. CoNEXT2, pp. 1–25, Jun. 2024, art. no. 7. [12] I. Protogeros, R. Asadli, B. Hoffman, and L. Vanbever, “Bench-marking LLM-driven network configuration repair,” arXiv preprint arXiv:2604.22513, 2026. [13] T. Yuan, Z. He, L. Dong, Y. Wang, R. Zhao, T. Xia, L. Xu, B. Zhou, F. Li, Z. Zhang, R. Wang, and G. Liu, “R-Judge: Benchmarking safety risk awareness for LLM agents,” in Findings of the Association for Com-putational Linguistics: EMNLP 2024 . Association for Computational Linguistics, Nov. 2024, pp. 1467–1490. [14] H. Wang, C. M. Poskitt, and J. Sun, “AgentSpec: Customizable run-time enforcement for safe and reliable LLM agents,” arXiv preprint arXiv:2503.18666, 2025. [15] D. Seto, B. H. Krogh, L. Sha, and A. Chutinan, “Dynamic control system upgrade using the Simplex architecture,” IEEE Control Syst. Mag. , vol. 18, no. 4, pp. 72–80, 1998. [16] S. Mitsch and A. Platzer, “ModelPlex: Verified runtime validation of verified cyber-physical system models,” Formal Methods Syst. Des. ,vol. 49, no. 1–2, pp. 33–74, 2016. [17] A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. Prabhumoye, Y. Yang, S. Gupta, B. P. Majumder, K. Hermann, S. Welleck, A. Yazdanbakhsh, and P. Clark, “Self-Refine: Iterative refinement with self-feedback,” in Adv. Neural Inf. Process. Syst. (NeurIPS) , vol. 36, 2023, pp. 46 534–46 594. [18] Z. Gou, Z. Shao, Y. Gong, Y. Shen, Y. Yang, N. Duan, and W. Chen, “CRITIC: Large language models can self-correct with tool-interactive critiquing,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2024. [19] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao, “ReAct: Synergizing reasoning and acting in language models,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2023. [20] T. Schick, J. Dwivedi-Yu, R. Dessi, R. Raileanu, M. Lomeli, E. Hambro, L. Zettlemoyer, N. Cancedda, and T. Scialom, “Toolformer: Language models can teach themselves to use tools,” in Adv. Neural Inf. Process. Syst. (NeurIPS) , vol. 36, 2023, pp. 68 539–68 551. [21] Y. Qin, S. Liang, Y. Ye, K. Zhu, L. Yan, Y. Lu, Y. Lin, X. Cong, X. Tang, B. Qian, S. Zhao, L. Hong, R. Tian, R. Xie, J. Zhou, M. Gerstein, D. Li, Z. Liu, and M. Sun, “ToolLLM: Facilitating large language models to master 16000+ real-world APIs,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2024. [22] X. Foukas, N. Nikaein, M. M. Kassem, M. K. Marina, and K. Konto-vasilis, “FlexRAN: A flexible and programmable platform for software-defined radio access networks,” in Proc. ACM Int. Conf. Emerg. Netw. Experiments Technol. (CoNEXT) , 2016, pp. 427–441. [23] Y. Sun, M. Peng, Y. Zhou, Y. Huang, and S. Mao, “Application of machine learning in wireless networks: Key techniques and open issues,” 
+
+IEEE Commun. Surveys Tuts. , vol. 21, no. 4, pp. 3072–3108, 2019. [24] P. Kazemian, G. Varghese, and N. McKeown, “Header space analysis: Static checking for networks,” in 9th USENIX Symposium on Networked Systems Design and Implementation (NSDI 12) . USENIX Association, 2012, pp. 113–126. [25] P. Kazemian, M. Chang, H. Zeng, G. Varghese, N. McKeown, and S. Whyte, “Real time network policy checking using header space analysis,” in 10th USENIX Symposium on Networked Systems Design and Implementation (NSDI 13) . USENIX Association, 2013, pp. 99– 111. [26] A. Khurshid, X. Zou, W. Zhou, M. Caesar, and P. B. Godfrey, “Veri-Flow: Verifying network-wide invariants in real time,” in 10th USENIX Symposium on Networked Systems Design and Implementation (NSDI 13) . USENIX Association, 2013, pp. 15–27. [27] A. Fogel, S. Fung, L. Pedrosa, M. Walraed-Sullivan, R. Govindan, R. Mahajan, and T. Millstein, “A general approach to network con-figuration analysis,” in 12th USENIX Symposium on Networked Systems Design and Implementation (NSDI 15) . USENIX Association, 2015, pp. 469–483. [28] World Wide Web Consortium, “PROV-DM: The PROV data model,” W3C Recommendation, Apr. 2013, L. Moreau and P. Missier, Eds.. [29] M. Sana, N. Piovesan, A. D. Domenico, Y. Kang, H. Zhang, M. Debbah, and F. Ayed, “Reasoning language models for root cause analysis in 5G wireless networks,” arXiv preprint arXiv:2507.21974, 2025. [30] Y. Cai, X. Nie, K. Yin, C. Pei, Y. Sun, S. Zhang, H. Liu, G. Liu, X. Wen, F. Situ, and D. Pei, “A multi-dataset benchmark for eval-uating LLM agents in microservice failure diagnosis,” arXiv preprint arXiv:2606.29193, 2026.

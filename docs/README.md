@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-10</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-16</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 9 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 39 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>27</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-10 20:42:33 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-16 20:44:39 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精选9篇论文，聚焦长期时序预测与智能体轨迹归因两大前沿方向。</p>
-<p>最值得看的是精读满分的KReF无训练检索预测框架，以及长期轨迹归因的统一基准与细粒度标注。</p>
-<p>建议优先研读这两篇高分工作，并结合速读中的任务难度预测与稀疏时序图学习拓展视野。</p>
+<p>今日精读27篇、速读12篇，共39篇论文，聚焦时间序列基础模型与LLM交互叙事两大高星热点；最值得关注的是9.0分的地面真值邻域正则化强化学习方法，以及长程叙事一致性基准测试；建议普通读者从这两篇高分精读入手，再顺带速读移动智能体与电子表格生成的最新评测。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">27 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="KReF: Training-Free Retrieval for Long-Term Time-Series Forecasting and Predictive Uncertainty">KReF: Training-Free Retrieval for Long-Term Time-Series Forecasting and Predictive Uncertainty</span></li><li><span class="dpr-home-dashboard-paper-title" title="Long-Horizon Agent Trajectory Attribution: A Unified Benchmark and Fine-Grained Annotation Framework">Long-Horizon Agent Trajectory Attribution: A Unified Benchmark and Fine-Grained Annotation Framework</span></li><li><span class="dpr-home-dashboard-paper-title" title="When GNNs Fail: Quantifying and Overcoming Temporal Correlation Volatility in Time Series">When GNNs Fail: Quantifying and Overcoming Temporal Correlation Volatility in Time Series</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Ground-Truth Neighborhood Regularization for Reinforcement Learning Post-Training of Time Series Foundation Models">Ground-Truth Neighborhood Regularization for Reinforcement Learning Post-Training of Time Series Foundation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Can LLM Agents Stick to the Script? A Benchmark for Long-Horizon Consistency in Interactive Narratives">Can LLM Agents Stick to the Script? A Benchmark for Long-Horizon Consistency in Interactive Narratives</span></li><li><span class="dpr-home-dashboard-paper-title" title="CAP: A Scalable Benchmark for Evaluating Cross-Site Browser Agents with Complex Actions and Perception">CAP: A Scalable Benchmark for Evaluating Cross-Site Browser Agents with Complex Actions and Perception</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>17</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>10</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="The Label Defines the Timescale: Trait-State Limits of Temporal-Aggregate Learning">The Label Defines the Timescale: Trait-State Limits of Temporal-Aggregate Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Predicting Task Difficulty Without Rollouts">Predicting Task Difficulty Without Rollouts</span></li><li><span class="dpr-home-dashboard-paper-title" title="EvtGraph: Event-Adaptive Compression for Sparse Temporal Graph Learning in Multimodal Time Series">EvtGraph: Event-Adaptive Compression for Sparse Temporal Graph Learning in Multimodal Time Series</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AndroidReality: How Far Are Mobile Agents from the Real World?">AndroidReality: How Far Are Mobile Agents from the Real World?</span></li><li><span class="dpr-home-dashboard-paper-title" title="Back to the Future: A workbook time machine for spread sheet creation benchmarks">Back to the Future: A workbook time machine for spread sheet creation benchmarks</span></li><li><span class="dpr-home-dashboard-paper-title" title="Compiling and Benchmarking Task-State Horizons for Embodied Agents">Compiling and Benchmarking Task-State Horizons for Embodied Agents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>6</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span></div>
 </section>
 </div>
 

@@ -1,0 +1,610 @@
+Title: Back to the Future: A workbook time machine for spread sheet creation benchmarks
+
+URL Source: https://arxiv.org/pdf/2608.07873v1
+
+Published Time: Tue, 11 Aug 2026 00:28:35 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+Published as a conference paper at COLM 2026 
+
+# ⟲ Back to the Future: A workbook time machine for spread-sheet creation benchmarks 
+
+Mansi Uniyal Agamdeep Singh Ananya Singha Priyanshu Gupta Mukul Singh Gust Verbruggen Vu Le Sumit Gulwani 
+
+Microsoft ∗
+
+Abstract 
+
+We introduce the workbook time machine , a pipeline that automatically creates benchmarks evaluating the ability of language models to create derived objects in spreadsheets (formulas, charts, pivot tables, and conditional formatting). Applied to public workbook corpora, it produces WTM-CORPUS –a collection of (input workbook, output workbook, query) triples spanning four artifact types and varying complexity. From this corpus we curate WTM-B ENCH , a 150-task evaluation benchmark with queries at three levels of specificity. We evaluate existing spreadsheet manipulation agents and baselines on WTM-B ENCH across artifact types, step complexity, and instruction granularity. Our evaluations show that query specificity, agent orchestration, and interface API used to control spreadsheets play a big role in LLM performance on Excel tasks. 
+
+§ https://aka.ms/wtm-bench 
+
+https://aka.ms/hf-wtm-bench 
+
+1 Introduction Backward :
+
+> remove formula,
+> chart and CF
+> Forward :
+> generate
+> "Plot bmi trend across age and
+> highlight ones > 25."
+
+Figure 1: Example of creating a benchmark with the workbook time machine , which removes objects from a workbook (left) and then generates an instruction that describes the removed objects. Spreadsheets are the world’s most widely used low-code platform, with over 750 million users (Bendre et al., 2019; Microsoft, 2024), serving as the primary computational tool for analysts, accountants, and domain experts who are not professional developers (Hermans, 2016). Users routinely go beyond data entry, building formulas, charts, pivot tables, and 
+
+> ∗
+
+Email in order: {mansiuniyal, t-agasingh, ananyasingha, priyansgupta, singhmukul, gverbruggen, levu, sumitg}@microsoft.com 
+
+1arXiv:2608.07873v1 [cs.AI] 8 Aug 2026 Published as a conference paper at COLM 2026 conditional formatting rules–among other derived artifacts–that transform raw entries into structured analyses. The recent success of coding agents in boosting developer productivity (Peng et al., 2023) suggests that similar gains are within reach for spreadsheet users, if models can reliably create the full range of derived artifacts that real workbooks contain. This has motivated enterprise agents for spreadsheet environments (Microsoft, 2025; Anthropic, 2026; OpenAI, 2026). Yet progress has been hard to measure: existing benchmarks each cover a different slice of the problem–some use realistic workbooks but restrict tasks to formulas and data entry (Ma et al., 2024); others support diverse artifact types but operate on simple, hand-crafted files (Li et al., 2023); and still others target table reasoning rather than artifact creation (Dong et al., 2024) or focus on conversational data analysis (Dutta et al., 2025) (see Section 2 for a detailed comparison). To the best of our knowledge, no existing benchmark jointly evaluates on (i) realistic, user-authored workbooks with complex structure (multiple sheets, non-standard layouts, cross-sheet dependencies); (ii) multi-step creation of derived artifacts–formulas, charts, pivot tables, and conditional formatting; and (iii) instructions at controllable levels of specificity. We address this gap by reverse-engineering real user work. Taking inspiration from re-verse curriculum generation approaches in reinforcement learning (Florensa et al., 2017; Andrychowicz et al., 2017), which construct training distributions by working backward from goal states, we start from finished, user-authored spreadsheets and automatically reconstruct candidate edit histories–the orderings in which derived artifacts could plausibly have been created. From these histories, we generate natural language instructions at multi-ple specificity levels for the same transformation, enabling systematic evaluation of how agents handle varying instructional detail. We call this process the workbook time machine 
+
+(Figure 1). 
+
+Example 1 Consider a spreadsheet with formulas computing BMI from height and weight columns, a conditional formatting rule highlighting high values, and a scatter chart plotting BMI against age. The backward step strips these artifacts to recover the raw data. The forward step generates instructions such as “Calculate BMI and plot it against age” (abstract) or “In cell D2, enter 
+
+=10000*C2/(B2*B2) , drag to D7, then create an XY scatter chart from A2:A7 vs D2:D7” (fully specified). 
+
+This process yields three dimensions of controlled variation: (1) artifact type –which derived object must be created; (2) step complexity –how many intermediate artifacts the transforma-tion requires; and (3) instruction specificity –how much detail the query provides. Applied to the Enron (Hermans & Murphy-Hill, 2015) and FUSE (Barik et al., 2015) corpora, the pipeline produces WTM-C ORPUS : 8,931 queries over 2,977 unique tasks covering the major categories of Excel derived artifacts. From this we curate WTM-B ENCH , a balanced 150-task evaluation subset with near-uniform artifact distribution across three specificity levels. We make the following contributions: • We introduce the workbook time machine , a pipeline that reverse-engineers real user-authored spreadsheets into benchmark triples (input workbook, output workbook, query) by modeling candidate edit histories through dependency-aware DAG construction. Applying it to public corpora yields WTM-C ORPUS .• From WTM-C ORPUS , we curate WTM-B ENCH , a 150-task evaluation benchmark with controlled variation across artifact types, complexity, & query specificity. • We evaluate multiple agentic configurations across 6 frontier models on WTM-BENCH , finding that (a) API choice fundamentally shapes performance–OfficeJS provides richer Excel feature coverage while OpenPyXL struggles with charts and pivot tables; (b) instruction specificity affects models asymmetrically–direct code generation excels with detailed instructions while agentic approaches better handle abstract queries; and (c) artifact difficulty varies sharply–formulas are most tractable while pivot tables remain nearly unsolved. 2Published as a conference paper at COLM 2026 Table 1: Comparison of benchmark properties ∗ The paper mentions, yes, it is not found in practice in the dataset.                                                       
+
+> SheetCopilotB. InstructExcel SheetRM SpreadsheetB. WTM Workbook
+> real? ✓✓✘✓✓
+> + sheets? ✓✓✘✓✓
+> + tables? ✘✓✘✓✓
+> + info? ✘✓✘✘✓
+> Artifacts
+> formulas ✓✓✓✓✓
+> charts ✓✓✓✘∗✓
+> PT ✓✓✘∗✘∗✓
+> CF ✓✓✓✓✓
+> cell manip. ✓✓✓✓✘
+> comb. ✓✘✓✓✓
+
+2 Related Works 
+
+Spreadsheet benchmarks. Existing spreadsheet benchmarks each cover a different slice of the problem space (Table 1). SheetCopilotBench (Li et al., 2023) supports diverse ar-tifact types (charts, pivot tables, conditional formatting) but operates on hand-crafted workbooks that lack the structural complexity–multiple sheets, non-standard layouts, cross-sheet references–of real user files. InstructExcel (Payan et al., 2023) scales to thousands of instruction-code pairs and uses real workbooks, yet each task targets a single isolated operation; multi-step workflows and varying instruction granularity are not supported. SpreadsheetBench (Ma et al., 2024) grounds evaluation in realistic, user-authored workbooks sourced from forums, but its task scope is limited to data entry and formula manipulation– charts and pivot tables are absent in practice despite being mentioned. SheetRM (Chen et al., 2025) introduces a reward model for spreadsheet agents trained on synthetic workbooks, which limits transferability to the messy, multi-table environments encountered in practice. ConDABench (Dutta et al., 2025) evaluates LLMs on conversational data analysis tasks re-quiring multi-turn interaction and disambiguation of under-specified goals, but it targets analytical insights over tabular data rather than the creation of spreadsheet artifacts (for-mulas, charts, pivot tables) that WTM-B ENCH focuses on and avoids low-value operation like manual cell-manipulations. In contrast, WTM-B ENCH combines real workbooks with multi-artifact creation tasks and controllable instruction specificity. 
+
+Spreadsheet understanding and code generation. SpreadsheetLLM (Dong et al., 2024) develops encoding schemes that preserve spatial relationships for spreadsheet question answering, while TableTalk (Liang et al., 2025) enables natural language interaction with structured tables–both are read-only and do not modify workbook content. SheetMind (Zhu et al., 2025) reasons over cell dependencies and formula relationships, an ability we leverage in our dependency-aware pruning (Section 4.2). On the code generation side, approaches for programmatic spreadsheet control (Payan et al., 2023; Zhu et al., 2025) and multi-step task planning (Li et al., 2023; Chen et al., 2025) address orchestration of complex workflows–but all assume clean starting states rather than the artifact-rich environments of real workbooks. More broadly, code-generating LLM agents (Yang et al., 2024) have shown promise for automating multi-step tasks, yet spreadsheet-specific challenges (non-standard layouts, cross-sheet dependencies, API heterogeneity) remain underexplored. 
+
+Backward generation and self-improvement. Our reverse-engineering view is also related to methods that construct learning problems by working backward from known goal states. Reverse curriculum learning and hindsight experience replay (Florensa et al., 2017; Andrychowicz et al., 2017) use reachable goals to densify supervision, while agentic self-debugging and action-observation loops (Chen et al., 2023; Yao et al., 2023) use intermediate feedback to refine multi-step solutions. The Edit DAG differs in purpose: it is not a training-time search policy, but a data-construction mechanism that enumerates reachable spreadsheet transformations from real final workbooks. 3Published as a conference paper at COLM 2026 
+
+3 Problem Formulation 
+
+Let W = {W1, W2, . . . , Wm} be a corpus of Excel workbooks. Each workbook W ∈ W 
+
+consists of raw data D and a set of derived artifacts C = {c1, . . . , cn}–formulas, charts, pivot tables, conditional formatting rules–built on top of D. We write W = {D} ∪ C.Given W, our goal is to produce a benchmark 
+
+B = (Win 
+
+k , Wout 
+
+k , qk) Kk=1,where Win 
+
+k ⊂ Wout 
+
+k ⊆ W are intermediate workbook states, that differ by ≥ 1 artifacts, and 
+
+qk is a natural language instructions describing the transformation from Win 
+
+k to Wout 
+
+k . At evaluation time, a model receives (Win 
+
+k , qk) and must produce a state matching Wout 
+
+k .
+
+4 Workbook Time Machine 
+
+Given a final workbook, our method operates in two passes. In the backward step , we decompose the workbook by stripping its derived artifacts and estimating the various 
+
+candidate edit histories –timelines of edits that could have produced the final workbook. In the forward step , we sample transformations from these candidate histories and generate natural language instructions at varying levels of specificity. Content extraction  Edit DAG construction  Query generation   
+
+> Original
+> workbook
+> Raw
+> workbook
+> Final
+> workbook
+> ...
+> multiple steps
+> multiple trajectories Structured extraction to JSON
+> Identifying table ranges
+> Formula grps & descriptors
+> Segregating contents into:
+> Cached
+> - out
+> Final
+> Raw
+> { Input, GT output workbook,
+> Action parameters }
+> { each artifact
+> dependencies }multiple variations of query
+> wrt information specificity
+> 1
+> 2
+> 3
+> 5
+> Queries
+> Mapping out all dependencies 4
+> Annotate for info. necessity
+> 1
+> Multi-level query annotation
+> 2
+> { + necessity scores }
+
+Figure 2: Generation pipeline flowchart 
+
+4.1 Component extraction. 
+
+Recall from Section 3 that a workbook W = {D} ∪ C comprises raw data D and derived artifacts C = {c1, . . . , cn}. Starting from the final workbook W, the backward step strips away derived artifacts to recover the raw state W0 = {D}, and then reconstructs the candidate edit histories–all semantically valid orderings in which the artifacts could have been added back. We construct W0 by stripping all derived artifacts from W. Beyond straightforward removal, we apply two heuristics to ensure clean extraction. First, we perform formula grouping : spreadsheet features such as FlashFill (Gulwani, 2011) and formula drag allow users to replicate a formula across contiguous ranges, so we anonymize cell references and group adjacent formulas that share the same template into a single formula group , substantially reducing the number of artifacts. Second, we perform semantic descriptor mapping : label cells that describe an adjacent formula–for example, a “Total” cell next to 
+
+=SUM() –leak information about the target transformation and must be associated with the source state and removed if the component is removed. We use an LLM to identify semantic table ranges and mark row and column headers that serve as descriptors for formula groups. 
+
+4.2 Backward Step: Decomposition Edit DAG construction. We represent these candidate histories compactly as a Directed Acyclic Graph (DAG). Let the true edit history of the workbook be T = ( W0, W1, W2, . . . , W).Since T is not available, we model all possible candidate edit histories via the Edit DAG G =(V, E), where V comprises all workbook states obtainable by adding subsets of {c1, . . . , cn}
+
+4Published as a conference paper at COLM 2026 to W0, and a directed edge (Wi, Wj) ∈ E exists iff Wj = Wi ∪ { ck} for some artifact ck. Each path from W0 to W in G corresponds to one candidate edit history. 
+
+Dependency-aware pruning. Naïvely, a workbook with n artifacts admits up to n! order-ings. However, not all orderings are semantically valid–a chart built on a derived column cannot precede the creation of that column. Building on prior work on cell dependency analysis (Tang et al., 2023; Zhu et al., 2025), we capture such constraints through a artifact dependency graph GD = ( {c1, . . . , cn}, ED ), where (ci, cj) ∈ ED when the input range of cj
+
+overlaps the output range of ci. We prune every edge (Wi, Wi ∪ { cj}) ∈ E for which at least one prerequisite of cj is absent from Wi. If the pruned graph is no longer fully connected, we retain the connected artifact containing W, preferentially selecting artifact-dense states. We call the result the Dependency-Pruned DAG GP.
+
+Enumerating candidate histories. We enumerate all sub-paths in GP as candidate edit histories. Crucially, these sub-paths need not originate at W0: a candidate history may begin at any intermediate state that already contains a subset of derived artifacts. This allows the benchmark to include the realistic scenario in which a user continues building on a partially constructed workbook rather than starting from raw data. Table 2: Different levels of instructions with increasing levels of abstractness.    
+
+> 1In Sheet1, calculate the BMI for each individual by using the formula BMI = 10000 * Wt. (kg) / (Ht. (cm) * Ht. (cm)) and place the results in column D, starting from D2 to D7. Ensure that the header ‘BMI’ is added in cell D1. Then, create a scatter chart with a line marker subtype, using ‘Age’ from A2:A7 as the x-axis and the calculated ‘BMI’ from D2:D7 as the y-axis. Title the chart ‘Age’ and label the axes as ‘Age’ and ‘BMI’. 2Calculate BMI for each person in Sheet1 using their height and weight, and place the results in column D. Add a header ‘BMI’ in D1. Create a scatter chart with ‘Age’ as the x-axis and the calculated ‘BMI’ as the y-axis, titled ‘Age’. 3Create a scatter chart in Sheet1 using Age and BMI data.
+
+4.3 Forward Step: Query Generation 
+
+Given the candidate edit histories enumerated from GP, the forward step selects endpoint pairs as input-output tuples (Win , Wout ) and generates natural language instructions for each transformation. 
+
+Action extraction and necessity scoring. For each transformation, we extract a structured 
+
+action representation consisting of key-value pairs that describe the relevant parameters (e.g., chart type, data range, axis labels, formula expression). An LLM assigns a necessity score s ∈ { 0, 0.5, 1 } to each parameter, where s=1 denotes parameters essential for identifying the task and s=0 denotes incidental details. This yields action representations at three levels of specificity: fully specified (all parameters), moderately specified ( s > 0), and minimal ( s=1). 
+
+Natural language instruction generation. Each filtered action variant is provided as con-ditioning context to an LLM, which generates a corresponding natural language instruction. This produces instructions ranging from fully specified to abstract, as illustrated in Table 2. 
+
+5 Benchmark Construction 
+
+The workbook time machine generates benchmark instances from real-world Excel work-books, producing 8,931 natural-language queries over 2,977 unique tasks from the En-ron (Hermans & Murphy-Hill, 2015) and FUSE (Barik et al., 2015) corpora (WTM-C ORPUS ). However, this distribution suffers from severe class imbalance (67.5% formulas vs. 0.8% pivot tables), making LLM evaluation both computationally prohibitive and methodolog-ically problematic. We therefore curate WTM-B ENCH , a 150-task evaluation subset (450 5Published as a conference paper at COLM 2026 queries across three specificity levels) via principled lexicographic sampling that achieves near-uniform task-type distribution while preserving semantic properties. Charts Cond. Format Formulas Pivot Tables 010 20 30 40 50 60 70 80       
+
+> Percentage (%)
+> Artifact Type
+> 1234567010 20 30 40 50
+> Percentage (%)
+> Task Complexity
+> Data Analysis Financial Mgmt Compliance Academic Admin Data Entry 0510 15 20 25 30 35 40
+> Percentage (%)
+> Task Intent
+> Utilities Educational Mining/Oil Finance And Prof. Svc 0510 15 20 25 30
+> Percentage (%)
+> Industry Domain
+> Very Well Well Reasonably Ambiguous 010 20 30 40 50
+> Percentage (%)
+> Query Specificity
+
+Figure 3: WTM-B ENCH achieves better artifact distribution while preserving other attributes. Blue bars for WTM-C ORPUS and red bars for WTM-B ENCH dataset. 
+
+Addressing distribution imbalance. Our primary design challenge was the extreme skew in the original distribution where formulas dominate (67.5%) while pivot tables represent only 0.8% of tasks. This imbalance would render aggregate performance metrics meaning-less, as they would primarily reflect formula-writing capability rather than comprehensive Excel automation skills. Our lexicographic sampling strategy achieves dramatic rebalancing: 41.3% formulas, 23.3% charts, 20.0% conditional formatting, and 15.3% pivot tables. 
+
+Multi-level query design rationale. We hypothesized that sequential generation (Level 1→2→3) sequentially in 1 LLM call, would provide superior information retention compared to direct Level 3 generation. This design choice was validated through systematic compari-son on 75 randomly sampled tasks, confirming that the multi-level approach achieves better information preservation with reduced data leakage (detailed analysis in Appendix C). 
+
+Computational efficiency considerations. Pipeline construction scales predictably with workbook complexity: LLM total = LLM extract + LLM annotate , where annotation cost grows as 2 × ∑ # permutations per trajectory. This ensures richer workbooks amortize annotation costs across proportionally more training examples. More details are in Appendix D. 
+
+Quality validation methodology. We conducted systematic quality evaluation using 3 hu-man annotators across 3 dimensions with inter-annotator reliability analysis to characterize query naturalness and completeness (details in Appendix B). Our sampling strategy main-tains semantic equivalence across the complete dataset, with intent distribution remaining stable across query levels, validating that the 3 query variants target the same underlying transformations despite varying specificity. 
+
+6 Benchmark Analysis: WTM-B ENCH 
+
+Task distribution insights. Figure 4 shows how our rebalanced benchmark provides diagnostic capability across Excel’s functional spectrum rather than primarily testing for-mula proficiency. The complexity distribution reveals authentic real-world patterns: while most tasks (51.3%) involve simple 1-2 artifact transformations, a substantial tail extends to 14-artifact workflows, enabling analysis of where reasoning capabilities break down as complexity increases. We define this expected number of artifact transformation as Task Complexity of any data pair. Diversity with respect to workbook selection is also captured in the industry domain. Where top-5 major sectors serve as a natural regularizer against domain-specific overfitting. This taxonomy analysis uses sector categorization from NAICS (NAICS, 2022) and uses an LLM for classification. 
+
+Multi-level design as capability probe. Figure 5 plots the 3-level specificity gradient, creating a controlled experimental setting that isolates instruction-following from task execution capabilities. The systematic degradation of specificity from detailed (Level 1) 6Published as a conference paper at COLM 2026 to concise (Level 3) instructions reveals whether models fail due to task complexity or insufficient context. This diagnostic dimension also gets missed in single-level benchmarks. Thus enabling precise identification of model limitations: strong Level 1 performance with poor Level 3 results indicates gap-filling rather than reasoning deficits. The annotation study suggests a trade-off between brevity and completeness: shorter queries tend to receive higher human-likeness scores and lower completeness scores, although these dimensions exhibit only moderate agreement and should be interpreted as indicative rather than definitive. This tension helps explain why Level 3 queries pose particular challenges, as they reflect realistic human communication patterns that rely on workbook context and spreadsheet conventions. Formulas      
+
+> 41.3%
+> Charts
+> 23.3%
+> Conditional formatting
+> 20.0%
+> Pivot Tables
+> 15.3%
+> Artifact Type Distribution
+> 2.5 5.0 7.5 10.0 12.5 15.0
+> Task Complexity
+> 010 20 30 40 50 60 70 80
+> Frequency
+> Task Complexity Distribution
+> Mean: 2.33 Utilities
+> 36.8%
+> Educational Services
+> 28.2%
+> Mining, Quarrying, And Oil And Gas Extraction
+> 13.7%
+> Finance And Insurance
+> 11.1%
+> Retail Trade
+> 10.3%
+> Industry Domain Distribution Top 5 Sectors
+
+Figure 4: Task distribution analysis over WTM-B ENCH .Level 1 Level 2 Level 3 
+
+> Query Level
+> 020 40 60 80 100
+> Percentage (%)
+> 76.0% 24.0% 51.3% 47.3% 29.3% 67.3%
+> Specificity Distribution
+> Specificity Level
+> Ambiguous Reasonably Specified Very Well-Specified Well-Specified
+
+(a) Specificity gradient across levels Level 1 Level 2 Level 3  
+
+> Query Level
+> 0200 400 600 800 1000 1200
+> Query Text Length (characters)
+> =364
+> =223
+> =137
+> Query Text Length Distribution Across Levels
+
+(b) Query length distributions 
+
+Figure 5: Query characteristic analysis. 
+
+7 Experiment Setup 
+
+Models. We evaluate 6 state-of-the-art language models spanning two major families: Anthropic (Claude Haiku 4.5, Claude Sonnet 4.5, Claude Opus 4.6) and OpenAI (GPT-4.1 Mini, GPT-5.2 Reasoning, GPT-5.4 Reasoning). 
+
+Orchestration. We evaluate popular Python-based Excel LLM orchestration frameworks– Sheet Agent, SheetCopilot, and SpreadsheetBench–with GPT 5.4 Reasoning. However, motivated by advances in tool-execution agents (Jimenez et al., 2024; Merrill et al., 2026), we propose a custom orchestration framework adopting modern tool-calling best practices in which the model iteratively emits structured code calls, observes execution results, and self-debugs across up to 10 turns. We evaluate across three Excel interface APIs: Python (openpyxl ), VBA, and Office.js. Full implementation details are provided in Appendix F. 
+
+Sampling parameters. Generation uses GPT-5.4 Reasoning to author the natural-language query variants and necessity scores. During evaluation, GPT reasoning models use their de-fault sampling configuration and Claude models use temperature 1.0, following Anthropic’s benchmark setting. The turn cap is 10 for all multi-turn configurations. 7Published as a conference paper at COLM 2026                                                                           
+
+> Orchestration Model # Turns Hard Score (%) Soft Score (%)
+> Python ClaudeHaiku45 5.45 10.0 33.7 (OpenPyXl) ClaudeSonnet45 5.02 16.7 40.4 ClaudeOpus46 4.31 18.7 48.6
+> Gpt41Mini 2.27 7.3 26.0 Gpt52Reasoning 3.74 15.3 44.6 Gpt54Reasoning 3.33 20.0 46.3 OfficeJS ClaudeHaiku45 4.61 12.0 36.7 ClaudeSonnet45 4.18 22.0 46.1 ClaudeOpus46 4.33 19.3 48.1
+> Gpt41Mini 2.69 9.3 29.3 Gpt52Reasoning 3.07 14.4 44.3 Gpt54Reasoning 2.63 14.7 40.9 VBA ClaudeHaiku45 3.16 13.0 38.4 ClaudeSonnet45 2.92 32.7 51.3 ClaudeOpus46 3.50 33.7 54.0
+> Gpt41Mini 2.20 12.6 30.5 Gpt52Reasoning 3.09 30.9 53.9 Gpt54Reasoning 2.31 22.8 39.0 SheetCopilot Gpt54Reasoning 5.03 12.7 34.9 SheetAgent Gpt54Reasoning 9.15 12.0 32.6 SpreadsheetBench Gpt54Reasoning 1.0 3.3 8.52
+
+Table 3: Results for popular frontier models and orchestration frameworks on level 3 queries. The best-performing scores are marked in bold , and the second best in underline. 
+
+Evaluation We evaluate performance on WTM-B ENCH using two complementary metrics. The Soft Score is a continuous reward in [0, 1 ] measuring partial task completion, computed as a weighted combination of component-level similarity scores across cells, formulas, charts, pivot tables, and conditional formatting (see Appendix H for details). The Hard Score is the fraction of tasks where the agent achieves a perfect Soft Score of 1.0, capturing complete and exact task reconstruction. All grading is deterministic and programmatic: no LLM is used to judge model outputs, and the query generator is never consulted during evaluation. We present both metrics as % scores (scaled 0–100). Additionally, # Turns counts the code execution turns, with execution feedback, used by the model to complete a task. 
+
+8 Results and Analysis 
+
+We evaluate 6 frontier models of various sizes on WTM-B ENCH using our tool-calling orchestration across three API tooling, and compare against three established agent frame-works. Our analysis reveals three key findings: (1) agent design matters more than model scale—our orchestration with structured state observation outperforms existing frameworks by 7–17 pp in Hard Score using the same backbone model; (2) all models fail catastrophically on pivot tables ( ≤10% Soft Score), exposing a fundamental reasoning gap; and (3) per-formance degrades monotonically with query abstraction and task complexity, validating WTM-B ENCH as a multi-dimensional diagnostic benchmark. 
+
+Agent Design and Orchestration Table 3 reports results on Level 3 queries. Using GPT-5.4 Reasoning as a common backbone, our simple orchestration achieves 20.0% Hard Score and 46.3% Soft Score (Python API), outperforming existing specialized agents such as Sheet-Copilot (12.7% Hard, 34.9% Soft), SheetAgent (12.0% Hard, 32.6% Soft), and Spreadsheet-Bench (3.3% Hard, 8.5% Soft). These gaps highlight the importance of agent architecture over raw model capability. Notably, SpreadsheetBench’s single-turn, no-feedback approach yields the lowest performance. This highlights that models require structured state observa-8Published as a conference paper at COLM 2026 tion: our orchestration surfaces the post-execution workbook state at each turn, enabling the model to ground its next action in the actual spreadsheet rather than relying on just prior code generation. 
+
+Model and API Analysis The best-performing configuration overall is Claude Opus 4.6 with VBA (33.7% Hard, 54.0% Soft). Across APIs, we observe that VBA and OfficeJS consistently outperform Python for the same model, which we attribute to richer native Excel primitives. For instance, creating a pivot table in VBA requires a single PivotTable 
+
+call, whereas Python requires orchestrating Pandas for the pivot operation and OpenPyXL for writing the result—a multi-step workflow that compounds errors. This effect is model-dependent: Claude models benefit substantially from richer APIs (Opus: +15.0 pp Hard Score from Python to VBA; Sonnet: +16.0 pp), whereas GPT-5.4 Reasoning shows only a modest gain (+2.8 pp). This suggests that Claude models are better at leverag-ing unfamiliar API surfaces, possibly due to stronger instruction-following capabilities. Turn efficiency reveals an additional pattern: smaller models (GPT-4.1 Mini, Claude Haiku) use fewer turns (2.2–3.2) but score lower, while flagship models use 3–5 turns more produc-tively. Independent Python/OpenPyXL re-runs preserve model ordering, with Hard Score standard deviations at or below 3.5 percentage points (Appendix G), suggesting that the headline differences are not single-run artifacts. Level 1 Level 2 Level 3  
+
+> Query Level
+> 010 20 30 40 50
+> Score
+> 33 31 26 42 35 34
+> GPT-4.1 Mini Claude Haiku 4.5
+
+(a) Soft Score for different query levels 2 4 6 8 10 12 14  
+
+> Task Complexity
+> 020 40 60 80 100
+> Score
+> Claude Haiku 4.5 GPT-4.1 Mini
+
+(b) Soft Scores for different task complexities 
+
+Figure 6: Soft scores decrease with complexity; Haiku 4.5 outperforming GPT-4.1 Mini. 
+
+Effect of Query Specificity Figure 6a shows Soft Scores across the three query levels. Performance degrades monotonically from Level 1 (verbose, detailed) to Level 3 (concise, abstract). This aligns with our dataset analysis: the proportion of “Very Well-Specified” queries drops 4.4 × from Level 1 to Level 3, and mean query length shrinks from 357 to 139 characters. The multi-level design also provides a natural curriculum for future fine-tuning—models can be trained on Level 1 queries first, then progressively exposed to more abstract formulations, we leave this exploration to future works. 
+
+Impact of Task Complexity Figure 6b plots Soft Score against task complexity (the number of artifact transformations required). Performance declines with increasing complexity: single-artifact tasks are handled reasonably by most models, but tasks requiring 5+ trans-formations see scores collapse. This gap reveals that current frontier models struggle with long-horizon, multi-step spreadsheet workflows—a class of tasks that, while less frequent in the WTM-C ORPUS distribution (most tasks involve 1–2 transformations), represents precisely the high-value scenarios where automation would be most impactful. 
+
+Artifact-Type Performance Breakdown Table 4 presents the Soft Score breakdown by primary artifact type across models using VBA. Formulas and charts are handled competi-tively by most models, while conditional formatting and pivot tables remain challenging. 9Published as a conference paper at COLM 2026 Pivot tables in particular yield near-zero scores across all models, reflecting the multi-step coordination required (source data identification, field selection, aggregation specification, and output placement). 
+
+Model Charts Cond. Format. Formulas Pivot Tables 
+
+ClaudeHaiku45 51.0 18.0 43.0 4.0 ClaudeSonnet45 50.0 15.0 59.0 9.0 ClaudeOpus46 57.0 36.0 65.0 10.0 
+
+Gpt41Mini 52.0 2.0 32.0 0.0 Gpt52Reasoning 55.0 33.0 59.0 5.0 Gpt54Reasoning 61.0 26.0 62.0 8.0 Table 4: Soft Score (%) results broken down by task artifact type. 
+
+Failure modes. A rollout-level analysis over 4,910 deduplicated rollouts (Appendix G) shows that failures (Soft Score – failure < 0.5; strict failure < 0.10) are overwhelmingly structural rather than numerical: among 1,858 failed Level 3 Python rollouts, 88.5% either omit the artifact entirely (62.3%, wrong shape) or place it at the wrong coordinate (26.2%, wrong placement), while only 11.6% produce a correctly shaped artifact with wrong values. Tool-call failure is not the bottleneck, with frontier models siting at 3–5%, and its correlation with score is weak ( ρ = −0.11). Code volume is the strongest negative predictor ( ρ =
+
+−0.21), suggesting that long generations often mark unsuccessful repair attempts. Most consequentially for evaluation design, models frequently claim completion despite strict failure: hallucinated success reaches 80.7% for Claude rollouts and 43.2% for GPT. 
+
+9 Conclusion 
+
+We present the workbook time machine , a pipeline for generating spreadsheet automation benchmarks from real-world Excel workbooks. Applied to public corpora, it produces WTM-C ORPUS (8,931 queries over 2,977 tasks), from which we curate WTM-B ENCH , a balanced 150-task evaluation benchmark with near-uniform distribution across major Excel artifact types. Evaluation across 18 model-API combinations and 4 sheet-based orchestration reveals significant performance variations, demonstrating how API choice fundamentally impacts automation success, while our multi-level query design shows that frontier models achieve higher completion rates but face substantial challenges with ambiguous instructions and complex multi-step workflows, establishing robust evaluation standards that provide actionable insights for spreadsheet automation system improvement. 
+
+Future Work The multi-level query design enables curriculum learning approaches, train-ing models progressively from detailed Level 1 instructions to concise Level 3 queries to improve robustness to ambiguous instructions. The pipeline can be extended beyond creation tasks to support comprehensive CRUD operations, including deletion (by reversing input/output) and modification operations. Advanced workbook preprocessing techniques could further minimize structural information leakage through intelligent content reposi-tioning and formula descriptor detection. Finally, the language-agnostic pipeline design allows straightforward adaptation to multilingual contexts, broadening applicability for international enterprise environments. 10 Published as a conference paper at COLM 2026 
+
+References 
+
+Marcin Andrychowicz, Filip Wolski, Alex Ray, Jonas Schneider, Rachel Fong, Peter Welinder, Bob McGrew, Josh Tobin, Pieter Abbeel, and Wojciech Zaremba. Hindsight experience replay. In Advances in Neural Information Processing Systems (NeurIPS) , 2017. Anthropic. Claude for excel, 2026. URL https://claude.com/claude-for-excel .Titus Barik, Kevin Lubick, Justin Smith, John Slankas, and Emerson Murphy-Hill. Fuse: a reproducible, extendable, internet-scale corpus of spreadsheets. In 2015 IEEE/ACM 12th Working Conference on Mining Software Repositories , pp. 486–489. IEEE, 2015. Mangesh Bendre, Tana Wattanawaroon, Sajjadur Rahman, Kelly Mack, Yuyang Liu, Shichu Zhu, Yu Lu, Ping-Jing Yang, Xinyan Zhou, Kevin Chen-Chuan Chang, et al. Faster, higher, stronger: Redesigning spreadsheets for scale. In 2019 IEEE 35th International Conference on Data Engineering (ICDE) , pp. 1972–1975. IEEE, 2019. Xinyun Chen, Maxwell Lin, Nathanael Schärli, and Denny Zhou. Teaching large language models to self-debug. arXiv preprint arXiv:2304.05128 , 2023. Yibin Chen, Yifu Yuan, Zeyu Zhang, Yan Zheng, Jinyi Liu, Fei Ni, Jianye Hao, Hangyu Mao, and Fuzheng Zhang. Sheetagent: towards a generalist agent for spreadsheet reasoning and manipulation via large language models. In Proceedings of the ACM on Web Conference 2025 , pp. 158–177, 2025. Haoyu Dong, Jianbo Zhao, Yuzhang Tian, Junyu Xiong, Shiyu Xia, Mengyu Zhou, Yun Lin, José Cambronero, Yeye He, Shi Han, et al. Spreadsheetllm: Encoding spreadsheets for large language models. arXiv preprint arXiv:2407.09025 , 2024. Avik Dutta, Priyanshu Gupta, Hosein Hasanbeig, Rahul Pratap Singh, Harshit Nigam, Sumit Gulwani, Arjun Radhakrishna, Gustavo Soares, and Ashish Tiwari. Condabench: Interactive evaluation of language models for data analysis, 2025. Carlos Florensa, David Held, Markus Wulfmeier, Michael Zhang, and Pieter Abbeel. Reverse curriculum generation for reinforcement learning. In Proceedings of the 1st Conference on Robot Learning (CoRL) , volume 78, pp. 482–495, 2017. Eric Gazoni and Charlie Clark. openpyxl: A python library to read/write excel 2010 xlsx/xlsm files, 2024. URL https://openpyxl.readthedocs.io/ .Sumit Gulwani. Automating string processing in spreadsheets using input-output examples. In Proceedings of the 38th Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL) , pp. 317–330, 2011. doi: 10.1145/1926385.1926423. Felienne Hermans. Spreadsheets are code. In 2016 IEEE 23rd International Conference on Software Analysis, Evolution, and Reengineering (SANER) , 2016. doi: 10.1109/SANER.2016. 40. Felienne Hermans and Emerson Murphy-Hill. Enron’s spreadsheets and related emails: A dataset and analysis. In 2015 IEEE/ACM 37th IEEE International Conference on Software Engineering , volume 2, pp. 7–16. IEEE, 2015. Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik R Narasimhan. SWE-bench: Can language models resolve real-world github issues? In The Twelfth International Conference on Learning Representations , 2024. URL 
+
+https://openreview.net/forum?id=VTF8yNQM66 .Hongxin Li, Jingran Su, Yuntao Chen, Qing Li, and ZHAO-XIANG ZHANG. Sheetcopi-lot: Bringing software productivity to the next level through large language models. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine (eds.), Ad-vances in Neural Information Processing Systems , volume 36, pp. 4952–4984. Curran As-sociates, Inc., 2023. URL https://proceedings.neurips.cc/paper_files/paper/2023/ file/0ff30c4bf31db0119a6219e0d250e037-Paper-Conference.pdf .11 Published as a conference paper at COLM 2026 Jenny T. Liang, Aayush Kumar, Yasharth Bajpai, Sumit Gulwani, Vu Le, Chris Parnin, Arjun Radhakrishna, Ashish Tiwari, Emerson Murphy-Hill, and Gustavo Soares. Tabletalk: Scaffolding spreadsheet development with a language agent. ACM Trans. Comput.-Hum. Interact. , 32(6), 2025. doi: 10.1145/3765286. Zeyao Ma, Bohan Zhang, Jing Zhang, Jifan Yu, Xiaokang Zhang, Xiaohan Zhang, Sijia Luo, Xi Wang, and Jie Tang. Spreadsheetbench: Towards challenging real world spreadsheet manipulation. Advances in Neural Information Processing Systems , 37:94871–94908, 2024. Atsuki Maruta, Nao Tagai, and Makoto P. Kato. Investigating information needs during spreadsheet data analysis. Journal of Information Processing , 33:507–521, 2025. doi: 10.2197/ ipsjjip.33.507. Mike A. Merrill, Alexander G. Shaw, Nicholas Carlini, Boxuan Li, Harsh Raj, Ivan Bercovich, Lin Shi, Jeong Yeon Shin, Thomas Walshe, E. Kelly Buchanan, Junhong Shen, Guang-hao Ye, Haowei Lin, Jason Poulos, Maoyu Wang, Marianna Nezhurina, Jenia Jitsev, Di Lu, Orfeas Menis Mastromichalakis, Zhiwei Xu, Zizhao Chen, Yue Liu, Robert Zhang, Leon Liangyu Chen, Anurag Kashyap, Jan-Lucas Uslu, Jeffrey Li, Jianbo Wu, Minghao Yan, Song Bian, Vedang Sharma, Ke Sun, Steven Dillmann, Akshay Anand, Andrew Lanpouthakoun, Bardia Koopah, Changran Hu, Etash Guha, Gabriel H. S. Dreiman, Jiacheng Zhu, Karl Krauth, Li Zhong, Niklas Muennighoff, Robert Amanfu, Shangyin Tan, Shreyas Pimpalgaonkar, Tushar Aggarwal, Xiangning Lin, Xin Lan, Xuandong Zhao, Yiqing Liang, Yuanli Wang, Zilong Wang, Changzhi Zhou, David Heineman, Hange Liu, Harsh Trivedi, John Yang, Junhong Lin, Manish Shetty, Michael Yang, Nabil Omi, Negin Raoof, Shanda Li, Terry Yue Zhuo, Wuwei Lin, Yiwei Dai, Yuxin Wang, Wenhao Chai, Shang Zhou, Dariush Wahdany, Ziyu She, Jiaming Hu, Zhikang Dong, Yuxuan Zhu, Sasha Cui, Ahson Saiyed, Arinbjörn Kolbeinsson, Jesse Hu, Christopher Michael Rytting, Ryan Marten, Yixin Wang, Alex Dimakis, Andy Konwinski, and Ludwig Schmidt. Terminal-bench: Benchmarking agents on hard, realistic tasks in command line interfaces, 2026. URL https://arxiv.org/abs/2601.11868 .Microsoft. Earnings release FY24 Q4, 2024. URL https://www.microsoft.com/en-us/ investor/earnings/fy-2024-q4/press-release-webcast . Microsoft 365 Consumer sub-scribers grew to 82.5 million. July 30, 2024. Microsoft. Office add-ins documentation: Office javascript api, 2024. URL https://learn. microsoft.com/en-us/office/dev/add-ins/reference/javascript-api-for-office .Microsoft. Agent mode in excel is now generally available on desk-top, 2025. URL https://techcommunity.microsoft.com/blog/excelblog/ agent-mode-in-excel-is-now-generally-available-on-desktop/4457408 .NAICS. North American Industry Classification System, 2022 , 2022. URL https://www.census. gov/naics/ . Federal Register, Vol. 86, No. 245. OpenAI. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. OpenAI. Chatgpt for spreadsheets, 2026. URL https://chatgpt.com/apps/spreadsheets .Justin Payan, Swaroop Mishra, Mukul Singh, Carina Negreanu, Christian Poelitz, Chitta Baral, Subhro Roy, Rasika Chakravarthy, Benjamin Van Durme, and Elnaz Nouri. In-structexcel: A benchmark for natural language instruction in excel. arXiv preprint arXiv:2310.14495 , 2023. Sida Peng, Eirini Kalliamvakou, Peter Cihon, and Mert Demirer. The impact of ai on developer productivity: Evidence from github copilot. arXiv preprint arXiv:2302.06590 ,2023. Chirag Shah, Ryen White, Reid Andersen, Georg Buscher, Scott Counts, Sarkar Snigdha Sarathi Das, Ali Montazer, Sathish Manivannan, Jennifer Neville, Nagu Ran-gan, Tara Safavi, Siddharth Suri, Mengting Wan, Leijie Wang, and Longqi Yang. Using large language models to generate, validate, and apply user intent taxonomies. ACM Transactions on the Web , 19(3):34:1–34:29, 2025. doi: 10.1145/3732294. 12 Published as a conference paper at COLM 2026 Dixin Tang, Fanchao Chen, Christopher De Leon, Tana Wattanawaroon, Jeaseok Yun, Srini-vasan Seshadri, and Aditya G. Parameswaran. Efficient and compact spreadsheet formula graphs. Proceedings of the VLDB Endowment , 2023. Ke Yang, Jiarui Liu, Jing Wu, Chaoqi Yang, Yifei Fung, Sha Li, Zhenqiao Huang, Xue Nan Cao, Xingyao Wang, Yizhong Wang, et al. If llm is the wizard, then code is the wand: A survey on how code empowers large language models to serve as intelligent agents. 
+
+arXiv preprint arXiv:2401.00812 , 2024. Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR) , 2023. Ruiyan Zhu, Xi Cheng, Ke Liu, Brian Zhu, Daniel Jin, Neeraj Parihar, Zhoutian Xu, and Oliver Gao. Sheetmind: An end-to-end llm-powered multi-agent framework for spread-sheet automation, 2025. 13 Published as a conference paper at COLM 2026 
+
+A Limitations and Scope 
+
+The current version of WTM-B ENCH focuses on derived analytical artifacts: formulas, charts, conditional formatting, and pivot tables. This scope is taxonomic rather than purely frequency-based. These artifacts transform source data into new analytical out-put, whereas data validation, filtering, sorting, tables, freezing panes, and related operations primarily control views, input constraints, or worksheet interaction state. Table 5 reports the prevalence audit that informed this decision. The pipeline can be extended to these interaction-oriented operations, but they require different extraction and grading logic. 
+
+Feature FUSE % Enron % In WTM-B ENCH 
+
+Formulas 4.60 58.09 Yes Charts 0.53 10.62 Yes Conditional formatting 0.45 2.98 Yes Pivot tables 0.039 1.58 Yes Filtering 0.83 3.91 No Data validation 0.75 0.54 No Sorting 0.71 0.00 No Tables 0.35 0.00 No Sparklines 0.00 0.00 No 
+
+Table 5: Prevalence of candidate Excel features in the source corpora. Sparklines were not observed in the audited FUSE workbooks. WTM-B ENCH currently handles derivable objects with explicit formulas, while other de-rived content (such as manually entered lookup values) represents a distinct class of spread-sheet operations that could be addressed through extended formula descriptor analysis. 
+
+B Query Quality Evaluation Level 1 Level 2 Level 3          
+
+> Query Level
+> 12345
+> Score (1-5 scale)
+> 3.29 3.01 2.71
+> Completeness Score Distribution
+> Mean Level 1 Level 2 Level 3
+> Query Level
+> 12345
+> Score (1-5 scale)
+> 2.89 2.70 2.70
+> Complexity Score Distribution
+> Level 1 Level 2 Level 3
+> Query Level
+> 12345
+> Score (1-5 scale)
+> 2.76 2.91 3.31
+> Humanlike Score Distribution
+
+(a) Quality score distributions across query levels Level 1 Level 2 Level 3        
+
+> Query Level
+> Completeness Complexity Humanlike
+> Metric
+> 0.673 0.716 0.718 0.868 0.907 0.889 0.398 0.519 0.564
+> Average Inter-Annotator Correlation
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Average Correlation Coefficient
+
+(b) Inter-annotator agreement 
+
+Figure 7: Query quality assessment: score distributions and annotation reliability analysis. 
+
+Multi-annotator quality assessment. We conducted a systematic quality evaluation using 3 human annotators, all paper authors with ML research backgrounds and spreadsheet-domain experience, across 75 sampled queries. Annotators independently rated com-pleteness, complexity, and human-like quality on a 1–5 scale. Figure 7a presents score distributions across levels: completeness decreases with query level (3.29 to 2.71), complex-ity remains stable (2.89 to 2.70), while human-like scores increase (2.76 to 3.31). We interpret this as an indicative brevity–completeness trade-off, not as a correctness criterion for the benchmark. 
+
+Inter-annotator reliability. To ensure annotation quality, we assessed inter-annotator agreement across the 3 quality dimensions (Figure 7b). Complexity shows the highest agreement (average correlation: 0.888), indicating it is the most objectively assessable. Completeness shows moderate agreement (0.702), while human-like assessment has lower agreement (0.494), particularly for Level 1 queries (0.398), suggesting this dimension is 14 Published as a conference paper at COLM 2026 more subjective. Completeness was scored as whether the query explicitly communicates details a human reader would consider necessary to execute the task, not whether the query uniquely determines the output workbook. Annotators may reasonably differ on whether axis titles, header names, or placements are essential or inferable from workbook context; therefore, this study characterizes query variants rather than validating task correctness. Correctness is instead determined by the programmatic grader in Appendix H. Missing Info Leaked Info (0.5) Leaked Info (0) Net Score 20 
+
+> 020
+> Data Pair Count
+> Multi-step generation
+> Missing Info Leaked Info (0.5) Leaked Info (0) Net Score 20
+> 020
+> Data Pair Count
+> Direct generation
+> Information Retention Comparison: Level 3 NL (n=75)
+
+Figure 8: Information retention comparison between sequential multi-level generation (left) and direct Level 3 generation (right). Multi-level generation shows superior performance on essential information with fewer data leaks across 75 test cases. 
+
+C Query Generation Pipeline: Design Decision Analysis 
+
+Motivation for multi-level generation. Given that Level 3 queries are the most under-specified, complex, and human-like in our taxonomy, our initial hypothesis was that gener-ating all three levels (1 to 2 to 3) sequentially would provide better information retention and query quality than directly generating Level 3 queries. The rationale was that starting with verbose, well-specified Level 1 queries would preserve essential task details that could be progressively condensed while maintaining semantic fidelity. 
+
+Empirical comparison methodology. To validate this design decision, we conducted a systematic comparison of two generation approaches using 75 randomly sampled workbook tasks: (1) sequential generation of all three levels starting from detailed Level 1 queries and (2) direct generation of Level 3 queries without intermediate steps. We evaluated infor-mation retention using data-pair weighted metrics, tracking missing essential information (necessity=1.0) and leaked contextual details (necessity=0.5 and 0.0). 
+
+Findings. Figure 8 presents the information retention analysis results. The multi-level approach performs better than direct Level 3 generation across the key retention metrics. Direct generation has slightly more data pairs with missing critical information and a higher net retention score because it leaks more non-essential information. Ideally, each score should be close to 0; the multi-level method is closer to that target and yields better query quality. We ran a small annotation over 75 samples to compare human-like scores for both these query generations: multi-level (3.44) vs. single (3.14), which clearly shows how multi-level generation is more aligned. 
+
+D Pipeline Construction Efficiency 
+
+Construction time analysis. The mean processing time per workbook is 401 s (median 192 s) across our sample of 40 workbooks. Runtime is dominated by the Edit DAG con-struction stage (mean 254 s, 63% of total wall time), which enumerates and materializes all 15 Published as a conference paper at COLM 2026 Multi-step Single-step         
+
+> Dataset Type
+> 12345
+> Score (1-5 scale)
+> 2.72 2.93
+> n=225 n=225
+> Completeness Score Distribution
+> Mean Multi-step Single-step
+> Dataset Type
+> 12345
+> Score (1-5 scale)
+> 3.17 3.33
+> n=225 n=225
+> Complexity Score Distribution
+> Multi-step Single-step
+> Dataset Type
+> 12345
+> Score (1-5 scale)
+> 3.44 3.14
+> n=225 n=225
+> Humanlike Score Distribution
+
+(a) Quality score distributions across query levels Multi-step Single-step     
+
+> Dataset Type
+> Completeness Complexity Humanlike
+> Metric
+> 0.386 0.520 0.823 0.837 0.585 0.760
+> Average Inter-Annotator Correlation (Level 3)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Average Correlation Coefficient
+
+(b) Inter-annotator agreement 
+
+Figure 9: Comparing query quality assessment over a multi-level vs. single-generation pass of 75 queries. intermediate workbook states; Component extraction accounts for 25% (mean 102 s) and Query generation for 11% (mean 44 s). Figure 10 demonstrates how total runtime scales with transformation complexity and data pair generation, confirming that richer workbooks amortize annotation cost across more training examples. 
+
+LLM usage scaling. For data generation, we use GPT-5.4-Reasoning due to its instruction-following capabilities, maintaining consistency throughout the pipeline. LLM usage scales directly with workbook complexity through the number of artifacts and worksheets requir-ing annotation. The decomposition LLM extract = # worksheets for table identification and LLM annotate = 2 × # data pairs = 2 × ∑ # permutations of steps per trajectory ensures that workbooks with richer artifact structures generate proportionally more training data while maintaining consistent annotation coverage. 510 20 50 100 200 
+
+> Task Complexity (Bucketized)
+> 0100 200 300 400 500 600 700 800
+> Processing Time (seconds)
+> Component Extraction Edit DAG Construction Query Generation
+
+(a) Computational time distribution across 3 pipeline stages and # artifacts per workbook 10 0 10 1 10 2
+
+> Task Complexity
+> 10 0
+> 10 1
+> Data Pairs Generated
+
+(b) Logarithmic distribution of # artifacts against the generated number of data pairs 
+
+Figure 10: Pipeline construction efficiency: time distribution across stages (left) and scaling relationship between number of artifacts in workbook and generated data pairs (right). 
+
+E WTM-C ORPUS Distribution 
+
+The workbook time machine generates benchmark instances from a large pool of real-world Excel workbooks, producing 8,931 natural-language queries over 2,977 unique tasks from the Enron and Fuse corpora. The full dataset pairs each task with multi-query variants at Levels 1, 2, and 3, enabling systematic evaluation across a verbosity-to-specificity spectrum while holding the underlying spreadsheet transformation fixed. 
+
+E.1 Task-Type and Capability Distribution Task type composition. Figure 11a shows the distribution of the four primary task types across the 2,957 classified tasks (20 tasks could not be unambiguously categorized and 16 Published as a conference paper at COLM 2026 are excluded from type-level analyses). Formulas constitute the largest category at 67.5%, followed by Conditional Formatting (22.7%), Charts (8.3%), and Pivot Tables (0.8%). This skewed distribution reflects the ecological reality of enterprise spreadsheet work, where formula-writing is the dominant activity and chart or pivot-table construction are specialist tasks performed comparatively rarely. 
+
+Capability structure. Each query is annotated with a set of capability labels drawn from a structured ontology covering computation, data management, visualization, and analysis; most tasks require a combination (e.g. use_formulas + style_data ). Following established intent taxonomy methodologies (Maruta et al., 2025; Shah et al., 2025), we categorize each query’s functional intent. Figure 11b (left) shows the frequency of individual artifact capability, and (right) the distribution of intent categories broken down by query level. The intent distribution is stable across levels: the proportional breakdown of Aggregation & Summarization, Transformation, Formulas & Logic, Visualization, and related intents remains consistent from Level 1 to Level 3, validating that the three query variants are semantically equivalent.   
+
+> (a) Task-type distribution (N=2,957). Formulas account for 67.5% of the full dataset.
+> (b) Artifact capability (left) and intent distribution by query level (right). Intent proportions are stable across Level 1–3, confirming semantic equivalence of query variants.
+
+Figure 11: Task-type and capability analysis of all query levels in the dataset (8,931 queries). 
+
+E.2 Industry and Scenario Coverage NAICS sector coverage. The complete benchmark spans 20 distinct industry sectors coded under the North American Industry Classification System (NAICS, 2022), providing cross-industry generalisation that prevents models from over-fitting to domain-specific vocabulary or conventions. The top five sectors–Utilities (33.2%), Educational Services (19.7%), Mining & Oil/Gas (13.1%), Finance & Insurance (12.4%), and Professional & Tech-nical Services (5.3%)–account for approximately 84% of tasks. The remaining 16% spans 15 additional sectors including Healthcare, Manufacturing, Real Estate, Public Administration, and Transportation. 
+
+Financial workflow scenarios. Each task is labelled with a financial scenario from a ten-category vocabulary that captures functional spreadsheet intent. The most frequent scenar-ios are Revenue Analysis (14.3%), Financial Modelling (12.8%), Treasury & Cash Flow (7.3%), Budgeting & Forecasting (7.2%), and Expense Tracking (4.5%). Formulas are distributed nearly uniformly across all scenario types, consistent with their role as a general-purpose tool; Charts concentrate in Basic Analysis and Visualisation scenarios; and Pivot Tables concentrate in Advanced Analysis. 
+
+E.3 Query-Level Specificity Gradient 
+
+The complete dataset implements a three-level query design where each of the 2,977 unique tasks is described by three semantically equivalent natural language queries at distinct 17 Published as a conference paper at COLM 2026 
+
+Figure 12: NAICS sector and financial scenario distributions across the complete 3k dataset. abstraction levels: Level 1 (verbose, mean 357 characters), Level 2 (moderate, mean 220 characters), and Level 3 (concise, mean 139 characters). The proportion of Very Well-Specified 
+
+queries drops from 77.9% at Level 1 to 17.8% at Level 3–a 4.4 × reduction–while Ambiguous or Reasonably Specified queries increase from 0% to 3.1%. Query length contracts monoton-ically across levels, and Level 1 queries imply more steps on average (mean = 3.96) than Level 3 (mean = 2.99) despite requiring the same underlying action. 
+
+Figure 13: Level analysis across the complete dataset: specificity (left), query length (centre), implied steps (right) by query level. 
+
+F Detailed Experimental Specifications 
+
+F.1 Model Specifications 
+
+We evaluate 6 state-of-the-art language models from two major families: 
+
+Anthropic models: Claude Haiku 4.5 is a fast, lightweight model optimized for simple tasks with efficient processing capabilities. Claude Sonnet 4.5 represents a balanced perfor-mance model designed for general use cases, offering good trade-offs between capability 18 Published as a conference paper at COLM 2026 and efficiency. Claude Opus 4.6 serves as the most capable model in the family, specifically designed for complex reasoning tasks requiring sophisticated analytical capabilities. 
+
+OpenAI models: (OpenAI, 2023) GPT-4.1 Mini provides an efficient model architecture tailored for straightforward tasks where computational efficiency is prioritized. GPT-5.2 Reasoning incorporates advanced reasoning capabilities designed to handle more complex logical operations and multi-step problem-solving. GPT-5.4 Reasoning represents the state-of-the-art reasoning model, offering the highest level of analytical and inferential capabilities in the evaluated model suite. 
+
+F.2 API Details 
+
+We evaluate 3 API interfaces for Excel manipulation: 
+
+Python OpenPyXL (Gazoni & Clark, 2024) is a Python library providing direct program-matic access to Excel files. It offers comprehensive support for reading and writing Excel 2010 xlsx/xlsm files, including formulas, charts, and conditional formatting. However, limitations include lack of VBA macro support, missing Excel object primitives and reduced performance with very large files. We also provide the pandas library in the environment, to help with Pivot Tasks, which OpenPyXL cannot natively perform. 
+
+VBA serves as Excel’s native macro language with full feature access to all Excel function-ality. It provides complete control over Excel objects, methods, and properties, enabling sophisticated automation scenarios. The primary advantages include comprehensive fea-ture coverage and direct Excel integration without external dependencies. Limitations encompass Windows-only operation and a steeper learning curve compared to modern programming interfaces. 
+
+OfficeJS (Microsoft, 2024) represents Microsoft’s modern JavaScript API for web-based interaction with Office applications. Designed for cross-platform compatibility and modern web development practices, it enables spreadsheet automation through web-based interfaces. Advantages include robust cross-platform support and modern API design principles. However, limitations include reduced functionality compared to VBA and dependency on web-based execution environments. 
+
+F.3 Orchestration Framework Multi-Turn Agent Loop. The core evaluation driver implements a multi-turn tool-calling loop. At each turn, the model receives the conversation history and may either produce a final text response (terminating the task rollout) or emit a structured tool call containing exe-cutable code. Each of these outputs can be accompanied with an optional <think>...</think> paragraph. Tool call outputs–including execution results and the sheet state (post code execution)–are appended to the conversation as tool-role messages, and the loop continues for up to a maximum number of 10 turns. 
+
+Tool Execution Backends. The framework supports three interchangeable code execution backends, each defined by a distinct system prompt, function-calling schema, and executor. • Python (OpenPyXl): Code is executed in-process via exec() in a sandboxed daemon thread with a timeout. • OfficeJS: Code is executed through an Excel runtime. • VBA: Code is executed through COM automation ( win32com ). Each backend returns a structured result containing an execution status flag and the post-execution sheet state. 19 Published as a conference paper at COLM 2026 
+
+G Robustness and Failure Analysis 
+
+Independent re-runs. To test whether the main results are stable under API nondeter-minism, we ran 3 additional independent trials on the most evaluated configuration, Python/OpenPyXL Level 3, across 7 models. Table 6 reports mean ± standard devia-tion. Model ordering is preserved across runs and Hard Score standard deviations are at most 0.035.      
+
+> Model # Turns Soft Score Hard Score
+> Claude Haiku 4.5 5.50
+
+± 0.05 0.353 ± 0.016 0.103 ± 0.012 Claude Sonnet 4.5 4.95 ± 0.09 0.431 ± 0.019 0.157 ± 0.009 Claude Opus 4.6 4.31 ± 0.02 0.510 ± 0.017 0.180 ± 0.010 GPT-4.1 Mini 2.18 ± 0.17 0.294 ± 0.026 0.083 ± 0.016 GPT-5.4 Mini 1.66 ± 0.04 0.351 ± 0.014 0.111 ± 0.010 GPT-5.2 Reasoning 3.58 ± 0.12 0.480 ± 0.024 0.160 ± 0.012 GPT-5.4 Reasoning 2.66 ± 0.45 0.437 ± 0.020 0.148 ± 0.035 
+
+Table 6: Python/OpenPyXL Level 3 runs over 150 tasks per run with 0–1 scale. 
+
+Turn budget. The 10-turn budget is generally permissive rather than binding. Mean turns range from 1.66 to 5.50 in the repeated Python setting and from 2.31 to 4.61 for the reported OfficeJS/VBA runs. The two smaller Claude models hit the cap on a minority of hard Python tasks (Haiku: 24.2%; Sonnet: 17.8%), while GPT models rarely do so. Thus, the single-turn SpreadsheetBench gap is not primarily a turn-budget artifact.                   
+
+> Model Python OfficeJS VBA
+> Claude Haiku 4.5 5.50 (24.2%) 4.61 (15.3%) 3.16 Claude Sonnet 4.5 4.95 (17.8%) 4.18 (14.0%) 2.92 Claude Opus 4.6 4.31 (7.1%) 4.08 (6.4%) 3.50 GPT-4.1 Mini 2.18 (1.1%) 2.69 (4.7%) 2.20 GPT-5.4 Reasoning 2.66 (0.4%) 2.63 (1.3%) 2.31
+
+Table 7: Mean turns by API; parentheses show fraction of rollouts that reached 10-turn cap. 
+
+Failure taxonomy. We analyzed 4,910 deduplicated rollouts covering Python Level 3 (150 tasks × 3 runs × 7 models), Python Level 1, and OfficeJS. Failure is defined as Soft Score below 0.5; strict failure is below 0.10. Among 1,858 failed Level 3 Python rollouts, 88.5% are structural: either the artifact is effectively absent (wrong shape) or present at the wrong coordinate (wrong placement). Wrong values account for only 11.6% (Table 8). Both model             
+
+> Error vertical nShare 95% CI
+> Wrong shape 1,157 62.3% [60.1, 64.3] Wrong placement 486 26.2% [24.3, 28.1] Wrong value 215 11.6% [10.2, 13.0]
+
+Table 8: Grader-derived error verticals for failed Level 3 Python rollouts. families have similar error-vertical splits; their main difference is hallucinated success, where the final message claims completion despite strict failure. As Table 9 shows, Claude rollouts have higher hallucinated success and more turns on average, while GPT rollouts terminate earlier. Execution-surface correlations (Table 10) show that tool failure is not the main bottleneck: frontier models sit at 3–5% tool-call failure, and score correlation with tool-call failure is weak. Code volume is the strongest negative predictor, suggesting that long code generations often mark unsuccessful repair attempts. Exploration polarity differs by family: read-only exploration correlates negatively with score for Claude and positively for GPT. Across query levels, Soft Score drops modestly from Level 1 to Level 3, but Hard 20 Published as a conference paper at COLM 2026                     
+
+> Family Soft mean Hard mean Hallucinated success Mean turns
+> Claude 43.9 ±0.5% 14.5 ±0.3% 80.7% 4.92 GPT 39.4 ±0.6% 12.3 ±0.8% 43.2% 2.44
+
+Table 9: Family-level failure behavior in the rollout analysis.                         
+
+> Surface Overall Claude GPT Small tier
+> Tool-call failure −0.114 −0.118 −0.114 −0.238 Code volume −0.213 −0.327 −0.186 −0.272 Number of turns −0.076 −0.299 −0.006 −0.172 Exploration ratio 0.021 −0.216 0.106 −0.038 Effective recovery −0.111 −0.154 −0.083 −0.205
+
+Table 10: Spearman correlations between execution surfaces and score. Score drops more sharply (for example, Opus falls from 27% to 18%, and GPT-5.4 Reasoning from 21% to 13%). Thus Level 3 primarily reduces fully correct rollouts rather than only lowering partial credit. Across APIs, OfficeJS improves Soft Score slightly for all models, but GPT tool-call failure increases by 17 percentage points while Claude remains stable, exposing an execution weakness that aggregate Soft Score alone masks. 
+
+H Detailed Grading Schema 
+
+All components compare only changes from the pre-task baseline (initial → ground truth vs. initial → generation); pre-existing content is ignored. Each component is active only when the ground truth introduces that artifact type, and raw weights are normalized to sum to 1.0. Supporting signals (worksheet creation and tables) carry half the weight of primary signals. 
+
+Cell Values & Formulas: Cell values are evaluated by computing formula results (via the Formulas library), so equivalent expressions that produce the same output receive full credit. 
+
+Charts: Each ground-truth chart is matched to the best available generated chart. Chart similarity score is computed across three criteria: chart type (40%: full credit for exact match, 20% for same family, e.g. BarChart vs. BarChart3D ), series count (20%: proportional partial credit via min/max ratio), and series data references (40%: Jaccard overlap of reference strings). Axis labels, legend styling, and color choices are not evaluated. 
+
+Pivot Tables: Pivot similarity is scored across five sub-criteria: sheet placement (15%), row fields (25%: full credit for correct ordered list, 15% for correct fields in wrong order), column fields (20%: full credit for correct ordered list, 10% for correct fields in wrong order), data field names (25%: Jaccard set overlap), and cache fields / source schema (15%: Jaccard overlap of source column names). Aggregation function names are not directly evaluated; the data field name match serves as a proxy. 
+
+Conditional Formatting: Scoring covers three criteria: correct worksheet (30%), exact cell range after normalisation (40%), and rule type set overlap (30%, e.g. cellIs , colorScale ,
+
+dataBar ). Formatting style properties such as colors, fonts, and borders are not evaluated, nor is rule priority ordering. 
+
+I Examples from WTM-B ENCH 
+
+Examples from WTM-B ENCH are presented in the subsequent Figs. 15, 16, and 17. 21 Published as a conference paper at COLM 2026 
+
+(a) Generated (b) Ground Truth 
+
+Figure 14: Evaluation metrics comparison. For it, Hard match: Fail, Soft match: Pass. Calculate the percentage change for all years. 
+
+Figure 15: Example 1: Clubbed formula group being added. Where the colored texts are the utterances corresponding to the task. Help me understand how pressure and flow 
+
+rate change at different flow percentages. 
+
+1
+
+2
+
+1 2
+
+(a) Mixed multi-step tasks: formulas, charts Input workbook 
+
+Output workbook 
+
+Utterances 
+
+> Can you show me the total sales for each region
+> and the overall total? The total order amounts are
+> calculated for each region (East, North, South,
+> West) and displayed along with the grand total.
+> The data is summarized in a table format.
+> Can you create a pivot table that summarizes the
+> total order amounts by region from the sales data
+> in the first sheet?
+> Can you show me the total sales for each region?
+
+Level 
+
+lvl1 
+
+lvl3 
+
+lvl5  (b) Pivot table on new worksheet 
+
+Figure 16: Examples of complex spreadsheet tasks 22 Published as a conference paper at COLM 2026 1
+
+2 For all appliances, calculate its actual AH consumed. 
+
+What is the total estimate of energy consumption for summer and winter? 
+
+3
+
+4
+
+Calculate sun's duration to charge batteries for summer and winter usage 
+
+Estimate the hours of sun needed to power the solar panels throughout the summer and winter consumptions. 
+
+Compute the consumption rate of amperes used per hour  1
+
+2 3 4
+
+Figure 17: Example 4: Multi-step formula tasks 23

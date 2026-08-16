@@ -1,0 +1,793 @@
+Title: JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series
+
+URL Source: https://arxiv.org/pdf/2608.11801v1
+
+Published Time: Thu, 13 Aug 2026 00:39:40 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series 
+
+# Yian Wei 
+
+Zhejiang University yianwei@zju.edu.cn 
+
+# Yuanyuan Yao 
+
+Zhejiang University yoyoyao@zju.edu.cn 
+
+# Lu Chen 
+
+Zhejiang University luchen@zju.edu.cn 
+
+# Tianyi Li 
+
+Aalborg University tianyi@cs.aau.dk 
+
+# Xiangmin Zhou 
+
+School of Computing Technologies, RMIT University xiangmin.zhou@rmit.edu.au 
+
+## Abstract 
+
+Multivariate time-series anomaly prediction aims to identify whether and when anomalies will occur over a future horizon from historical observations. Existing methods primarily characterize anomalies as deviations in future numerical values, which may overlook subtle dependency changes induced by weak anomaly precursors and provide no native variable-level explanation together with the alert. To bridge these gaps, we propose JAPE, a Joint Anomaly Prediction and Explanation framework that lifts anomaly prediction from numerical-deviation modeling to dependency-structure modeling. 
+
+JAPE is the first anomaly prediction framework to explicitly model evolving dependency structures for both point-wise alerting and native variable-level explanation. Specifically, JAPE (i) proposes a Decoupled Spatio-Temporal Representation (DSTR) backbone that decouples temporal and spatial modeling and captures lag-aware dependencies via learnable lag aggregation, thereby perceiving structural precursors before numerical deviations emerge; (ii) de-signs a dual-view alerting mechanism that fuses numerical forecasts with evolving dependency graphs for point-wise anomaly predic-tion, capturing structural evidence even under subtle numerical deviations; and (iii) presents Native Predictive Explanation (NPE), which directly reuses the predicted dependency graphs to rank vari-ables by structural deviations without additional models or training. Extensive experiments on five real-world benchmarks across three prediction horizons demonstrate that JAPE improves average F1 and AUC-PR by 19.7% and 41.3%, respectively, while improving explainability with 26.6% gain in MRR. 
+
+## CCS Concepts 
+
+• Computing methodologies → Machine learning .
+
+## Keywords 
+
+Time Series Analysis, Anomaly Prediction, Dynamic Dependency Modeling, Variable-Level Explanation 
+
+## 1 Introduction 
+
+In modern cloud-native architectures and large-scale distributed systems, continuous monitoring of multivariate time series (MTS) is essential for maintaining system reliability and service availability. Traditional anomaly detection methods [3, 31, 38] identify abnor-mal behaviors only after faults have already occurred, providing reactive alerts that are often too late to prevent service degradation or operational losses. As system downtime becomes increasingly costly, there is a growing demand for proactive monitoring capa-bilities. This has led to a shift from post-hoc anomaly detection toward anomaly prediction, which aims to anticipate future anom-alies before their occurrence by leveraging historical observations and temporal patterns: early studies, such as PoA [16], detect pre-cursors indicating whether an anomaly is imminent, while later work further pinpoints abnormal time steps over an explicit future horizon [42]. However, anomaly prediction is more challenging than anomaly detection. Beyond identifying an upcoming anomaly, the anomaly prediction task must accurately predict its onset time and issue early point-wise alerts for proactive intervention. Existing approaches can be broadly divided into two paradigms. The first paradigm adopts an unsupervised formulation that com-bines a forecasting model [23, 27] with reconstruction-based anom-aly detection [3, 38] to anticipate future anomalies [25, 45]. For example, TranAP [25] first learns forecasting and reconstruction models from entirely normal data; it then forecasts future series from historical observations, reconstructs the predicted series with the learned model, and flags time steps whose reconstruction error exceeds a predefined threshold as potential future anomalies. Going a step further along this line, FCM [45] leverages the forecasted future context to amplify weak anomaly precursors within the ob-servation window. While effective for pronounced numerical devia-tions, such methods are fundamentally optimized to model normal dynamics, so weak anomaly precursors are often overwhelmed by dominant normal patterns and remain unnoticed until the numeri-cal deviation becomes pronounced. The second paradigm adopts a self-supervised formulation that injects synthetic pseudo-anomalies into normal data to construct auxiliary prediction objectives. For example, A2P [28] injects multi-form pseudo-anomalies through a learnable prompt pool, enabling the model to learn anomaly-related patterns during training. Recent work has also explored supervised anomaly prediction using a limited number of real anom-aly labels. F2A [9], for example, adapts a pretrained model with a joint forecast–anomaly loss and fuses retrieved relevant horizons through retrieval augmentation to improve cross-system generaliza-tion. Yet whether the training signal comes from clean normal data, injected pseudo-anomalies, or a pretrained model, these methods are highly consistent in their modeling perspective: they all charac-terize anomalies essentially as deviations on the future numerical series, and raise alerts accordingly. Existing value-centric approaches overlook the structural evi-dence carried by inter-variable relationships. In distributed systems, arXiv:2608.11801v1 [cs.LG] 12 Aug 2026 Yian Wei, Yuanyuan Yao, Lu Chen, Tianyi Li, and Xiangmin Zhou 4600 4800 5000 5200           
+
+> Time step
+> −1 σ
+> 0
+> +1 σ
+> Standardized deviation ( σ)
+> v4 (source) v22 v24 v30 v31 v34
+> (a) Per-variable trends -0.6 -0.4 -0.2 0.0 0.2 0.4 0.6 0.8
+> Correlation with v4
+> v22 v24 v30 v31 v34
+> Variable
+> normal anomaly (b) Correlation shifts
+
+Figure 1: A case study on SMD (machine-1-6). 
+
+anomalies may manifest not only as changes in monitored signal values but also as structural changes in variable dependencies. Fig-ure 1 illustrates this phenomenon using an anomalous interval from the SMD dataset. Figure 1a shows the temporal behaviors of an anomalous variable, 𝑣 4, and several related variables around the anomaly interval. As shown in Figure 1b, the observed change is not merely a fluctuation in correlation strength but a clear struc-tural reorganization: variables that are predominantly positively correlated with 𝑣 4 under normal conditions become mostly nega-tively correlated during the anomaly, resulting in a substantial shift in the overall dependency pattern. This observation suggests that inter-variable relationships provide meaningful structural evidence for anomaly-related system changes. Therefore, explicitly model-ing evolving dependency structures is essential for both anomaly prediction and variable-level explanation. Consequently, existing value-centric approaches suffer from the following three fundamen-tal limitations: L1: Delayed detection. Under numerical forecasting objectives, weak dependency changes are often absorbed as normal fluctuations and overwhelmed by dominant normal patterns, caus-ing anomaly precursors to remain under-emphasized and alerts to lag behind the progression of faults. L2: Limited anomaly discrim-inability. During anomaly propagation, anomaly-source variable and other variables often exhibit similar numerical deviations. This challenge is exacerbated when source changes are subtle, making it difficult for value-centric methods to distinguish anomaly sources from propagated responses and reducing prediction accuracy. L3: Lack of intrinsic explainability. Without explicitly modeling dependency-structure evolution, existing methods detect anom-alies but cannot directly identify the variables involved, requiring separate post-hoc analysis for interpretation. To address these three limitations, we propose JAPE , a Joint Anomaly Prediction and Explanation framework that lifts anom-aly prediction from numerical-deviation modeling to dependency-structure modeling, trained under a practical setting where a small number of anomaly labels are available. 
+
+Decoupled Spatio-Temporal Representation (DSTR) . To address L1 , we propose the DSTR backbone that explicitly sepa-rates temporal evolution from inter-variable dependency modeling. Instead of jointly learning temporal dynamics and structural de-pendencies in a single coupled operation, DSTR models them along two dedicated axes: a temporal axis for modeling the evolution of individual variables and a spatial axis for modeling inter-variable dependencies. Along the spatial axis, JAPE employs a lag-aware directional contrast function together with a learnable lag aggrega-tion mechanism to capture evolving lead–lag dependency patterns. By modeling dependency evolution independently of temporal dy-namics, DSTR preserves weak structural precursors before they manifest as observable numerical deviations. 
+
+Dual-View Alerting Mechanism. To address L2 , JAPE comple-ments the numerical view provided by the predicted series bX with the structural view provided by the evolving dependency graph A.The numerical view captures the observable responses of individ-ual variables, whereas the structural view explicitly characterizes source-related changes in their pairwise relative influence. The two views are adaptively fused through cross-attention, enabling 
+
+JAPE to exploit source-aware structural evidence even when the source variable exhibits only a subtle numerical deviation, thereby improving anomaly discrimination. 
+
+Native Predictive Explanation (NPE). To mitigate L3 , we reuse the dependency graph generated during prediction to pro-vide native explanations for anomaly alerts. When an anomaly is detected, JAPE ranks variables according to their structural devi-ations from the normal dependency pattern, thereby identifying those most associated with the predicted anomaly. Because the dependency graph is already constructed during inference, NPE re-quires neither additional training nor another model forward pass, eliminating the need for a separate post-hoc diagnostic pipeline. To the best of our knowledge, JAPE is the first anomaly predic-tion framework that explicitly models evolving dependency struc-tures to jointly achieve early point-wise alerting and native predic-tive explanation. The contributions are summarized as follows. 
+
+• We develop the Decoupled Spatio-Temporal Representation (DSTR) backbone, which disentangles temporal evolution from depen-dency modeling to preserve weak structural precursors via dy-namic directed dependency graphs. 
+
+• We propose a Dual-View Alerting Mechanism that fuses numer-ical forecasts with dynamic dependency structures, enabling 
+
+JAPE to exploit source-aware structural evidence when numeri-cal responses remain subtle and thereby improving point-wise anomaly discrimination. 
+
+• We propose Native Predictive Explanation (NPE), which reuses the graph already produced during prediction and ranks variables via a Graph Deviation Score (GDS) against a normal baseline, yielding explanation at zero additional cost. 
+
+• We conduct extensive experiments on five datasets across three forecasting horizons to demonstrate the effectiveness of our proposed framework. Compared with strong baselines, JAPE 
+
+achieves 19.7% and 41.3% average gains in F1 and AUC-PR under strict point-wise evaluation, alongside a 26.6% MRR improvement for variable-level explanation. 
+
+## 2 Preliminaries 
+
+In this section, we first describe the multivariate time-series formu-lation and then formally define the anomaly prediction task. 
+
+Definition 2.1 (Multivariate Time Series). A multivariate time series with 𝑉 variables is represented as a sequence of observations over consecutive timestamps. Given a historical window of length 𝐿 ,the time-series segment is defined as X = [x𝑡 −𝐿 +1, . . . , x𝑡 ] ∈ R𝐿 ×𝑉 ,
+
+where x𝑡 ∈ R𝑉 denotes the observation vector at timestamp 𝑡 , and each dimension corresponds to one variable. JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series 𝐀 ∈ 𝐀 𝐀×𝐀              
+
+> 𝐀 𝐀 ∈ 𝐀 𝐀×𝐀
+> Patch Embedding
+> 𝐀 (0) ∈ 𝐀 𝐀×𝐀×𝐀
+> Lagged Projection Current Projection Feature Aggregation
+> Graph Sequence 𝐀
+> Channel-independent Modeling
+> 𝐀 𝐀𝐀𝐀𝐀
+> Spatial Axis
+> Scoring Refinement N×𝐀 0𝐀 1𝐀 2𝐀 3𝐀 4𝐀 5𝐀 6𝐀 𝐀 ∈ 𝐀 𝐀 𝐀
+> 𝐀/𝐀 𝐀
+> Ranking
+> 𝐀 ∈ 𝐀 𝐀×𝐀
+> 𝐀 𝐀𝐀𝐀𝐀
+> 𝐀 𝐀𝐀𝐀𝐀
+> 𝐀 𝐀
+> Graph Construction
+> 𝐀 𝐀𝐀𝐀𝐀𝐀𝐀
+
+Figure 2: Overall architecture of JAPE. 
+
+Definition 2.2 (Anomaly Prediction). Given a historical observa-tion window X of a multivariate time series and a prediction horizon 
+
+𝐻 , anomaly prediction aims to estimate the future anomaly states over the horizon. The corresponding anomaly labels are defined as Y = [𝑦 𝑡 +1, . . . , 𝑦 𝑡 +𝐻 ] ∈ { 0, 1}𝐻 , where 𝑦 𝑡 +ℎ = 1 indicates that an anomaly occurs at timestamp 𝑡 + ℎ. The objective is to learn a mapping 𝑓 : X → P, where P ∈ [ 0, 1]𝐻 denotes the predicted probabilities of the corresponding anomaly labels in Y
+
+In addition to future anomaly prediction, we further consider variable-level explanation of the predicted anomalies. Given an anomalous prediction, the goal is to identify variables that are most relevant to the anomaly occurrence. The explanation result is represented as a ranking over the 𝑉 variables. 
+
+## 3 Method 
+
+In this section, we introduce the proposed JAPE framework. Fig-ure 2 illustrates the overall architecture of JAPE , which consists of three key components: 1) Decoupled Spatio-Temporal Repre-sentation (DSTR) : It jointly models temporal dynamics and evolv-ing inter-variable dependencies to produce both future numerical forecasts and dynamic directed dependency graphs; 2) Dual-View Alerting Mechanism : It integrates the numerical forecasting view and the structural dependency view to estimate point-wise anomaly probabilities; and 3) Native Predictive Explanation (NPE) : Once an anomaly is detected, this component reuses the dependency graphs generated during forecasting and computes Graph Devia-tion Scores (GDS) to identify the variables most associated with the predicted anomaly. We next describe each component in detail. 
+
+## 3.1 Decoupled Spatio-Temporal Representation (DSTR) 
+
+Anomalies in multivariate time series are often preceded by sub-tle changes in inter-variable dependencies rather than apparent numerical deviations.A natural solution is to jointly model tempo-ral evolution and cross-variable interactions with spatio-temporal attention [43]. However, relations derived from current-token simi-larities mainly capture synchronous associations and fail to char-acterize lagged directional effects. Furthermore, jointly encoding temporal and variable interactions allows dominant temporal pat-terns to mask weak structural changes, which are easily overlooked under MSE optimization before numerical anomalies arise. To ad-dress this issue, DSTR decouples spatio-temporal modeling into two separate axes. After patch embedding, the spatial axis explicitly learns dynamic directed dependencies among variables through lag-aware asymmetric graph construction, while the temporal axis models the evolution of each variable independently. These two axes are applied alternately within each encoder layer. Furthermore, a future-oriented branch extends spatial dependency modeling into the prediction horizon, enabling DSTR to preserve evolving depen-dency structures for future anomaly prediction. 
+
+3.1.1 Patch Embedding. Given an input window X ∈ R𝐿 ×𝑉 , where 
+
+𝐿 is the historical length and 𝑉 is the number of variables, each univariate series X:,𝑣 ∈ R𝐿 is divided into overlapping patches. Let 
+
+𝐿 𝑝 denote the patch length and 𝑆 𝑝 the stride. The patching process produces a patch sequence X𝑝 𝑣 ∈ R𝑃 ×𝐿 𝑝 for variable 𝑣 , where 𝑃 =(𝐿 − 𝐿 𝑝 )/ 𝑆 𝑝 
+
+ +1 is the number of patches. Each patch is mapped to a 𝐷 -dimensional token through a shared linear projection followed by positional encoding. Thus, each variable is represented by 𝑃 
+
+patch tokens of dimension 𝐷 , forming Z(0) ∈ R𝑉 ×𝑃 ×𝐷 , which is passed through 𝑁 dual-axis encoder layers. 
+
+3.1.2 Spatial Axis: Lag-Aware Directed Graph Learning. The spatial axis aims to characterize directed influences among variables and to preserve them explicitly as a graph, independently of numerical magnitude. At patch position 𝑖 in encoder layer ℓ, let Z(ℓ −1) 
+
+> 𝑖
+
+=
+
+Z(ℓ −1) 
+
+> :,𝑖, :
+
+∈ R𝑉 ×𝐷 denote the input tokens of all variables. Three learnable linear projections produce Q(ℓ ) 
+
+> 𝑖
+
+, K(ℓ ) 
+
+> 𝑖
+
+, and U(ℓ ) 
+
+> 𝑖
+
+∈ R𝑉 ×𝐷 ,which are used to measure pairwise influences across variables. 
+
+Current and lagged projections. A score computed solely from the current patch captures only instantaneous association and fails to represent delayed influences. To model such lagged effects, we aggregate the preceding 𝐾 max patch representations via exponen-tially decayed weighting to construct a lagged representation for the current patch. Specifically, the lag weight is defined as 
+
+𝑎 𝑘 = exp [− 𝛿 (𝑘 − 1)] 
+
+Í𝐾 max   
+
+> 𝑟 =1
+
+exp [− 𝛿 (𝑟 − 1)] , 𝛿 = exp (𝜃 ) > 0, (1) where 𝜃 is a learnable parameter and a larger 𝛿 assigns higher weight to more recent patches. For any projection M(ℓ ) 
+
+> 𝑖
+
+∈ { Q(ℓ ) 
+
+> 𝑖
+
+, K(ℓ ) 
+
+> 𝑖
+
+,
+
+U(ℓ ) 
+
+> 𝑖
+
+}, its lagged counterpart is defined as the weighted aggregation Yian Wei, Yuanyuan Yao, Lu Chen, Tianyi Li, and Xiangmin Zhou 
+
+of the corresponding projections from preceding patches: 
+
+eM(ℓ ) 
+
+> 𝑖
+
+=
+
+> 𝐾 max
+
+∑︁ 
+
+> 𝑘 =1
+
+𝑎 𝑘 M(ℓ )   
+
+> max (1,𝑖 −𝑘 )
+
+, (2) where max (1, 𝑖 − 𝑘 ) handles sequence boundaries by truncating indices below 1 to the first valid patch. Consequently, eM(ℓ ) 
+
+> 𝑖
+
+denotes the set {eQ(ℓ ) 
+
+> 𝑖
+
+, eK(ℓ ) 
+
+> 𝑖
+
+, eU(ℓ ) 
+
+> 𝑖
+
+}, corresponding to the lagged query, key, and value projections, respectively. 
+
+Directed graph construction. Similarity-based attention [33] does not explicitly distinguish the two directions of an ordered variable pair. We therefore introduce a lag-aware directional con-trast score at each patch position 𝑖 . The directional score matrix 
+
+S(ℓ ) 
+
+> 𝑖
+
+∈ R𝑉 ×𝑉 is defined as: 
+
+S(ℓ ) 
+
+> 𝑖
+
+= Q(ℓ )
+
+> 𝑖
+
+eK(ℓ )
+
+> 𝑖
+
+⊤
+
+− K(ℓ )
+
+> 𝑖
+
+eQ(ℓ )
+
+> 𝑖
+
+⊤
+
+. (3) For an ordered pair (𝑢, 𝑣 ), 𝑆 (ℓ ) 
+
+> 𝑖,𝑢𝑣
+
+measures the difference between the alignment of 𝑢 ’s current state with 𝑣 ’s lagged state and that of 
+
+𝑣 ’s current state with 𝑢 ’s lagged state. A positive value indicates directional evidence from 𝑣 to 𝑢 : the past of 𝑣 helps predict the present of 𝑢 . For each target variable, we retain the 𝐾 𝑔 source variables with the strongest positive dependency scores: 
+
+Araw ,(ℓ ) 
+
+> 𝑖
+
+= TopK 𝐾 𝑔 
+
+
+
+ReLU 
+
+
+
+tanh (S(ℓ ) 
+
+> 𝑖
+
+)
+
+ 
+
+, (4) where TopK 𝐾 𝑔 retains the selected dependency scores and sets the others to zero. The resulting Araw ,(ℓ ) 
+
+> 𝑖
+
+∈ R𝑉 ×𝑉 is normalized across the selected source variables for each target variable, yielding 
+
+A(ℓ ) 
+
+> 𝑖
+
+∈ R𝑉 ×𝑉 .
+
+Graph-guided feature aggregation and graph output. The learned graph guides feature propagation and serves as the struc-tural representation for anomaly prediction. Specifically, each vari-able aggregates historical features from its selected predecessors: 
+
+Z(ℓ ) 
+
+> 𝑖, spat
+
+= Z(ℓ −1) 
+
+> 𝑖
+
++ 𝜆 A(ℓ ) 
+
+> 𝑖
+
+eU(ℓ ) 
+
+> 𝑖
+
+, (5) where 𝜆 is a learnable residual coefficient. This operation injects dependency-aware information while preserving the original rep-resentation through residual learning. The spatial axis generates a graph at each patch position and encoder layer. For each patch 𝑖 , we average the normalized graphs across layers as A𝑖 = 1
+
+> 𝑁
+
+Í𝑁 ℓ=1 A(ℓ ) 
+
+> 𝑖
+
+. The resulting sequence {A𝑖 }𝑃 𝑖 =1
+
+captures the evolution of inter-variable dependencies over the his-torical window. The raw graphs Araw ,(ℓ ) 
+
+> 𝑖
+
+are averaged in the same manner to preserve edge magnitudes. 
+
+3.1.3 Temporal Axis: Channel-Independent Temporal Modeling. Fol-lowing the channel-independent design of PatchTST [27], the tem-poral axis models the evolution of each variable separately while sharing its parameters across variables. For each variable 𝑣 at layer 
+
+ℓ, the temporal axis applies self-attention along the patch sequence 
+
+Z(ℓ ) 
+
+> 𝑣, :,spat
+
+∈ R𝑃 ×𝐷 , without interaction between different variables on this axis. This yields the layer output Z(ℓ ) ∈ R𝑉 ×𝑃 ×𝐷 . This design keeps temporal evolution separate from the inter-variable depen-dencies already captured by the preceding spatial axis, preserving the explicit graph structure for subsequent alerting and explana-tion.We denote the final historical representation by Z = Z(𝑁 ) .
+
+3.1.4 Future-Oriented Branch and Graph Concatenation. While the historical spatial axis captures dependencies within the observed window, anomaly detection also benefits from structural evidence aligned with the future horizon, enabling a before-and-after per-spective at the time of alerting. Let 𝐻 𝑝 = ⌊( 𝐻 − 𝐿 𝑝 )/ 𝑆 𝑝 ⌋ + 1 denote the number of future patches under the same patching rule. The future-oriented branch maps a stop-gradient copy of the final historical representation Z(𝑁 ) to 
+
+bZfut ∈ R𝑉 ×𝐻 𝑝 ×𝐷 . An independent spatial block then constructs 
+
+{bA𝑗 }𝐻 𝑝  
+
+> 𝑗 =1
+
+at each future patch position using the same lag-aware directional mechanism. The graph-enhanced representation is de-coded into an auxiliary forecast bXfut ∈ R𝐻 ×𝑉 .Both forecasting outputs are trained with the same MSE for-mulation. For the main forecast, we use LMSE = 1 
+
+> 𝐻𝑉
+
+∥bX − X+ ∥2 
+
+> 𝐹
+
+.For the future-oriented branch, the auxiliary objective is Lfut MSE = 
+
+> 1
+> 𝐻𝑉
+
+∥bXfut − X+ ∥2 
+
+> 𝐹
+
+, which provides ground-truth supervision for learning the future dependency graphs. Finally, the historical and future graph sequences are concate-nated along the patch dimension to form A ∈ R(𝑃 +𝐻 𝑝 ) × 𝑉 ×𝑉 , which is passed to the alerting module. 
+
+## 3.2 Dual-View Alerting Mechanism 
+
+The Dual-View Alerting Mechanism estimates point-wise anomaly probabilities over the prediction horizon by jointly modeling future numerical evolution and evolving dependency structures. The nu-merical view captures the future trajectories of individual variables, whereas the structural view encodes the evolution of inter-variable dependencies produced by DSTR. Their combination enables anom-aly prediction even when numerical precursors remain weak but structural patterns have already changed. 
+
+Structural feature construction. The dynamic dependency graphs generated by DSTR provide rich structural evidence for anomaly prediction. However, directly using adjacency matrices introduces variable-dependent input dimensions and redundant edge-level in-formation. We therefore summarize each graph slice into a compact structural descriptor with a fixed dimensionality. Let 𝑇 = 𝑃 + 𝐻 𝑝 denote the total number of historical and future graph slices. Let 𝑠 in  
+
+> 𝑣
+
+and 𝑠 out  
+
+> 𝑣
+
+denote the incoming and outgoing strengths of variable 𝑣 , respectively, and define the graph energy at slice 𝑡 as 𝐸 𝑡 = Í𝑢,𝑣 𝐴 raw  
+
+> 𝑡,𝑢𝑣
+
+. Within each historical or future graph segment, the final 𝜏 portion is treated as the tail, and Δ denotes the change from the preceding portion to the tail. Accordingly, 𝐸 tail 
+
+is the mean graph energy over the tail. Each graph slice is repre-sented by a 13-dimensional structural descriptor consisting of two complementary components: five slice-level statistics computed from the normalized graph and eight segment-level statistics com-puted from the corresponding unnormalized graph sequence, as summarized in Table 1. The segment-level statistics are appended to every graph slice within the corresponding historical or future segment. All structural descriptors are organized chronologically as Fstr ∈ R𝑇 ×13 , preserving both the dependency pattern of each graph slice and the structural evolution of its surrounding segment. 
+
+Cross-attention fusion. We linearly project the predicted vectors at the 𝐻 future steps into numerical tokens H𝑥 ∈ R𝐻 ×𝐷 and project the structural descriptor matrix Fstr into structural tokens H𝑔 ∈
+
+R𝑇 ×𝐷 . Positional information is added to both sequences, and the JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series 
+
+Table 1: Structural Features Used by the Dual-View Alerting Mechanism 
+
+No. Feature Level Graph Input Statistic Role 1 Mean Entropy Slice-level Normalized Avg. row entropy Dependency dispersion 2–3 Top-𝑘 Share Slice-level Normalized Avg. Top-𝑘 sum, 𝑘 = 1, 3 Dependency concentration 4 Outgoing Dominance Slice-level Normalized max 𝑣 𝑠 out  
+
+> 𝑣
+
+/Í𝑣 𝑠 out  
+
+> 𝑣
+
+Variable dominance 5 In–out Imbalance Slice-level Normalized Avg. |𝑠 in  
+
+> 𝑣
+
+− 𝑠 out  
+
+> 𝑣
+
+| Directional imbalance 6–8 Incoming Change Segment-level Unnormalized Max / avg. / std. Δ𝑠 in  
+
+> 𝑣
+
+Incoming redistribution 9–11 Outgoing Change Segment-level Unnormalized Max / avg. / std. Δ𝑠 out  
+
+> 𝑣
+
+Outgoing redistribution 12–13 Graph Energy Segment-level Unnormalized 𝐸 tail , Δ𝐸 Energy level and shift structural tokens additionally encode whether they originate from the historical or future graph segment. Using the numerical tokens as queries and the structural tokens as keys and values, cross-view fusion is computed as 
+
+C = Softmax 
+
+ (H𝑥 W𝑄 )( H𝑔 W𝐾 )⊤
+
+√𝐷 
+
+
+
+H𝑔 W𝑉 , (6) where W𝑄 , W𝐾 , and W𝑉 are learnable projections. The resulting 
+
+C ∈ R𝐻 ×𝐷 is fused with the numerical tokens through a residual connection and layer normalization. 
+
+Point-wise alerting The fused representations are processed by a temporal Transformer encoder to model interactions across the prediction horizon. A linear output layer maps each encoded token to an anomaly logit, yielding point-wise anomaly probabilities p ∈[0, 1]𝐻 . During this stage, the DSTR backbone is frozen and only the alerting head is optimized using focal loss [22]. The complete two-stage training procedure is described in Appendix D. 
+
+## 3.3 Native Predictive Explanation 
+
+The dependency graphs generated during anomaly prediction pro-vide structural evidence for identifying variables associated with future anomalies. Instead of introducing an additional attribution model, NPE derives variable-level explanations directly from the predicted dependency graphs by measuring their deviations from normal dependency patterns. Specifically, we design a Graph Devia-tion Score (GDS) that captures both immediate dependency changes and their propagation along multi-hop dependencies. For each alerted anomalous segment, we aggregate the predicted graph slices within the segment into a segment-level dependency graph Aanom ∈ R𝑉 ×𝑉 , where 𝐴 𝑢𝑣 denotes the dependency from variable 𝑣 to variable 𝑢 . A normal reference graph Anormal is con-structed by aggregating dependency graphs from normal reference windows. These normal windows are also used to estimate variable-wise statistics for standardizing the deviation scores, reducing the impact of heterogeneous dependency scales across variables. The GDS first measures direct dependency changes between anomalous and normal graphs. Let [𝑥 ]+ = max (𝑥, 0). The direct deviation score of variable 𝑣 is defined as 
+
+𝑑 dir  
+
+> 𝑣
+
+=∑︁ 
+
+> 𝑢
+
+𝐴 anom  
+
+> 𝑢𝑣
+
+− 𝐴 normal 
+
+> 𝑢𝑣
+
+ 
+
+> +
+
+− 𝛽 ∑︁ 
+
+> 𝑢
+
+𝐴 anom  
+
+> 𝑣𝑢
+
+− 𝐴 normal 
+
+> 𝑣𝑢
+
+ 
+
+> +
+
+. (7) The first term measures strengthened outgoing dependencies, while the second term penalizes strengthened incoming dependen-cies. This asymmetric formulation highlights variables exhibiting upstream-related dependency changes during anomalous periods. Direct dependency deviations capture local structural changes but may overlook variables whose influence propagates through longer dependency chains. To capture such structural propagation, we compare multi-hop dependency patterns between anomalous and normal graphs. Specifically, Specifically, after row-normalizing each target variable’s incoming dependency weights over its se-lected sources to obtain ¯ Aanom and ¯ Anormal , the positive deviation of 𝑘 -hop dependencies is computed as 
+
+𝚫 (𝑘 ) = ReLU 
+
+
+
+( ¯Aanom )𝑘 − ( ¯Anormal )𝑘 
+
+, (8) where 𝚫 (𝑘 ) represents the changed dependency patterns along paths of length 𝑘 . The multi-hop deviation score is then defined as 
+
+𝑑 path  
+
+> 𝑣
+
+=
+
+> 𝐾 path
+
+∑︁ 
+
+> 𝑘 =2
+
+𝑤 𝑘  ∑︁ 𝑢 
+
+Δ(𝑘 ) 
+
+> 𝑢𝑣
+
+− 𝛽 ∑︁ 
+
+> 𝑢
+
+Δ(𝑘 )
+
+> 𝑣𝑢
+
+!
+
+, (9) where 𝑤 𝑘 is a decay weight that reduces the contribution of longer dependency paths. The direct and multi-hop scores are standard-ized via variable-wise statistics from normal reference windows, producing eddir and edpath . These complementary components are then combined to obtain the initial GDS representation: 
+
+g(0) = eddir + 𝜔 edpath , (10) where 𝜔 controls the contribution of multi-hop dependency evi-dence. To further incorporate normal dependency structures, we refine the scores through residual propagation: 
+
+g(𝑟 +1) = 𝛼 gds g(𝑟 ) + ( 1 − 𝛼 gds ) g(𝑟 )
+
+∥g(𝑟 ) ∥∞ + 𝜖 ¯Anormal , (11) where 𝛼 gds controls the balance between preserving the original de-viation evidence and incorporating dependency-aware refinement. After 𝑅 refinement steps, the final explanation score is obtained as s = g(𝑅 ) . Ranking variables according to s produces the variable-level explanation. Since NPE directly reuses the dependency graphs generated during anomaly prediction, it requires no additional at-tribution model, extra inference process, or root-cause supervision. 
+
+## 4 Experiments 4.1 Experimental Setup 
+
+Datasets. We evaluate JAPE on five public multivariate time-series benchmarks: SMD [31], WADI [2], MSL [14], PSM [1], and EXATHL-ON [15]. All five benchmarks provide ground truth anomaly labels for the test sets, which we use directly in our experiments. SMD and WADI additionally provides event-associated variable annotations Yian Wei, Yuanyuan Yao, Lu Chen, Tianyi Li, and Xiangmin Zhou 
+
+Table 2: Anomaly prediction performance (F1 / AUC-PR, %) under different prediction lengths 𝐿 𝑜𝑢𝑡 . Best results are in bold, and second-best results are underlined. 
+
+𝐿 𝑜𝑢𝑡 Model Dataset (F1 / AUC-PR) Avg. SMD WADI MSL PSM EXATHLON F1 PR Forecast Detector F1 PR F1 PR F1 PR F1 PR F1 PR 50 RED-F 13.8 33.5 11.9 5.9 19.1 18.5 43.5 41.3 40.2 47.6 25.7 29.4 FCM 16.5 28.1 11.3 5.4 23.9 10.8 45.4 28.1 52.3 14.8 29.9 17.4 PatchTST AT 42.7 43.0 35.4 33.4 24.8 16.2 68.8 81.8 68.6 75.2 48.1 49.9 CAD 42.9 42.6 41.0 28.1 42.2 30.9 70.6 79.6 72.9 75.3 53.9 51.3 iTrans. AT 41.6 44.7 51.4 49.3 23.4 10.7 69.6 79.2 71.0 71.9 51.4 51.2 CAD 44.6 44.6 40.3 26.8 46.9 30.9 66.1 75.9 71.4 73.8 53.9 50.0 A2P-Sup 46.2 44.9 51.5 44.9 24.0 13.6 68.8 82.5 71.1 76.9 52.3 52.6 
+
+JAPE (Ours) 53.8 54.6 42.5 62.8 62.0 68.1 75.6 91.1 85.4 91.6 63.9 73.6 
+
+100 RED-F 14.1 9.0 11.4 6.1 19.1 17.4 43.4 40.3 41.2 44.3 25.8 23.4 FCM 14.4 4.6 11.6 5.2 23.9 11.6 45.3 28.9 50.1 15.3 29.1 13.1 PatchTST AT 40.3 39.7 48.8 41.4 26.1 13.6 69.0 79.0 67.2 72.6 50.3 49.3 CAD 37.7 38.9 47.8 38.6 44.2 31.8 65.5 75.6 69.3 71.6 52.9 51.3 iTrans. AT 39.9 40.2 49.2 36.0 25.4 9.9 65.5 77.4 65.8 67.4 49.2 46.2 CAD 36.8 38.0 46.6 32.5 45.5 30.1 64.7 76.0 69.0 70.9 52.5 49.5 A2P-Sup 37.1 37.1 52.9 44.2 24.2 14.3 68.8 80.6 61.2 70.1 48.8 49.3 
+
+JAPE (Ours) 52.5 53.8 49.4 62.0 61.2 66.1 79.0 88.3 82.7 88.1 65.0 71.7 
+
+200 RED-F 13.7 8.3 11.4 5.7 18.9 15.5 43.3 31.2 40.1 39.2 25.5 20.0 FCM 13.6 5.6 11.5 5.3 23.9 13.9 44.9 30.7 46.6 16.8 28.1 14.5 PatchTST AT 33.5 34.1 53.1 51.8 22.9 18.5 67.8 77.4 60.4 67.3 47.5 49.8 CAD 31.4 32.7 41.1 33.2 37.6 27.4 64.9 73.8 63.4 64.7 47.7 46.4 iTrans. AT 33.1 31.5 44.9 43.9 10.8 13.4 67.0 75.5 56.0 63.8 42.4 45.6 CAD 34.8 33.6 49.6 41.2 43.5 27.0 65.7 74.9 62.4 64.1 51.2 48.2 A2P-Sup 37.6 34.8 53.1 46.2 28.6 17.1 67.7 79.2 55.2 66.0 48.4 48.7 
+
+JAPE (Ours) 44.9 47.0 55.1 63.7 54.8 57.9 67.4 84.2 76.6 84.6 59.8 67.5 
+
+and is therefore used for the quantitative evaluation of variable-level explanations. Additional dataset details are provided in Appendix A. 
+
+Baselines. We compare JAPE with three categories of baselines, including unsupervised, self-supervised, and supervised methods. The unsupervised baselines include FCM [45] and RED-F [4]. The self-supervised baseline is A2P [28]. For supervised comparison, we include forecasting–detection pipelines built upon PatchTST [27] and iTransformer [23], as well as a supervised variant of A2P (A2P-Sup) trained with real anomaly labels. Detailed descriptions of all baselines are provided in Appendix B. 
+
+Metrics. We evaluate anomaly prediction using F1 and AUC-PR [6]. F1 is computed as F1 = 2𝑃𝑅 /( 𝑃 + 𝑅 ), where 𝑃 and 𝑅 denote point-wise precision and recall. We adopt strict point-wise matching, where a prediction is considered correct only if it matches the anomaly label at the same timestamp, without point adjustment [37] or tolerance [32]. AUC-PR measures the area under the precision– recall curve and evaluates anomaly-score discrimination across different thresholds. Both metrics are computed using unadjusted point-wise anomaly scores. For variable-level explanation performance, we report HR@1, HR@3, HR@5, and MRR. HR@ 𝑘 measures the fraction of annotated anomaly events for which at least one ground-truth variable appears among the top-𝑘 predicted variables, while MRR measures the average reciprocal rank of the first ground-truth variable. 
+
+Parameter settings. We use a historical window of length 𝐿 = 200 and prediction horizons 𝐿 out ∈ { 50 , 100 , 200 } by default. The DSTR backbone contains 𝑁 = 3 dual-axis encoder layers with a hidden dimension of 𝐷 = 128, and the input series is divided into patches of length 𝐿 𝑝 = 16 with stride 𝑆 𝑝 = 8. The alerting head is trained with focal loss [22], with the balancing factor set to 𝛼 = 0.25 and the focusing parameter set to 𝛾 = 2, respectively. Additional implemen-tation details and method-specific hyperparameters are provided in Appendix C. The code of JAPE is available for reproducibility 1.
+
+## 4.2 Anomaly Prediction Performance 
+
+Table 2 reports the anomaly prediction results of JAPE across five datasets and three prediction lengths. Overall, JAPE achieves the best average performance across all settings, reaching an av-erage F1 of 62.9 and an AUC-PR of 70.9, which outperform the strongest external baseline by 10.4 F1 points (19.7%) and 20.7 AUC-PR points (41.3%), respectively. The improvements are particularly pronounced on datasets with complex dependency evolution pat-terns. For example, on MSL, forecasting-based methods, including PatchTST, iTransformer, and A2P-Sup, achieve at most 31.8 AUC-PR, whereas JAPE reaches 68.1. This is because future numerical 
+
+> 1https://anonymous.4open.science/r/JAPE-B74E/ JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series
+
+Table 3: Variable-level explanation performance on SMD and WADI.                                              
+
+> Dataset Method HR@1 HR@3 HR@5 MRR SMD Random 0.177 0.407 0.557 0.352 Pred-Dev 0.165 0.303 0.416 0.298 GRAD 0.125 0.385 0.520 0.312 CF 0.235 0.385 0.486 0.364
+> JAPE (Ours) 0.333 0.505 0.584 0.461
+> WADI Random 0.012 0.035 0.058 0.064 Pred-Dev 0.133 0.333 0.400 0.278 GRAD 0.000 0.000 0.067 0.066 CF 0.333 0.333 0.400 0.380
+> JAPE (Ours) 0.333 0.400 0.467 0.385
+
+deviations alone are insufficient to capture weak anomaly precur-sors, whereas JAPE introduces additional structural anomaly evi-dence by jointly modeling future numerical evolution and variable dependency changes, enabling more robust anomaly identification across different prediction horizons and dataset characteristics. In addition, the improvement of JAPE on AUC-PR is consistently larger than that on F1. On average, JAPE improves the strongest baseline by 20.7 AUC-PR points (41.3%), compared with 10.4 F1 points (19.7%). This gap is also evident in individual cases. For ex-ample, when 𝐿 𝑜𝑢𝑡 = 50, JAPE achieves an AUC-PR of 62.8, substan-tially outperforming A2P-Sup (44.9), while their F1 scores are rela-tively closer. The larger gains in AUC-PR indicate that JAPE learns a more discriminative anomaly scoring space rather than merely op-timizing performance at a specific operating point. Specifically, the jointly predicted dynamic dependency structures enhance the dis-tinction between anomalous and normal states, allowing anomalous timestamps to receive higher and more consistent anomaly scores. Although A2P-Sup achieves slightly higher F1 under two shorter prediction lengths, JAPE consistently obtains substantially higher AUC-PR, e.g., 62.8 versus 44.9 when 𝐿 𝑜𝑢𝑡 = 50. This demonstrates that the advantage of A2P-Sup mainly comes from its performance under a specific threshold selection, whereas JAPE learns a more re-liable global ranking of anomaly likelihoods. Therefore, the smaller F1 gap does not imply inferior anomaly discrimination capabil-ity of JAPE , but rather reflects the sensitivity of threshold-based evaluation to the selected operating point. 
+
+## 4.3 Native Predictive Explanation Evaluation 
+
+We evaluate variable-level explanation on SMD and WADI datasets using their released event-associated variable annotations. We com-pare JAPE with four baselines: Random, Pred-Dev [26], GRAD [30], and CF [34, 35]. They respectively provide random ranking, prediction-error-based ranking, gradient-based saliency, and counterfactual at-tribution. All methods produce variable rankings for alerted events, which are evaluated against the annotated variables. Compared with the strongest baseline on SMD, JAPE improves HR@1 from 0.235 to 0.333, HR@3 from 0.407 to 0.505, HR@5 from 0.557 to 0.584, and MRR from 0.364 to 0.461, corresponding to a 26.6% relative improvement in MRR. Despite WADI containing only 15 events, the improvements in HR@3 and HR@5 indicate that 
+
+JAPE more consistently ranks the attacked variables within the 
+
+Table 4: Ablation study results                           
+
+> Method SMD WADI MSL PSM EXATHLON w/o DSTR PatchTST 47.0 45.6 51.4 78.0 74.8 iTransformer 47.5 11.3 29.1 76.9 75.2 w/o Dynamic dependency graph 51.2 50.4 59.3 77.4 75.3
+> JAPE (Ours) 52.5 49.4 61.2 79.0 82.7
+
+top candidates. This advantage comes from the fact that JAPE ,through its GDS module, exploits evolving dependency structures as predictive evidence. Unlike Pred-Dev, which only captures future numerical deviations, and attribution-based methods, which infer variable importance from individual model responses, JAPE identi-fies variables whose roles in system-wide dependency structures change before anomalies fully manifest. These structural changes provide complementary early signals for distinguishing influen-tial variables from correlated but irrelevant ones, leading to more accurate variable ranking. Therefore, JAPE provides native pre-dictive variable-level explanations at alert time without requiring future observations, additional post-hoc diagnosis models, or extra inference stages. 
+
+## 4.4 Ablation Study 
+
+Table 4 presents the ablation study of two key components in JAPE 
+
+under 𝐿 𝑜𝑢𝑡 = 100: the Decoupled Spatio-Temporal Representation (DSTR) backbone and the dynamic dependency graph. To evaluate the effectiveness of DSTR, we replace it with two representative forecasting backbones, PatchTST and iTransformer, while keeping the alerting mechanism, training objective, and eval-uation protocol unchanged. Since these variants only provide future numerical forecasts to the alerting head, this comparison directly reflects the quality of learned representations. DSTR achieves an average F1 of 62.7%, outperforming PatchTST and iTransformer by 3.3% and 14.7%, respectively. Among the three backbone variants, DSTR achieves the best performance on four of the five datasets and remains close to PatchTST on PSM. These results demonstrate that explicitly decoupling temporal evolution from inter-variable dependency modeling enables more informative representations for future anomaly prediction. Based on DSTR, JAPE further incorporates the dynamic depen-dency graph into the alerting mechanism. This improves the aver-age F1 from 62.7% to 65.0% and achieves the best performance on four out of five datasets, with the largest gain of 7.4% on EXATHLON. On WADI, JAPE shows a slight decrease of 1.0%. WADI contains 123 variables, resulting in a substantially larger candidate dependency space than the other datasets. The estimated graph may therefore retain more weak or redundant relations, slightly diluting the useful structural evidence during dual-view fusion. Nevertheless, the over-all improvement across datasets demonstrates that the dual-view alerting mechanism effectively fuses two complementary sources of information: future numerical forecasts from the temporal branch capture point-wise deviations, while evolving dependency struc-tures from the spatial branch reveal relational shifts. By leveraging both perspectives, JAPE provides richer evidence beyond what numerical deviations alone can offer, leading to more robust and generalizable anomaly prediction. Yian Wei, Yuanyuan Yao, Lu Chen, Tianyi Li, and Xiangmin Zhou SMD PSM MSL 510 20 50 100 200         
+
+> Time (s)
+> RED-F FCM A2P JAPE
+> (a) Training time per epoch SMD PSM MSL 0.1 0.5 120 50 80 100
+> Percentage (%)
+> DSTR Alerting NPE (b) JAPE runtime breakdown
+
+Figure 3: Efficiency evaluation. 
+
+## 4.5 Training Efficiency 
+
+We compare JAPE with A2P, FCM, and RED-F on SMD, PSM, and MSL to evaluate training efficiency. As shown in Figure 3(a), JAPE 
+
+achieves the lowest per-epoch training time on all three datasets, requiring only 58.1s, 7.77s, and 6.74s on SMD, PSM, and MSL, respec-tively. On SMD, JAPE reduces the training cost by 70.5% compared with A2P (196.9s) and achieves nearly 2 × acceleration over FCM (115.7s) and RED-F (108.3s). Similar improvements are observed on PSM and MSL, demonstrating consistent efficiency advantages across datasets. These results indicate that JAPE improves anomaly prediction performance without introducing additional training overhead. This efficiency is mainly attributed to the integration of dependency modeling into the forecasting backbone, where struc-tural learning reuses the shared sequence representations and com-putations rather than introducing an independent modeling branch. Figure 3(b) further decomposes the runtime of JAPE into DSTR, Alerting, and NPE. Under the same profiling protocol, DSTR ac-counts for 62.0%–80.2% of the total runtime, while Alerting accounts for 19.4%–37.9%. DSTR exhibits the highest share, which is attrib-uted to its core responsibilities: it performs the main sequence forecasting task and repeatedly constructs dynamic dependency graphs across temporal patches and encoder layers, including the future-oriented branch. These operations involve patch embedding, graph construction, and multi-head attention computations at each layer, which scale with both sequence length and encoder depth. In contrast, Alerting operates on the predicted sequence and compact structural descriptors after the backbone is frozen, requiring only lightweight standardization and neural network inference. NPE accounts for less than 0.5% on every dataset, because it directly reuses the already generated graphs and computes deviation scores without requiring additional forward passes or auxiliary networks, confirming its negligible computational overhead. 
+
+## 5 Related Work 
+
+Time series anomaly detection. Anomaly detection on multi-variate time series has been extensively studied through stochastic reconstruction (OmniAnomaly [31]), adversarial reconstruction (USAD [3]), association-discrepancy attention (Anomaly Trans-former [38]), and contrastive representation learning (DCdetec-tor [39]). Since these methods identify anomalies from already ob-served data, their alerts remain reactive. To better capture complex interactions among variables, recent studies have explored graph-based time-series modeling. GDN [7] and MTAD-GAT [44] learn graph-based representations for anomaly detection, while Cross-GNN [13], CATCH [36], TimeFilter [12], and DyCAST [5] model cross-variable or dynamic dependencies for general time-series analysis. Meanwhile, some anomaly detection methods provide variable-level interpretations through importance scores (Omni-Anomaly [31], InterFusion [21]), and root-cause analysis methods further infer causal or dependency structures from observed anom-aly intervals (AERCA [8], GCAD [24], and causality-aware con-trastive methods [17]). However, these methods either detect anom-alies after they occur or perform post-hoc diagnosis, and therefore cannot exploit evolving dependency changes as predictive evidence before anomaly occurrence. 
+
+Time series anomaly prediction. Anomaly prediction instead aims to identify abnormal time steps over an explicit future horizon. Early work detects precursors indicating an imminent anomaly (PoA [16]), while subsequent work formalizes point-wise anomaly prediction over future sequences [42]. Later methods introduce anomaly-related information at different stages of the forecasting-based prediction process. TranAP [25] forecasts future series and evaluates them through reconstruction errors learned from normal data. FCM [45] uses forecasted future context to amplify weak pre-cursors, whereas RED-F [4] contrasts forecasts generated from the original sequence and a reconstructed normal-pattern sequence. A2P [28] introduces anomaly-aware forecasting and synthetic anom-aly prompting, MultiRC [11] strengthens anomaly-related repre-sentations through multi-scale reconstructive contrast, and F2A [9] adapts time-series foundation models through joint forecast–anomaly optimization and relevant-horizon retrieval. Despite their different mechanisms, existing anomaly predic-tion methods primarily derive future alerts from numerical signal patterns or their latent representations. They do not explicitly pre-serve evolving directed inter-variable dependencies as predictive evidence. JAPE addresses this limitation by jointly modeling future numerical evolution and dynamic dependency structures, combin-ing both views for point-wise anomaly prediction and reusing the predicted dependency graphs for native variable-level explanation. 
+
+## 6 Conclusion 
+
+In this paper, we present JAPE , a joint anomaly prediction and ex-planation framework that lifts anomaly prediction from numerical-deviation modeling to dependency-structure modeling. JAPE con-structs a dynamic directed dependency-graph sequence spanning the observed history and the predicted future through the De-coupled Spatio-Temporal Representation backbone (DSTR), drives point-wise alerting with two complementary views—numerical and structural—and reuses the same graph through Native Predictive Explanation (NPE) to deliver variable-level explanations within the same forward pass via the Graph Deviation Score. Experiments on five real-world benchmarks demonstrate that JAPE achieves com-petitive prediction performance under a strict point-wise evaluation protocol, while producing explanations at negligible additional cost. In the future, we plan to scale dependency-structure modeling to larger systems with hundreds of variables, explore adaptive graph sparsification strategies to reduce computational overhead, and investigate the potential of structural signals in online continual-learning scenarios where anomaly patterns evolve over time. JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series 
+
+## References 
+
+[1] Ahmed Abdulaal, Zhuanghua Liu, and Tomer Lancewicki. 2021. Practical Ap-proach to Asynchronous Multivariate Time Series Anomaly Detection and Lo-calization. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining . 2485–2494. [2] Chuadhry Mujeeb Ahmed, Venkata Reddy Palleti, and Aditya P. Mathur. 2017. WADI: A Water Distribution Testbed for Research in the Design of Secure Cyber Physical Systems. In Proceedings of the 3rd International Workshop on Cyber-Physical Systems for Smart Water Networks . 25–28. [3] Julien Audibert, Pietro Michiardi, Frédéric Guyard, Sébastien Marti, and Maria A Zuluaga. 2020. Usad: Unsupervised anomaly detection on multivariate time series. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining . 3395–3404. [4] PengYu Chen, Xiaohou Shi, Yuan Chang, Yan Sun, and Sajal K. Das. 2025. RED-F: Reconstruction-Elimination based Dual-stream Contrastive Forecasting for Multivariate Time Series Anomaly Prediction. arXiv preprint arXiv:2511.20044 
+
+(2025). [5] Yue Cheng, Bochen Lyu, Weiwei Xing, and Zhanxing Zhu. 2025. DyCAST: Learn-ing dynamic causal structure from time series. In The Thirteenth International Conference on Learning Representations .[6] Jesse Davis and Mark Goadrich. 2006. The Relationship between Precision-Recall and ROC Curves. In Proceedings of the 23rd International Conference on Machine Learning . 233–240. [7] Ailin Deng and Bryan Hooi. 2021. Graph Neural Network-Based Anomaly Detection in Multivariate Time Series. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 35. 4027–4035. [8] Xiao Han, Saima Absar, Lu Zhang, and Shuhan Yuan. 2025. Root Cause Analysis of Anomalies in Multivariate Time Series through Granger Causal Discovery. In 
+
+The Thirteenth International Conference on Learning Representations .[9] Atif Hassan, Tarun Kumar, Ashish Mishra, Sergey Serebryakov, Satish Kumar Mopur, Phanidhar Koganti, Murthy Chelankuri, Ramanagopal Vogety, Suparna Bhattacharya, and Martin Foltin. 2025. Forecast2Anomaly (F2A): Adapting Multivariate Time Series Foundation Models for Anomaly Prediction. arXiv preprint arXiv:2511.03149 (2025). [10] Danlei Hu, Lu Chen, Hanxi Fang, Ziquan Fang, Tianyi Li, and Yunjun Gao. 2023. Spatio-temporal trajectory similarity measures: A comprehensive survey and quantitative study. IEEE Transactions on Knowledge and Data Engineering 36, 5 (2023), 2191–2212. [11] Shiyan Hu, Kai Zhao, Xiangfei Qiu, Yang Shu, Jilin Hu, Bin Yang, and Chenjuan Guo. 2024. MultiRC: Joint Learning for Time Series Anomaly Prediction and De-tection with Multi-scale Reconstructive Contrast. arXiv preprint arXiv:2410.15997 
+
+(2024). [12] Yifan Hu, Guibin Zhang, Peiyuan Liu, Disen Lan, Naiqi Li, Dawei Cheng, Tao Dai, Shu-Tao Xia, and Shirui Pan. 2025. TimeFilter: Patch-specific spatial-temporal graph filtration for time series forecasting. arXiv preprint arXiv:2501.13041 (2025). [13] Qihe Huang, Lei Shen, Ruixin Zhang, Shouhong Ding, Binwu Wang, Zhengyang Zhou, and Yang Wang. 2023. CrossGNN: Confronting Noisy Multivariate Time Series via Cross Interaction Refinement. In NeurIPS , Vol. 36. 46885–46902. [14] Kyle Hundman, Valentino Constantinou, Christopher Laporte, Ian Colwell, and Tom Soderstrom. 2018. Detecting Spacecraft Anomalies Using LSTMs and Non-parametric Dynamic Thresholding. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining . 387–395. [15] Vincent Jacob, Fei Song, Arnaud Stiegler, Bijan Rad, Yanlei Diao, and Nesime Tatbul. 2021. Exathlon: A Benchmark for Explainable Anomaly Detection over Time Series. Proceedings of the VLDB Endowment 14, 11 (2021), 2613–2626. [16] Sheo Yon Jhin, Jaehoon Lee, and Noseong Park. 2023. Precursor-of-Anomaly Detection for Irregular Time Series. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining .[17] HyunGi Kim, Jisoo Mok, Dongjun Lee, Jaihyun Lew, Sungjae Kim, and Sungroh Yoon. 2025. Causality-aware contrastive learning for robust multivariate time-series anomaly detection. arXiv preprint arXiv:2506.03964 (2025). [18] Tianyi Li, Lu Chen, Christian S Jensen, and Torben Bach Pedersen. 2021. TRACE: Real-time compression of streaming trajectories in road networks. Proceedings of the VLDB Endowment 14, 7 (2021), 1175–1187. [19] Tianyi Li, Lu Chen, Christian S Jensen, Torben Bach Pedersen, Yunjun Gao, and Jilin Hu. 2022. Evolutionary clustering of moving objects. In 2022 IEEE 38th International Conference on Data Engineering (ICDE) . IEEE, 2399–2411. [20] Tianyi Li, Ruikai Huang, Lu Chen, Christian S Jensen, and Torben Bach Pedersen. 2020. Compression of Uncertain Trajectories in Road Networks. Proc. VLDB Endow. 13, 7 (2020), 1050–1063. [21] Zhihan Li, Youjian Zhao, Jiaqi Han, Ya Su, Rui Jiao, Xidao Wen, and Dan Pei. 2021. Multivariate Time Series Anomaly Detection and Interpretation using Hierarchical Inter-Metric and Temporal Embedding. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining . 3220–3230. [22] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollár. 2017. Focal Loss for Dense Object Detection. In Proceedings of the IEEE International Conference on Computer Vision (ICCV) . 2999–3007. [23] Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. 2024. iTransformer: Inverted Transformers Are Effective for Time Series Forecasting. In International Conference on Learning Representations .[24] Zehao Liu, Mengzhou Gao, and Pengfei Jiao. 2025. GCAD: Anomaly Detec-tion in Multivariate Time Series from the Perspective of Granger Causality. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 19041–19049. [25] Chihiro Maru, Masato Oguchi, and Ichiro Kobayashi. 2025. Multivariate Time Series Anomaly Prediction Based on Forecasting and Reconstruction Using Trans-former with Temporal and Feature-Wise Attention. In Joint European Conference on Machine Learning and Knowledge Discovery in Databases . Springer, 89–105. [26] Shigeru Maya, Ken Ueno, and Takeichiro Nishikawa. 2019. dLSTM: A New Approach for Anomaly Detection Using Deep Learning with Delayed Prediction. 
+
+International Journal of Data Science and Analytics 8 (2019), 137–164. [27] Yuqi Nie, Nam H. Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. 2023. A Time Series is Worth 64 Words: Long-term Forecasting with Transformers. In 
+
+International Conference on Learning Representations .[28] Min-Yeong Park, Won-Jeong Lee, Seong Tae Kim, and Gyeong-Moon Park. 2025. When Will It Fail?: Anomaly to Prompt for Forecasting Future Anomalies in Time Series. In Proceedings of the 42nd International Conference on Machine Learning .[29] Haotian Si, Changhua Pei, Zhihan Li, Yadong Zhao, Jingjing Li, Haiming Zhang, Zulong Diao, Jianhui Li, Gaogang Xie, and Dan Pei. 2023. Beyond Sharing: Conflict-Aware Multivariate Time Series Anomaly Detection. In Proc. ACM ESEC/FSE . 1635–1645. [30] Karen Simonyan, Andrea Vedaldi, and Andrew Zisserman. 2014. Deep Inside Convolutional Networks: Visualising Image Classification Models and Saliency Maps. In Workshop at the International Conference on Learning Representations .[31] Ya Su, Youjian Zhao, Chenhao Niu, Rong Liu, Wei Sun, and Dan Pei. 2019. Robust anomaly detection for multivariate time series through stochastic recurrent neural network. In Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining . 2828–2837. [32] Nesime Tatbul, Tae Jun Lee, Stan Zdonik, Mejbah Alam, and Justin Gottschlich. 2018. Precision and Recall for Time Series. In Advances in Neural Information Processing Systems , Vol. 31. 1924–1934. [33] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention Is All You Need. In Advances in Neural Information Processing Systems , Vol. 30. [34] Sandra Wachter, Brent Mittelstadt, and Chris Russell. 2018. Counterfactual Explanations without Opening the Black Box: Automated Decisions and the GDPR. Harvard Journal of Law & Technology 31, 2 (2018), 841–887. [35] Zhendong Wang, Ioanna Miliou, Isak Samsten, and Panagiotis Papapetrou. 2023. Counterfactual Explanations for Time Series Forecasting. In 2023 IEEE Interna-tional Conference on Data Mining . IEEE, 1391–1396. [36] Xingjian Wu, Xiangfei Qiu, Zhengyu Li, Yihang Wang, Jilin Hu, Chenjuan Guo, Hui Xiong, and Bin Yang. 2025. Catch: Channel-aware multivariate time se-ries anomaly detection via frequency patching. In The thirteenth international conference on learning representations .[37] Haowen Xu, Wenxiao Chen, Nengwen Zhao, Zeyan Li, Jiahao Bu, Zhihan Li, Ying Liu, Youjian Zhao, Dan Pei, Yang Feng, Jie Chen, Zhaogang Wang, and Honglin Qiao. 2018. Unsupervised Anomaly Detection via Variational Auto-Encoder for Seasonal KPIs in Web Applications. In Proceedings of the 2018 World Wide Web Conference . 187–196. [38] Jiehui Xu, Haixu Wu, Jianmin Wang, and Mingsheng Long. 2022. Anomaly Transformer: Time Series Anomaly Detection with Association Discrepancy. In 
+
+International Conference on Learning Representations .[39] Yiyuan Yang, Chaoli Zhang, Tian Zhou, Qingsong Wen, and Liang Sun. 2023. Dcdetector: Dual attention contrastive representation learning for time series anomaly detection. In Proceedings of the 29th ACM SIGKDD conference on knowl-edge discovery and data mining . 3033–3045. [40] Yuanyuan Yao, Lu Chen, Ziquan Fang, Yunjun Gao, Christian S Jensen, and Tianyi Li. 2024. Camel: Efficient compression of floating-point time series. Proceedings of the ACM on Management of Data 2, 6 (2024), 1–26. [41] Yuanyuan Yao, Yuhan Shi, Lu Chen, Ziquan Fang, Yunjun Gao, Yushuai Li, Tianyi Li, et al. 2025. Moon: A modality conversion-based efficient multivariate time series anomaly detection. IEEE Transactions on Knowledge and Data Engineering 
+
+38, 1 (2025), 457–474. [42] Jiang You, Arben Cela, René Natowicz, Jacob Ouanounou, and Patrick Siarry. 2024. Anomaly prediction: A novel approach with explicit delay and horizon. In 
+
+2024 IEEE 20th International Conference on Intelligent Computer Communication and Processing (ICCP) . IEEE, 1–8. [43] Yunhao Zhang and Junchi Yan. 2023. Crossformer: Transformer Utilizing Cross-Dimension Dependency for Multivariate Time Series Forecasting. In International Conference on Learning Representations .[44] Hang Zhao, Yujing Wang, Juanyong Duan, Congrui Huang, Defu Cao, Yun-hai Tong, Bixiong Xu, Jing Bai, Jie Tong, and Qi Zhang. 2020. Multivariate Time-Series Anomaly Detection via Graph Attention Network. In 2020 IEEE International Conference on Data Mining (ICDM) . IEEE, 841–850. [45] Sinong Zhao, Wenrui Wang, Hongzuo Xu, Zhaoyang Yu, Qingsong Wen, Gang Wang, Guansong Pang, et al. 2024. Abnormality forecasting: Time series anomaly prediction via future context modeling. arXiv preprint arXiv:2410.12206 (2024). Yian Wei, Yuanyuan Yao, Lu Chen, Tianyi Li, and Xiangmin Zhou 
+
+Table 5: Dataset statistics used in the experiments. 
+
+Dataset Series Variables Train Points Test Points Anomaly Points Anomaly Ratio (%) Anomaly Events SMD 28 38 708405 708420 29444 4.16 327 WADI 1 123 1209601 172801 9985 5.78 15 MSL 1 55 58317 73729 7726 10.53 36 PSM 1 25 132481 87841 24381 27.76 72 EXATHLON 8 19 1232389 660442 84061 12.73 86 
+
+## A Dataset Statistics 
+
+We evaluate JAPE on five widely used multivariate time-series benchmarks: SMD, WADI, MSL, PSM, and EXATHLON. These datasets represent diverse real-world scenarios, including server monitoring, spacecraft telemetry, industrial control systems, and large-scale computing platforms, with varying numbers of variables, temporal scales, and anomaly characteristics. Table 5 summarizes their dataset statistics and anomaly distributions. For datasets con-taining multiple independent time series, the reported training and testing lengths are aggregated across all series, while anomaly events are counted separately within each individual series. We follow the finalized data-loading pipeline for each bench-mark and use the provided train–test partitions. Data-dependent preprocessing statistics are estimated from the training split only. Historical windows of length 𝐿 are used to predict point-wise anom-aly probabilities over the subsequent horizon 𝐻 . Validation data are used for model selection, early stopping, and threshold selection, while the test split is reserved for final evaluation. 
+
+## B Baseline Details 
+
+We compare JAPE against three classes of baselines. 
+
+• Unsupervised baselines. FCM [45] leverages the forecasted future context to amplify weak anomaly precursors in the observation window. RED-F [4] further contrasts the forecasts derived from the original sequence and a reconstructed normal-pattern base-line to highlight subtle anomaly precursors. 
+
+• Self-supervised baseline. A2P [28] injects multi-form pseudo-anomalies through a learnable prompt pool to learn anomaly-related patterns in a self-supervised manner. We retain the origi-nal A2P in the training-efficiency comparison. 
+
+• Supervised baselines. We construct forecasting–detection pipelines by augmenting PatchTST [27] and iTransformer [23] with AT [38] or CAD [29] as detection heads. For a directly comparable super-vised anomaly-prediction setting, we adapt A2P as A2P-Sup by training it with real anomaly labels rather than injected pseudo-anomalies. All supervised methods share identical labels and evaluation protocols. 
+
+## C Implementation Details 
+
+The forecasting backbone DSTR is trained with an input length of 𝐿 = 200 and evaluated under three prediction horizons, 𝐻 =
+
+𝐿 out ∈ { 50 , 100 , 200 }. The input sequence is divided into patches of length 𝐿 𝑝 = 16 with stride 𝑆 𝑝 = 8. DSTR consists of three encoder layers with a hidden dimension of 128, eight attention heads, an FFN dimension of 256, and a dropout rate of 0.1. For each target variable, we retain the top 𝐾 𝑔 = 5 predecessor variables, with a maximum lag range of 𝐾 max = 3 for all datasets except WADI, where 𝐾 max = 5. The residual graph coefficient 𝜆 is jointly optimized with the forecasting backbone. RevIN with affine transformation is applied before forecasting. The backbone is optimized using Adam with a batch size of 128, a learning rate of 10 −4, and a maximum of 20 epochs with early stopping (patience 5). For structural feature construction, each historical or future graph segment is divided into an earlier portion and a later portion, where the later portion contains the final 𝜏 = 0.3 fraction of graph slices. Segment-level changes are computed from the earlier portion to the later portion. The alerting head contains three layers with a hidden dimension of 64 and four attention heads. It is optimized using focal loss with 
+
+𝛼 = 0.25 and 𝛾 = 2, using the same batch size and learning rate as the backbone, together with a weight decay of 10 −4. Training is performed for at most 20 epochs with early stopping (patience 5). For the proposed NPE module, we set 𝛽 = 0.7, 𝐾 path = 2, 𝜔 = 1.0, 
+
+𝛼 gds = 0.8, and 𝑅 = 1. The normal reference graph and the variable-wise statistics used to standardize the direct and multi-hop deviation scores are estimated from normal reference windows. Variable-level explanations use only the predicted graph slices associated with the alerted segment. Complete dataset-specific configurations and reproduction scripts are provided in the anonymized repository. 
+
+## D Training and Inference Procedure 
+
+Algorithm 1 summarizes the two-stage training and inference pro-cedure of JAPE . Given forecast-training windows D, labeled win-dows Dℓ, normal reference windows D𝑛 , an inference window 
+
+X∗, and an alert threshold 𝜂 , JAPE outputs point-wise anomaly probabilities p and variable-level explanation scores s.The training procedure consists of two stages. In Stage 1, JAPE 
+
+trains the forecasting-oriented backbone to learn numerical evolu-tion and dynamic dependency structures. For each forecast-training pair (X, X+), DSTR extracts historical representations and depen-dency graphs, while the forecasting head and future-oriented branch generate numerical forecasts and future dependency graphs (lines 1– 5). The historical and future graphs are combined to characterize dependency evolution across the observation and prediction hori-zons. The backbone and future-oriented branch are optimized with forecasting objectives, and the forecasting and graph-construction modules are then frozen (lines 6–7). In Stage 2, the frozen backbone produces forecasts and graph sequences for labeled windows, and the alerting head jointly integrates numerical and structural infor-mation to estimate anomaly probabilities (lines 8–10). The alerting head is optimized with focal loss, while normal graph statistics and variable-wise normalization factors are extracted from D𝑛 for subsequent explanation (lines 11–12). JAPE: Joint Anomaly Prediction and Intrinsic Explanation in Multivariate Time Series 
+
+Algorithm 1: Two-stage training and inference of JAPE .
+
+Input: Forecast-training windows D = {( X, X+)} ; labeled windows Dℓ = {( X, y)} ; normal reference windows 
+
+D𝑛 ; inference window X∗; alert threshold 𝜂 
+
+Output: Point-wise anomaly probabilities p; variable-level explanation scores s
+
+⊲ Stage 1: forecast-oriented backbone training  
+
+> 1
+
+foreach (X, X+) ∈ D do  
+
+> 2
+
+(Z, Ahist , Araw hist ) ← SpatialTemporalAxes (X); 
+
+> 3
+
+bX ← ForecastHead (Z); 
+
+> 4
+
+(bXfut , bAfut , bAraw fut ) ← FutureOrientedBranch (sg (Z)) ; 
+
+> 5
+
+A ← [ Ahist ; bAfut ], Araw ← [ Araw hist ; bAraw fut ]; 
+
+> 6
+
+Update the historical backbone and forecasting head using LMSE (bX, X+), and the future-oriented branch using Lfut MSE (bXfut , X+); 
+
+> 7
+
+Freeze the forecasting and graph-construction modules; 
+
+⊲ Stage 2: supervised alert-head training  
+
+> 8
+
+foreach (X, y) ∈ D ℓ do  
+
+> 9
+
+(bX, A, Araw ) ← FrozenBackbone (X); 
+
+> 10
+
+p ← AlertHead (bX, A, Araw ); 
+
+> 11
+
+Update the alerting head using Lfocal (p, y); 
+
+> 12
+
+Estimate Anormal and the variable-wise normalization statistics S𝑛 from D𝑛 using the frozen backbone; 
+
+⊲ Inference  
+
+> 13
+
+(bX∗, A∗, Araw  
+
+> ∗
+
+) ← FrozenBackbone (X∗); 
+
+> 14
+
+p ← AlertHead (bX∗, A∗, Araw  
+
+> ∗
+
+); 
+
+> 15
+
+s ← ∅ ; 
+
+> 16
+
+if max ℎ 𝑝 ℎ ≥ 𝜂 then  
+
+> 17
+
+Aanom ← AggregateAlertedGraphs (A∗, p, 𝜂 ); 
+
+> 18
+
+s ← GDS (Aanom , Anormal , S𝑛 ); 
+
+> 19
+
+return p, s;During inference, JAPE first feeds the input window X∗ into the frozen backbone to obtain the future forecasts and dependency graph sequences, which are then passed to the alerting head to compute point-wise anomaly probabilities (lines 13–14). If the max-imum anomaly probability is below the threshold 𝜂 , the explanation score s remains empty. Otherwise, JAPE aggregates the graph slices corresponding to the detected anomaly horizon into Aanom and applies GDS with the normal reference graph Anormal and normal-ization statistics S𝑛 to compute variable-level explanation scores (lines 15–18). Finally, JAPE returns the anomaly probabilities p and explanation scores s (line 19). 
+
+## E Sensitivity Analysis 
+
+Tables 6 and 7 report the sensitivity results of DSTR and NPE, respectively. For DSTR, 𝐾 max shows a clear impact on performance. Increasing 
+
+𝐾 max from 1 to 3 consistently improves the results on SMD and MSL, with F1 increasing from 50.90 to 52.50 and from 55.50 to 61.20, re-spectively. This indicates that incorporating multiple lag steps helps capture delayed dependency evolution that cannot be identified from immediate interactions alone. However, further increasing 
+
+𝐾 max to 5 causes a significant performance drop, especially on MSL, where F1 decreases from 61.20 to 35.50. This is because overly long lag ranges may introduce weak or spurious dependencies, making the learned dependency graph less discriminative. The optimal 𝐾 𝑔 
+
+varies across datasets, reflecting different dependency densities among variables. For example, a larger neighborhood benefits SMD, while smaller neighborhoods perform better on MSL and PSM. This suggests that excessive aggregation of source variables may intro-duce redundant information and dilute informative dependency signals. The default setting ( 𝐾 𝑔 = 5) provides a balanced trade-off between dependency coverage and noise. 
+
+Table 6: Sensitivity analysis of DSTR.                                
+
+> Param. Value SMD MSL PSM
+> 𝐾 max
+> 150 .90 55 .50 82.50
+> 251 .60 58 .40 79 .80 3∗52.50 61.20 79 .00 546 .50 35 .50 78 .40
+> 𝐾 𝑔
+> 147 .25 65.34 79.21
+> 347 .35 51 .48 76 .51 5∗52 .50 61 .20 79 .00 10 54.01 47 .39 74 .46 15 53 .89 46 .02 77 .44
+
+Table 7: Sensitivity analysis of NPE.                                                  
+
+> Param. Value HR@1 HR@3 HR@5 MRR
+> 𝐾 path
+> 132 .11 51.38 58 .10 45 .28 2∗33.03 51 .07 63.00 46.50
+> 333.03 50 .76 61 .77 46 .44 532 .72 51 .07 61 .77 46 .34
+> 𝜔
+> 0.00 33.03 51 .07 63 .00 47 .02 0.25 33.03 51 .07 59 .67 46 .51 0.50 33.03 51 .07 59 .67 46 .58 0.75 33.03 51 .07 61 .34 46 .38 1.00 ∗33.03 51 .07 63 .00 46 .50 1.50 33.03 52.74 64.67 47.13
+> 2.00 33.03 51 .07 64.67 46 .98
+
+For NPE, the explanation performance remains relatively sta-ble under different parameter settings. Increasing 𝐾 path from 1 to 2 improves HR@5 and MRR (from 58.10 to 63.00 and from 45.28 to 46.50), while further increasing it brings negligible gains. This suggests that two-hop dependency paths are sufficient to capture the major propagation patterns contributing to anomalies, whereas deeper paths may introduce indirect and less reliable relationships. The weighting factor 𝜔 has limited influence on the results, with most settings achieving comparable performance. Nevertheless, 
+
+𝜔 = 1.5 achieves the highest HR@3, HR@5, and MRR, indicating that moderately emphasizing structural dependency information can better prioritize anomaly-related variables. Overall, these re-sults demonstrate that NPE effectively exploits local dependency structures while maintaining robustness to parameter variations.

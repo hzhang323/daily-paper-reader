@@ -1,0 +1,644 @@
+Title: Agentic Anomaly Detection with ORCA-Style Dynamic Inductive Bias Adaptation in Multimodal Wearable Time Series Data
+
+URL Source: https://arxiv.org/pdf/2608.08859v1
+
+Published Time: Tue, 11 Aug 2026 01:32:39 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Agentic Anomaly Detection with ORCA-Style Dynamic In-ductive Bias Adaptation in Multimodal Wearable Time Series Data 
+
+Anushka Roy f20220541@hyderabad.bits-pilani.ac.in Department of Electrical and Electronics Engineering BITS Pilani, Hyderabad Campus 
+
+Jyotirmoy Singh f20212513@hyderabad.bits-pilani.ac.in Department of Computer Science & Information Systems BITS Pilani, Hyderabad Campus 
+
+Shreea Bose p20240026@hyderabad.bits-pilani.ac.in Department of Computer Science & Information Systems BITS Pilani, Hyderabad Campus 
+
+Chittaranjan Hota hota@hyderabad.bits-pilani.ac.in Department of Computer Science & Information Systems BITS Pilani, Hyderabad Campus 
+
+# Abstract 
+
+Wireless Body Area Networks (WBANs) generate multivariate physiological time series that are highly nonstationary and must often be processed under strict computational and memory constraints. A critical yet underexplored challenge in this setting is selecting an appropriate temporal receptive field, which serves as a strong inductive bias for anomaly detection models. Existing approaches typically rely on fixed temporal contexts, which can perform inconsistently across heterogeneous signal regimes and require dataset-specific tuning. We propose ORCA, an agentically controlled anomaly detection framework that dynamically adapts the temporal receptive field at inference time based on lightweight signal statistics. Rather than introducing additional trainable parameters or learned policies, ORCA employs a supervisory controller that autonomously selects among discrete temporal contexts, enabling state-dependent inductive bias adaptation without retraining. Across a custom WBAN dataset, ORCA achieves performance comparable to the strongest fixed-context baselines (AUROC = 0.99) while eliminating the need to tune temporal horizons in advance. We further evaluate ORCA on MIMIC-IV as a challenging out-of-distribution benchmark, observing conservative generalization behavior without performance collapse under heterogeneous clinical conditions. These results highlight adaptive temporal inductive bias control as a practical and robust design principle for anomaly detection in resource-constrained, nonstationary physiological time series. 
+
+# 1 Introduction 
+
+Wireless Body Area Networks (WBANs) consist of multimodal wearable sensors that continuously monitor physiological and behavioral signals such as heart rate, motion, oxygen saturation, and temperature. With the rise of remote patient monitoring, these systems are widely used for early warning, long-term health monitoring, and clinical decision support, where timely and reliable anomaly detection is critical. However, physiological signals observed in WBANs are highly nonstationary and strongly context-dependent, showcasing rapid transitions across conditions such as rest, activity, sleep, and pathological events. Anomalies in this setting 1arXiv:2608.08859v1 [cs.LG] 9 Aug 2026 are rarely defined by isolated signal deviations alone; instead, they often demonstrate as contextual anomalies, where observations become abnormal only when interpreted relative to their surrounding temporal and cross-sensor context. Detecting such anomalies, therefore, requires models that can reason over spatiotemporal relationships across multiple physiological streams, while operating under the strict computational, memory, and energy constraints imposed by wearable and edge devices. A central yet often overlooked design choice in time-series anomaly detection is the temporal receptive field, the amount of historical context used to assess whether a given observation is anomalous. Fixed-context models, including sliding-window recurrent networks and convolutional architectures, impose a static inductive bias that is poorly aligned with physiological data. Short temporal contexts may capture abrupt spikes but fail to detect slowly evolving abnormalities, while longer contexts dilute transient but clinically relevant deviations. As a result, a single fixed receptive field is rarely optimal across heterogeneous physiological regimes. Recent attention-based architectures partially alleviate this issue by learning adaptive weighting over time; however, they typically retain a fixed attention span and incur substantial computational overhead. Transformer-based approaches, in particular, are often unsuitable for WBAN deployment due to quadratic attention costs, high memory usage, and sensitivity to sequence length. Lightweight alternatives exist, but they continue to rely on a predetermined temporal horizon, implicitly assuming stationarity in temporal dependencies. 
+
+Figure 1: Agentic ORCA Architecture for Edge WBANs In this work, we state that temporal context selection itself should be flexible and that heavy sequence models are not necessary to achieve this adaptation. We propose ORCA (Optimised Recurrent Convolutional 2Attention), a lightweight anomaly detection framework that introduces agentic control over temporal receptive fields. Rather than learning a single fixed inductive bias, ORCA employs a supervisory agent that dynamically selects the effective attention span for each input window based on computationally efficient statistical evaluations of the observed signals. This mechanism enables the model to adjust its temporal focus in response to changing physiological dynamics while preserving strict computational efficiency. ORCA combines a minimal gated recurrent backbone with a constant-normalization attention mechanism that supports relative positional bias truncation. The supervisory agent operates outside the gradient-based training loop and introduces no additional trainable parameters, ensuring stable optimization and predictable inference cost. To support interpretability and short-horizon trend estimation, we further integrate a Temporal Fusion Transformer (TFT) as a post-hoc analysis module, decoupled from the core detection pipeline. We evaluate ORCA on a custom WBAN dataset and a large-scale clinical benchmark derived from MIMIC-IV. Rather than proposing a new high-capacity architecture, this work focuses on adaptive control of a single, yet critical, inductive bias: the temporal receptive field. These findings suggest that adaptive temporal control is a practical, underexplored dimension for improving physiological anomaly detection in resource-constrained settings. Our main contributions are: • We identify temporal receptive field selection as a critical inductive bias in WBAN anomaly detection and demonstrate its limitations under fixed-context modeling. • We introduce ORCA, a lightweight framework that enables agentic, window-level adaptation of temporal receptive fields using inexpensive statistical probes. • We empirically validate the effectiveness and robustness of agentic temporal adaptation on both custom WBAN data and large-scale clinical time series. • We provide post-hoc interpretability and short-horizon forecasting via a decoupled TFT module, without compromising edge-deployability. 
+
+# 2 Related Works 
+
+Anomaly Detection in Wireless Body Area Networks. The majority of initial studies on anomaly and abnormality detection in WBANs focused on traditional machine learning and signal-processing pipelines designed for network integrity and physiological monitoring. Kadirov et al. (2024) studied abnormality detection in wireless medical sensor networks using supervised learning models, highlighting security and privacy risks in long-term health monitoring. Siddiqui et al. (2024) proposed ADSBAN, a network-traffic-based anomaly detection framework for WBANs that evaluates multiple classical classifiers, including logistic regression and ensemble methods, achieving high accuracy on both emulated and benchmark datasets. Earlier system-level efforts include ECG-focused WBAN architectures for cardiac anomaly prediction Hadjem et al. (2014), which relied on feature extraction and probabilistic classifiers under resource constraints. More recent studies have emphasized correlation-aware detection, such as ConvLSTM-based models that jointly capture spatial and temporal dependencies across physiological signals Albattah & Rassam (2022), as well as explainability and trust in IoHT anomaly detection pipelines Arif et al. (2023). 
+
+Deep Learning Methods and Edge AI for Healthcare Monitoring. With the increasing scale and heterogeneity of wearable data, recent research has shifted toward deep learning and edge-aware architectures to enable low-latency and context-aware anomaly detection. A survey by Adamu et al. (2025) systematically reviews advanced machine learning and deep learning techniques for WBANs, identifying challenges related to scalability, energy efficiency, and real-time inference. General IoT-focused studies further highlight the growing role of deep neural networks in handling complex sensor data Javed et al. (2023). Architecturally, convolutional and transformer-based hybrids have emerged as effective models for capturing both local and long-range temporal patterns, as demonstrated by convolutional transformer networks for WBAN anomaly detection Bagadia et al. (2025). Complementary work explores hybrid edge–cloud deployments, where lightweight CNNs operate at the edge for real-time anomaly detection while more expressive models, such as 3Temporal Fusion Transformers, perform longer-horizon forecasting in the cloud Warrier & S. (2025). Related efforts also investigate deep learning for anomaly detection using channel state information and edge-centric communication features Aljumaily & Abdullah (2025). 
+
+Temporal Modeling Foundations and Efficient Sequence Architectures. Transformer-based models Vaswani et al. (2017) introduced fully attention-driven representations, enabling strong long-range dependency modeling but incurring quadratic complexity that limits deployment in resource-constrained and edge settings. Subsequent works explored architectural refinements, including relative position encodings Shaw et al. (2018) and temporal convolutional networks (TCNs) Lea et al. (2016); He & Zhao (2019), which offer improved parallelism and bounded receptive fields but rely on fixed temporal inductive biases. Hybrid architectures combining CNNs, RNNs, and Transformers have been surveyed extensively for human activity recognition and time-series understanding Alomar et al. (2024), while Temporal Fusion Transformers (TFTs) Lim et al. (2021) emphasize interpretability through gated variable selection and multi-horizon attention. More recently, renewed interest in recurrent alternatives has questioned the necessity of full self-attention for temporal reasoning Feng et al. (2024), and hardware-aware optimizations such as ConSmax Liu et al. (2024) highlight the growing importance of efficiency-aware design. However, these approaches largely assume static architectural choices or globally fixed receptive fields. In contrast, our ORCA framework introduces agentic, data-driven adaptation of temporal inductive bias, dynamically adjusting the effective context length in response to non-stationarity, thereby bridging expressivity and efficiency for multimodal, edge-deployed anomaly detection. 
+
+Agentic Adaptation and Autonomous Control. Recent research on agentic AI has focused on extending large language models with reasoning, acting, and interaction capabilities, enabling autonomous planning, tool use, and multi-agent coordinationPlaat et al. (2025); Malfa et al. (2025). In parallel, agentic principles have been explored in edge and wireless systems to support autonomous orchestration, resource-aware control, and constrained intelligence in real-time environments Jayarekha (2025); Dev et al. (2025). Within WBANs, cross-tier machine learning frameworks emphasize distributed anomaly detection and security but rely on static model assumptions and fixed temporal contexts Islam & Shamshuzzoha (2025). Moreover, recent work on efficient learning mechanisms highlights the importance of parameter- and memory-aware adaptation for deployment under strict resource constraints Huang et al. (2025). Despite these advances, existing approaches largely treat agency as an external planning or orchestration layer. In contrast, ORCA internalizes agentic decision-making within the temporal modeling process itself, dynamically adapting the effective receptive field in response to non-stationary multimodal signals, thereby enabling autonomous selection of inductive bias without architectural retraining. By coupling anomaly detection with dynamic inductive bias selection, ORCA bridges expressivity and efficiency under non-stationary conditions. Our results demonstrate that agentic adaptation is a practical and effective mechanism for next-generation WBAN anomaly detection. 
+
+# 3 Problem Formulation 
+
+We address the task of contextual anomaly detection within WBANs. This formulation requires modeling the irregular dynamics of physiological regimes, rather than point-anomaly detection. The proposed architecture, Figure 1 divides physiological anomaly detection into three coordinated levels that are best suited for wearable technology. An edge processing layer receives raw multivariate signals from on-body sensors and divides them into brief sliding windows. To adapt to shifting physiological regimes without incurring significant processing costs, lightweight statistical probes summarize local signal behavior and feed an agentic controller that dynamically selects the effective temporal receptive field. The ORCA detection module enables effective context-aware anomaly detection on the edge device by combining a minimal gated recurrent unit backbone with constant-normalization attention and relative positional bias. Without sacrificing on-body efficiency, a decoupled interpretability layer that runs outside of the core detection loop and provides post-hoc explanations and short-horizon trend analysis is created utilizing a Temporal Fusion Transformer and feature attribution models. 43.1 WBAN Time-Series Setting 
+
+Let 
+
+X = {xt}Tt=1 , xt ∈ RF ,
+
+denote a multivariate physiological time series of length T with F sensor channels (e.g., heart rate, motion, SpO 2, temperature). At each time step t, the model observes a sliding window 
+
+wt = {xt−L+1 , . . . , xt} ∈ RL×F ,
+
+where L is a fixed window length determined by memory and latency constraints at the edge. The objective is to predict a binary label 
+
+yt ∈ { 0, 1},
+
+indicating whether the current observation is anomalous. 
+
+3.2 Contextual Anomalies and Spatiotemporal Dependence 
+
+In WBANs, real health anomalies are rarely characterized by isolated point-wise deviations. Instead, they are often contextual , meaning that an observation may appear normal in isolation but becomes anomalous when interpreted relative to its surrounding temporal history and cross-sensor relationships. For example, an elevated heart rate may be expected during motion but anomalous during rest. Formally, anomaly detection requires learning a function 
+
+f : RL×F → [0 , 1] ,
+
+that captures spatiotemporal dependencies across both time and sensor modalities. 
+
+3.3 Temporal Receptive Field as an Inductive Bias 
+
+A central modeling choice in time-series anomaly detection is the temporal receptive field , denoted by k, which specifies the effective amount of historical context used to model temporal dependencies within a window. Small receptive fields emphasize local, abrupt deviations, while larger receptive fields capture longer-term temporal structure. However, physiological signals in WBANs are inherently nonstationary, and no single receptive field is optimal across all physiological regimes. Fixed-context models, therefore, impose a static inductive bias that may be mismatched to the underlying signal dynamics. 
+
+3.4 Problem Statement 
+
+Given a stream of WBAN sensor data X, our objective is to design an anomaly detection model that: (i) accurately detects contextual anomalies, (ii) operates under edge-deployable computational constraints, and (iii) adapts its effective temporal receptive field in response to changing signal characteristics. Formally, we seek a model that predicts ˆyt = f (wt; kt),
+
+where the receptive field kt is dynamically selected at each time step rather than fixed a priori. This formulation motivates the ORCA framework, which introduces agentic control over temporal receptive fields to enable adaptive, resource-efficient anomaly detection in nonstationary WBAN environments. 
+
+# 4 Proposed Architecture: ORCA 
+
+We propose ORCA (Optimised Recurrent Convolutional Attention) , a lightweight anomaly detection framework designed for nonstationary physiological time series in WBANs. ORCA introduces agentic control over temporal receptive fields , enabling adaptive selection of inductive biases under strict computational and memory constraints. 5At a high level, ORCA consists of three components: (i) a minimal recurrent backbone for temporal feature extraction, (ii) a constant-normalization attention mechanism with adaptive receptive field, and (iii) a lightweight supervisory agent that dynamically selects the effective temporal context. An optional post-hoc module based on a Temporal Fusion Transformer (TFT) is used for interpretability and short-horizon forecasting and is decoupled from the real-time detection pipeline. 
+
+Algorithm 1 ORCA: Agentic Contextual Anomaly Detection 
+
+Require: Multivariate sensor stream {xt}Tt=1 , window length L
+
+Ensure: Contextual anomaly score ˆ yt 
+
+> 1:
+
+Initialize hidden state h0 ← 0 
+
+> 2:
+
+for each time step t do  
+
+> 3:
+
+Form sliding window wt = {xt−L+1 , . . . , xt} 
+
+> 4:
+
+Compute lightweight statistics ϕt = ψ(wt) 
+
+> 5:
+
+Select receptive field kt = π(ϕt) 
+
+> 6:
+
+Update recurrent state ht = MinGRU( xt, ht−1) 
+
+> 7:
+
+Compute attention with truncated bias At = ConSmax( ht; kt) 
+
+> 8:
+
+Predict anomaly score ˆ yt = σ(WA t + b) 
+
+> 9:
+
+end for  
+
+> 10:
+
+return {ˆyt}
+
+4.1 Algorithm ORCA 
+
+ORCA processes multivariate physiological data using a sliding window representation. Algorithm 2 shows that for each window, lightweight statistical probes extract local signal characteristics, which are used by an agentic controller to dynamically select the effective temporal receptive field. This adaptive context length controls a constant-normalization attention mechanism with relative positional bias, enabling efficient focus on relevant temporal neighborhoods without full-sequence attention. Temporal dependencies are encoded using a minimal gated recurrent unit that preserves long-term information under strict computational constraints. The resulting context-aware representation is mapped to a binary contextual anomaly score, allowing ORCA to detect anomalies while adapting its inductive bias to nonstationary physiological regimes in a resource-efficient manner. 
+
+4.2 Lightweight Supervisory Agent 
+
+The supervisory agent is responsible for dynamically selecting the temporal receptive field used by the attention mechanism. Rather than learning this selection through gradient-based training, the agent operates on inexpensive summary statistics computed from the current input window. Specifically, the agent extracts a low-dimensional feature vector that captures signal volatility and temporal structure, such as variance and autocorrelation across sensor channels. Based on these statistics, the agent selects a receptive field k from a small discrete set of permissible values. This design is motivated by the observation that physiological signals exhibit local stationarity : during stable regimes, longer temporal dependencies are informative, while abrupt regime shifts benefit from shorter temporal contexts. By adapting k online, ORCA avoids committing to a single fixed inductive bias while preserving computational efficiency. 
+
+4.3 MinGRU with Constant-Normalization Attention 
+
+MinGRU with Constant-Normalization Attention. Given a sliding window wt = {xt−L+1 , . . . , xt}
+
+with xτ ∈ RF , ORCA employs a minimal gated recurrent unit (MinGRU) to compute latent temporal representations. The recurrent state update is defined as 
+
+hτ = (1 − zτ ) ⊙ hτ −1 + zτ ⊙ ˜hτ , (1) 6where the update gate and candidate activation are given by 
+
+zτ = σ(Wz xτ ), (2) ˜hτ = Whxτ . (3) This formulation eliminates the reset gate and recurrent affine transformations in the candidate computation, reducing computational overhead while preserving gated temporal memory. Let H = [ ht−L+1 , . . . , ht]⊤ ∈ RL×d denote the stacked hidden states. Temporal interactions are modeled using an attention mechanism with raw attention scores 
+
+S = QK ⊤
+
+√d , (4) where Q = HW Q, K = HW K , and V = HW V .Instead of softmax normalization, ORCA applies a constant-normalization operator defined element-wise as ConSmax( Sij ) = exp( Sij − β)
+
+γ , (5) where β ∈ R and γ ∈ R+ are learnable scalar parameters. This removes sequence-level normalization dependencies and enables fully parallelizable attention computation. To control temporal context, a relative positional bias matrix B(k) ∈ RL×L is added to the attention scores, where the effective support of B(k) is truncated to a receptive field k selected by the supervisory agent. The resulting attention output is 
+
+A = ConSmax 
+
+(
+
+S + B(k))
+
+V. (6) This formulation restricts temporal interactions to a dynamically selected neighborhood without recomputing attention weights over the full window. 
+
+# 5 Experimental Setup 
+
+We evaluate ORCA on both a custom WBAN dataset and the MIMIC-IV dataset Johnson et al. (2023; 2024) as a clinical benchmark to assess its effectiveness under heterogeneous physiological conditions and deployment constraints. All results in this paper are obtained using the ORCA detection module alone; interpretability and forecasting components are evaluated separately and reported in the Supplementary Material. 
+
+5.1 Datasets 
+
+Custom WBAN Dataset. We construct a multivariate WBAN dataset collected from wearable sensors capturing physiological and motion-related signals. The dataset contains synchronized streams including heart rate, pulse rate, SpO 2, temperature, and inertial measurements. Contextual anomaly labels are assigned at the window level to reflect deviations that are abnormal relative to surrounding temporal and cross-sensor context. 
+
+Clinical Benchmark (MIMIC-IV). To evaluate generalization beyond wearable data, we derive a large-scale clinical time-series benchmark from MIMIC-IV. We follow standard preprocessing pipelines to extract continuous physiological signals and generate sliding windows consistent with the WBAN setting. ORCA is retrained on this dataset to ensure a fair comparison across domains. 
+
+5.2 Preprocessing and Windowing 
+
+All signals are resampled and synchronized prior to analysis. Each model processes fixed-length sliding windows of length L = 15 with a stride of one time step. Input features are standardized using statistics computed from the training split only. An anomaly label is assigned to the final time step of each window. 7Table 1: Comparison of fixed and adaptive receptive field selection for ORCA on MIMIC-IV and custom WBAN datasets.               
+
+> Dataset AUROC AUPRC MIMIC (Fixed k=3 )0.9974 0.9818 MIMIC (Adaptive k)0.9977 0.9824
+> WBAN (Fixed k=3 )0.9994 0.9932
+> WBAN (Adaptive k)0.9993 0.9928
+
+5.3 Baselines 
+
+We compare ORCA against fixed-context baselines that use identical model architectures but operate with a static temporal receptive field k ∈ { 1, 3, 5}. This allows us to isolate the impact of agentic receptive field adaptation from architectural capacity. Additional comparisons include lightweight recurrent models without attention and attention-based models with fixed temporal horizons. 
+
+5.4 Training Protocol 
+
+All models are trained using binary cross-entropy loss with the Adam optimizer. Training is performed with early stopping based on validation loss to prevent overfitting. For ORCA, the supervisory agent operates exclusively at inference time and introduces no additional trainable parameters. Hyperparameters such as learning rate, hidden dimensionality, and batch size are selected using the validation set and are kept consistent across models where applicable. Full hyperparameter details are provided in the Supplementary Material. 
+
+5.5 Evaluation Metrics 
+
+We evaluate anomaly detection performance using the Area Under the Receiver Operating Characteristic curve (AUROC) and the Area Under the Precision–Recall Curve (AUPRC). These metrics are computed at the window level and averaged across test sequences. Computational efficiency is assessed by measuring inference latency and parameter count. 
+
+5.6 Implementation Details 
+
+All experiments are implemented in PyTorch. Unless otherwise specified, models are evaluated in CPU-only environments to reflect realistic edge-deployment conditions. Detailed implementation achieves low inference latency while maintaining settings and threshold selection, are deferred to the Supplementary Material to ensure reproducibility. 
+
+# 6 Results 
+
+We evaluate ORCA across both WBAN and clinical settings to assess detection accuracy, robustness to nonstationarity, and the impact of agentic receptive field adaptation. Unless otherwise stated, all results are reported on held-out test sets. 
+
+6.1 Anomaly Detection Performance 
+
+Table 1 reports the anomaly detection performance of ORCA compared to fixed-context baselines. On the custom WBAN dataset, both adaptive and fixed-context models achieve near-saturated performance, with AUROC values close to 1.0, indicating high separability of contextual anomalies. The adaptive variant matches the strongest fixed-context configuration without requiring manual selection of the temporal horizon. 8Figure 2: Event-aligned evolution of the selected receptive field kt.On the MIMIC-IV benchmark, ORCA maintains strong detection performance after retraining, achieving AUROC and AUPRC of 0.998 and 0.98, respectively, and slightly outperforming the best fixed-context baseline. Across both datasets, adaptive receptive field selection consistently preserves detection accuracy while eliminating the need for dataset-specific tuning of temporal context, supporting its robustness under heterogeneous physiological regimes. 
+
+6.2 Effect of Agentic Receptive Field Adaptation 
+
+To isolate the contribution of the supervisory agent, we compare ORCA against identical architectures operating with fixed temporal receptive fields k ∈ { 1, 3, 5}. Results indicate that no single fixed receptive field dominates across datasets or regimes. Smaller values of k perform well under abrupt signal changes, while larger values benefit slowly evolving patterns. Agentic adaptation allows ORCA to dynamically select the appropriate temporal context at inference time, achieving performance comparable to the best fixed-k baseline without requiring prior knowledge of the underlying regime. This confirms that adaptive temporal control serves as an effective inductive bias for nonstationary physiological data. Figure 2 illustrates the behavior of ORCA’s agentic controller by aligning the selected receptive field kt around detected anomaly events. As the onset of the anomaly is approached, the controller systematically increases the temporal receptive field, enabling the model to integrate longer-range historical context. Following the event, the receptive field contracts, reflecting a return to locally stationary dynamics. This behavior is consistent with ORCA’s design objective: dynamically adjusting the temporal inductive bias in response to changing physiological regimes. Importantly, the adaptation emerges from lightweight statistical probes rather than gradient-based optimization, demonstrating that effective temporal control can be achieved under strict computational constraints. Figure 3 shows that the supervisory agent dynamically alternates between short, medium, and longer temporal receptive fields. This non-degenerate distribution confirms that ORCA does not collapse to a single fixed context and instead adapts its temporal inductive bias in response to local signal dynamics. 91 3 5
+
+Selected Receptive Field k
+
+> 05000 10000 15000 20000 25000 30000
+> Frequency
+
+## Agentic Receptive Field Selection Figure 3: Distribution of temporal receptive field selections made by the supervisory agent across test windows. 
+
+6.3 Ablation Study 
+
+Table 2 reports an ablation study evaluating the contribution of the agentic receptive field controller in ORCA. On both the MIMIC-IV clinical dataset and the custom WBAN dataset, all variants achieve strong performance, reflecting the high separability of contextual anomalies in these settings. While a fixed-context baseline ( k=3) marginally matches or slightly exceeds the full ORCA model on aggregate metrics in the custom WBAN dataset, this advantage arises under a manually tuned and dataset-specific temporal horizon. In contrast, ORCA achieves comparable performance without prior knowledge of the optimal context length, adapting its receptive field online across heterogeneous physiological regimes. Importantly, replacing the agent with a random policy or restricting it to a single statistical cue (volatility or correlation alone) fails to produce systematic gains, indicating that ORCA’s behavior is not driven by any isolated heuristic. Instead, the agent learns a stable, interpretable control policy that maintains robustness to nonstationarity, distributional shifts, and changing temporal dynamics—conditions under which a fixed k is brittle and unlikely to generalize. Thus, even in regimes where detection metrics are near saturation, agentic temporal control provides a principled advantage in adaptability, deployment realism, and cross-dataset consistency. 
+
+6.4 Efficiency and Edge Suitability 
+
+ORCA is explicitly designed for edge deployment under strict memory and latency constraints. By replacing quadratic softmax normalization with constant-normalization attention and dynamically restricting the receptive field, ORCA achieves substantially lower memory usage and predictable runtime behavior. As shown in Figure 4 ORCA reduces parameter count by over 6 × compared to a full Transformer, while maintaining linear attention complexity and suitability for on-device inference. 10 Table 2: Ablation study of ORCA on MIMIC-IV and Custom WBAN datasets 
+
+Variant MIMIC-IV WBAN (Custom) 
+
+AUROC AUPRC AUROC AUPRC Full ORCA 0.9983 0.9845 0.9993 0.9929 No Agent (Fixed k=3) 0.9982 0.9843 0.9994 0.9932 Random k 0.9982 0.9844 0.9993 0.9928 Volatility-only Agent 0.9982 0.9843 0.9994 0.9930 Correlation-only Agent 0.9983 0.9845 0.9993 0.9927 
+
+Figure 4: Relative peak memory usage of different attention mechanisms. While aggregate detection metrics are near saturation across all methods, the behavior of the supervisory controller reveals structured and meaningful adaptation. As shown in Table 3, the agent dynamically adjusts the temporal receptive field, favoring shorter contexts during stable periods and substantially expanding context during anomalous windows. This behavior aligns with the intuition that abnormal physiological events often exhibit longer-range temporal dependencies, and demonstrates that agentic inductive bias control influences model operation even when averaged detection metrics saturate. 
+
+# 7 Discussion and Limitations 
+
+7.1 Discussion 
+
+The experimental results demonstrate that adaptive control of the temporal receptive field is a practical and effective inductive bias for contextual anomaly detection in WBANs. Rather than committing to a single fixed temporal horizon, ORCA dynamically adjusts its temporal context in response to local signal characteristics, enabling robust performance across heterogeneous physiological regimes. A key observation is that agentic receptive field adaptation consistently matches or exceeds the performance of the best-performing fixed-context configuration without prior knowledge of the underlying regime. This suggests that temporal context selection, often treated as a static hyperparameter, plays a critical role in nonstationary physiological data and should be explicitly modeled. Importantly, ORCA achieves this adaptation without increasing model capacity or training complexity, preserving stability and predictability at inference time. 11 Table 3: Distribution of agent-selected temporal receptive fields ( k) on the custom dataset.             
+
+> Window Type k= 1 k= 3 k= 5 Normal windows 48.21% 11.91% 39.88% Anomalous windows 5.89% 21.05% 73.06%
+
+The combination of a minimal recurrent backbone and constant-normalization attention further supports efficient deployment. By avoiding quadratic attention normalization and restricting interactions to a dynam-ically selected temporal neighborhood, ORCA maintains low inference latency while retaining the ability to model both short-term deviations and longer-term temporal structure. These properties are particularly relevant for WBAN settings, where computational resources are limited and real-time operation is essential. Finally, the decoupling of anomaly detection from interpretability and forecasting enables ORCA to remain lightweight while still supporting downstream analysis. The post-hoc integration of a Temporal Fusion Transformer allows richer interpretation and short-horizon trend estimation without compromising the real-time detection pipeline. 
+
+7.2 Limitations 
+
+Despite its advantages, ORCA has several limitations. First, the supervisory agent relies on deterministic, heuristic decision boundaries derived from lightweight statistical probes. While this design ensures efficiency and stability, it may not capture more complex or subtle regime transitions that could benefit from learned or adaptive policies. Second, ORCA operates on fixed-length sliding windows, which may limit its ability to capture very long-range dependencies spanning multiple windows. While receptive field adaptation mitigates this to some extent, extending temporal context beyond a single window remains an open challenge. Third, anomaly detection is formulated as a binary classification task. This limits expressiveness in scenarios requiring fine-grained anomaly categorization or severity estimation. Additionally, the current evaluation focuses on window-level detection rather than event-level localization. Finally, while ORCA generalizes well across datasets after retraining, domain shifts between wearable and clinical environments remain a challenge. Future work may explore continual adaptation mechanisms and domain-aware supervisory policies to further improve robustness. 
+
+# 8 Conclusion 
+
+This paper introduces ORCA, a lightweight anomaly detection framework that enables agentic control over temporal receptive fields for nonstationary physiological time series. Unlike fixed-context models that impose a static inductive bias, ORCA dynamically adapts its effective temporal context using inexpensive statistical probes, allowing it to respond to heterogeneous physiological regimes without increasing model complexity or training instability. Across a custom WBAN dataset and a large-scale clinical benchmark derived from MIMIC-IV, ORCA consistently matched or exceeded the strongest fixed-context baselines while eliminating the need for manual selection of temporal horizons. Experimental results further demonstrate that agentic receptive field adaptation preserves detection accuracy under near-saturated performance regimes and yields stable behavior across diverse signal dynamics. Importantly, ORCA achieves these gains under strict computational and memory constraints, making it suitable for edge deployment in wearable and on-device monitoring systems. By combining a minimal recurrent backbone with constant-normalization attention and decoupled inter-pretability via a post-hoc Temporal Fusion Transformer, ORCA provides a practical balance between efficiency, adaptability, and interpretability. Our findings suggest that temporal context selection is a critical, un-derexplored modeling dimension in physiological anomaly detection. Future work may explore learned or adaptive supervisory policies, longer-horizon context integration, and continual adaptation across deployment environments. 12 References 
+
+Abdu Ibrahim Adamu, Praveen Kumar Donta, Darmawaty Mohd Ali, Sohail Sarang, Goran M. Stojanović, and Suzi Seroja Sarnin. A systematic literature review of advanced machine learning techniques in wireless body area networks: Application, challenges, and future directions. IEEE Access , 13:194729–194778, 2025. doi: 10.1109/ACCESS.2025.3631230. Albatul Albattah and Murad A. Rassam. A correlation-based anomaly detection model for wireless body area networks using convolutional long short-term memory neural network. Sensors , 22(5):1951, 2022. doi: 10.3390/s22051951. Mustafa S. Aljumaily and Sherwan Jalal Abdullah. Deep learning for enhanced anomaly detection in wireless communication networks using channel state information. International Journal of Mechatronics, Robotics, and Artificial Intelligence , 1(2):104–113, 2025. doi: 10.33971/ijmrai.1.2.13. Khaled Alomar, Halil Ibrahim Aysel, and Xiaohao Cai. Rnns, cnns and transformers in human action recognition: A survey and a hybrid model. arXiv preprint , 2024. Aftab Arif, Fadia Shah, Muhammad Ismaeel Khan, Ali Raza A. Khan, Aftab Hussain Tabasam, and Abdul Latif. Anomaly detection in ioht using deep learning: Enhancing wearable medical device security. Migration Letters , 20(S12):1992–2006, 2023. ISSN 1741-8984. Granth Bagadia, Shreea Bose, and Chittaranjan Hota. A convolutional transformer network for anomaly detection in wireless body area networks. IEEE Journal of Selected Areas in Sensors , 2:185–198, 2025. doi: 10.1109/JSAS.2025.3572860. Kapal Dev, Sunder Ali Khowaja, Engin Zeydan, Keshav Singh, and Merouane Debbah. Advanced architectures integrated with agentic ai for next-generation wireless networks. IEEE Communications Standards Magazine ,2025. doi: 10.1109/MCOMSTD.2025.3632205. Leo Feng, Frederick Tung, Mohamed Osama Ahmed, Yoshua Bengio, and Hossein Hajimirsadeghi. Were rnns all we needed? arXiv preprint , 2024. Medina Hadjem, Osman Salem, and Farid Naït-Abdesselam. An ecg monitoring system for prediction of cardiac anomalies using wban. In 2014 IEEE 16th International Conference on e-Health Networking, Applications and Services (Healthcom) , pp. 441–446, 2014. doi: 10.1109/HealthCom.2014.7001883. Yangdong He and Jiabao Zhao. Temporal convolutional networks for anomaly detection in time series. In 
+
+Journal of Physics: Conference Series, ICAACE 2019 , volume 1213, pp. 042050. IOP Publishing, 2019. doi: 10.1088/1742-6596/1213/4/042050. Jia-Hong Huang, Yixian Shen, Hongyi Zhu, Stevan Rudinac, and Evangelos Kanoulas. Gradient weight-normalized low-rank projection for efficient llm training. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI-25) , 2025. Md. Motaharul Islam and Md. Shamshuzzoha. Securing wireless body area networks data transmission with machine learning: A cross-tier framework for anomaly detection and intrusion prevention. Computational and Structural Biotechnology Reports , 2:100031, 2025. doi: 10.1016/j.csbr.2025.100031. Abqa Javed, Muhammad Awais, Muhammad Shoaib, Khaldoon S. Khurshid, and Mahmoud Othman. Machine learning and deep learning approaches in iot. PeerJ Computer Science , 9:e1204, 2023. doi: 10.7717/peerj-cs.1204. P. Jayarekha. Smart edge devices: Integrating deep learning with iot for real-time electronics applications. 
+
+Journal of Neonatal Surgery , 14(25s):232–237, 2025. ISSN 2226-0439. Alistair E. W. Johnson, Luca Bulgarelli, Longxiang Shen, Anne Gayles, and lessons et al. Andreo. Mimic-iv, a freely accessible electronic health record dataset. Scientific Data , 10(1):1–13, 2023. doi: 10.1038/ s41597-022-01899-x. 13 Alistair E. W. Johnson et al. Mimic-iv (version 3.1). PhysioNet, 2024. RRID:SCR_007345. Bekhruzbek Kadirov, Janna Nazarova, Nigora Alikulova, Rasuljon Shermatov, Sokhiba Narkulova, Utkir Farmonov, and Nodira Alimukhamedova. Abnormality detection in wireless medical sensor networks using machine learning model. Health Leadership and Quality of Life , 3(180), 2024. doi: 10.56294/hl2024.180. Colin Lea, René Vidal, Austin Reiter, and Gregory D. Hager. Temporal convolutional networks: A unified approach to action segmentation. In Proceedings of the European Conference on Computer Vision Workshops (ECCV Workshops) , 2016. Bryan Lim, Sercan Ö. Arik, Nicolas Loeff, and Tomas Pfister. Temporal fusion transformers for interpretable multi-horizon time series forecasting. International Journal of Forecasting , 37(4):1748–1764, 2021. doi: 10.1016/j.ijforecast.2021.03.012. Shiwei Liu, Guanchen Tao, Yifei Zou, Derek Chow, Zichen Fan, Kauna Lei, Bangfei Pan, Dennis Sylvester, Gregory Kielian, and Mehdi Saligane. Consmax: Hardware-friendly alternative softmax with learnable parameters. In ICCAD ’24: Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design , New York, NY, USA, 2024. ACM. ISBN 979-8-4007-1077-3. doi: 10.1145/3676536.3676766. Emanuele La Malfa, Ping Zhu, Samuele Marro, Sara Bernardini, and Michael Wooldridge. An end-to-end planning framework with agentic llms and pddl. In arXiv preprint , 2025. Aske Plaat, Max van Duijn, Niki van Stein, Mike Preuss, Peter van der Putten, and Kees Joost Batenburg. Agentic large language models, a survey. Journal of Artificial Intelligence Research , 1(1):1–76, 2025. doi: 10.1613/jair.1.18675. Peter Shaw, Jakob Uszkoreit, and Ashish Vaswani. Self-attention with relative position representations. In 
+
+Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics (NAACL) , 2018. Mohd Ahsan Siddiqui, Mala Kalra, and C. Rama Krishna. Adsban: Anomaly detection system for body area networks utilizing iot and machine learning. Concurrency and Computation: Practice and Experience , 36 (13):e8075, 2024. doi: 10.1002/cpe.8075. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in Neural Information Processing Systems , 30, 2017. Arjun Warrier and Abhilash K. S. Hybrid edge-cloud ai gateway with 1d-cnn for real-time anomaly detection and temporal fusion transformer for healthcare data streams. In Proceedings of the 7th International Conference on Innovative Data Communication Technologies and Application (ICIDCA-2025) , pp. 204–210, Edayarnatham, Tamil Nadu, India, 2025. IEEE. ISBN 979-8-3315-1414-3. doi: 10.1109/ICIDCA66325. 2025.11280437. 14 A Supplementary Material 
+
+This supplementary document provides full algorithmic descriptions, mathematical derivations, and implementation-level details omitted from the main paper due to space constraints. All notation and definitions are consistent with the main manuscript. 
+
+Code Availability. The ORCA implementation is publicly available at https://github.com/ bananabicycle/ORCA-Agentic .
+
+# B ORCA Inference Algorithm 
+
+Algorithm 2 describes the complete ORCA inference pipeline, corresponding exactly to the implementation used in all experiments. 
+
+Algorithm 2 ORCA Inference with Agentic Receptive Field Adaptation 
+
+Require: Sliding window wt ∈ RL×F
+
+Ensure: Anomaly probability ˆ yt 
+
+> 1:
+
+Statistical Probing  
+
+> 2:
+
+for f = 1 to F do  
+
+> 3:
+
+σ2 
+
+> f
+
+← Var( wt,f ) 
+
+> 4:
+
+ρf ← arg max ℓ> 0 ACF( wt,f , ℓ ) 
+
+> 5:
+
+end for  
+
+> 6:
+
+ϕt ←
+
+[ 1
+
+> F
+
+∑ 
+
+> f
+
+σ2 
+
+> f
+
+, 1
+
+> F
+
+∑ 
+
+> f
+
+ρf
+
+] 
+
+> 7:
+
+Agentic Receptive Field Selection  
+
+> 8:
+
+if 1
+
+> F
+
+∑ 
+
+> f
+
+σ2 
+
+> f
+
+> τ vol then  
+
+> 9:
+
+kt ← 1 
+
+> 10:
+
+else if 1
+
+> F
+
+∑ 
+
+> f
+
+ρf > τ corr then  
+
+> 11:
+
+kt ← 5 
+
+> 12:
+
+else  
+
+> 13:
+
+kt ← 3 
+
+> 14:
+
+end if  
+
+> 15:
+
+MinGRU Encoding  
+
+> 16:
+
+ht−L ← 0 
+
+> 17:
+
+for τ = t − L + 1 to t do  
+
+> 18:
+
+zτ ← σ(Wz xτ ) 
+
+> 19:
+
+˜hτ ← Whxτ 
+
+> 20:
+
+hτ ← (1 − zτ ) ⊙ hτ −1 + zτ ⊙ ˜hτ 
+
+> 21:
+
+end for  
+
+> 22:
+
+Adaptive Attention  
+
+> 23:
+
+Compute Q, K, V from {ht−L+1 , . . . , ht} 
+
+> 24:
+
+Apply relative positional bias B(kt) 
+
+> 25:
+
+At ← ConSmax 
+
+( QK ⊤ 
+
+> √d
+
++ B(kt)
+
+)
+
+V 
+
+> 26:
+
+Classification  
+
+> 27:
+
+Extract final representation at ← At[L] ▷ Last timestep pooling  
+
+> 28:
+
+ˆyt ← σ(Wcls at + bcls ) 
+
+> 29:
+
+return ˆyt
+
+15 B.1 MinGRU: Detailed Formulation and Stability B.1.1 State Dynamics 
+
+MinGRU computes hidden states as 
+
+ht = (1 − zt) ⊙ ht−1 + zt ⊙ ˜ht, (S1) where 
+
+zt = σ(Wz xt), ˜ht = Whxt. (S2) In contrast to a standard GRU, which includes recurrent affine transformations in both gating and candidate computations, MinGRU removes the reset gate and the recurrent term in the candidate activation. As a result, the number of O(H2) recurrent matrix–vector multiplications per time step is reduced, leading to lower computational overhead without sacrificing long-term dependency modeling. 
+
+B.1.2 Gradient Preservation 
+
+Theorem B.1. If zt̸ ≈ 1 for a subset of dimensions, MinGRU preserves gradient flow across long temporal horizons. Proof. The Jacobian satisfies 
+
+∂ht
+
+∂ht−1
+
+= diag(1 − zt) + O(σ′(·)) .
+
+Eigenvalues lie in [0 , 1], preventing exponential decay when zt is small. 
+
+B.2 Constant-Normalization Attention (ConSmax) B.2.1 Definition 
+
+Given attention scores 
+
+S = QK ⊤
+
+√d , (S3) ConSmax is defined as ConSmax( Sij ) = exp( Sij − β)
+
+γ , (S4) where β ∈ R and γ ∈ R+ are learnable scalars. 
+
+B.2.2 Complexity 
+
+Lemma B.2. ConSmax removes sequence-level normalization dependencies and enables O(1) normalization per attention element. Proof. Softmax requires row-wise summation. ConSmax replaces this with a global scalar γ, eliminating reduction operations. 
+
+B.2.3 Softmax Equivalence Condition 
+
+Theorem B.3. ConSmax recovers softmax exactly when 
+
+γ = ∑
+
+> j
+
+exp( Sij − β).
+
+16 B.3 Agentic Receptive Field Controller B.3.1 Local Stationarity Assumption 
+
+Assumption B.4. Physiological signals are globally nonstationary but locally stationary within bounded temporal neighborhoods. 
+
+B.3.2 Policy 
+
+The agent selects 
+
+kt =
+
+
+
+1 if ¯ σ2 > τ vol ,
+
+5 if ¯ ρ > τ corr ,
+
+3 otherwise .
+
+(S5) This approximates 
+
+k∗ 
+
+> t
+
+= arg min  
+
+> k∈K
+
+E[LBCE (yt, f (xt; k))] .
+
+B.4 End-to-End ORCA Equation 
+
+The complete ORCA forward pass is defined as 
+
+At = ConSmax 
+
+( QK ⊤
+
+√d + B(kt)
+
+)
+
+V, (S6) 
+
+at = At[L], (S7) ˆyt = σ(Wcls at + bcls ) , (S8) where kt = π(ψ(wt)). This establishes ORCA as a state-dependent, computationally bounded approximation to attention-based temporal models optimized for WBAN deployments. 
+
+# C Hierarchical Agentic Reasoning and Clinical Synthesis 
+
+We utilize a Hierarchical Agentic Framework to bridge the gap between raw signal detection and clinical reasoning. The system is governed by Gemini-2.5-Flash, a low-latency Large Language Model (LLM) that acts as a supervisory orchestrator. Unlike standard detectors that output opaque binary labels, our framework integrates two distinct specialized modules to form a cohesive diagnosis: 1. Dynamic Anomaly Detection (ORCA): The primary detection layer adapts its temporal receptive field (K) based on instantaneous signal entropy. This ensures the model dynamically shifts between local (K=1, high volatility) and global (K=5, high stationarity) attention contexts without manual intervention. 2. Deep Temporal Interpretability (TFT): To provide the Agent with explanatory context, we incorporate an auxiliary Temporal Fusion Transformer (TFT). This module runs in parallel to generate a short-horizon probabilistic forecast and, crucially, utilizes its Variable Selection Network (VSN) to identify the "Primary Driver" of the physiological state (e.g., distinguishing whether a spike is driven by SpO2 drops or Heart Rate variability). 3. LLM-Driven Synthesis and Reasoning: Gemini-2.5-Flash ingests the outputs of both the ORCA detector (Anomaly Status, Entropy Profile) and the TFT (Forecast Trends, Feature Attribution). It functions as a Meta-Reasoner, performing three critical tasks: 17 • Contextual Validation: It cross-references the TFT’s identified "Primary Driver" with ORCA’s anomaly flag to rule out sensor artifacts (e.g., a volatility spike with no forecasted trend is classified as noise). • Clinical Explanation: It translates the mathematical latent states into a human-readable diagnosis (e.g., "ORCA detected instability (K=1), confirmed by TFT identifying SpO2 as the leading driver, suggesting potential hypoxia rather than sensor detachment"). • Fallback Management: If the TFT forecast indicates high uncertainty (wide probabilistic intervals), the Agent downgrades the confidence of the anomaly alert, filtering out false positives common in edge deployment. This hybrid architecture combines the speed of the recurrent ORCA backbone with the deep interpretability of the TFT, unified by the LLM’s semantic reasoning. 
+
+# D Dataset Details 
+
+We evaluate ORCA on two complementary datasets: a custom wearable Wireless Body Area Network (WBAN) dataset and a large-scale clinical benchmark derived from MIMIC-IV. Together, these datasets capture both resource-constrained wearable sensing and heterogeneous clinical monitoring scenarios. 
+
+D.1 Custom WBAN Dataset 
+
+The custom WBAN dataset consists of multivariate physiological signals collected from wearable sensors under controlled and semi-naturalistic conditions. Each sample contains synchronized measurements from five modalities: body temperature, heart rate, pulse rate, oxygen saturation (SpO 2), and electrocardiogram (ECG) amplitude. The signals are sampled at a fixed rate and segmented into contiguous temporal sequences. Anomalies are defined contextually, reflecting deviations relative to local physiological regimes rather than isolated point-wise outliers. This includes abrupt changes in motion-induced heart rate, transient sensor artifacts, and sustained deviations indicative of abnormal physiological behavior. Binary contextual anomaly labels are provided for each time step. 
+
+D.2 MIMIC-IV Clinical Dataset 
+
+We additionally evaluate ORCA on a subset of the MIMIC-IV database, containing de-identified intensive care unit (ICU) time series. We extract five commonly monitored physiological variables: mean arterial blood pressure (ABP m), heart rate, respiratory rate, oxygen saturation (SpO 2), and body temperature. Contextual anomaly labels are derived from clinically significant distributional shifts and abnormal temporal patterns, following the same formulation used in the custom WBAN dataset to ensure consistency across domains. Measurements are aligned to a uniform temporal grid and missing values are handled as described in Section E. 
+
+# E Preprocessing Details 
+
+All datasets undergo a consistent preprocessing pipeline designed to preserve temporal structure while ensuring numerical stability and compatibility with edge-deployable models. 
+
+E.1 Temporal Alignment and Windowing 
+
+Raw sensor streams are first aligned to a fixed sampling interval. Irregularly sampled clinical measurements in MIMIC-IV are resampled using forward filling within clinically reasonable gaps. The resulting multivariate time series {xt}Tt=1 is segmented into overlapping sliding windows of length L, with each window wt =
+
+{xt−L+1 , . . . , xt} serving as a single inference unit. 18 Table S1: Architectural study of ORCA components.                 
+
+> Model Acc. Prec. Rec. F1
+> Conv1D + MinGRU + ConSmax 0.9788 0.9367 0.9214 0.9290 MinGRU + ConSmax (K=0) 0.9899 0.9633 0.9701 0.9667 MinGRU + ConSmax (K=5) 0.9932 0.9856 0.9689 0.9772
+
+E.2 Normalization 
+
+Each feature channel is independently normalized using statistics computed on the training split only. Specifically, we apply z-score normalization 
+
+x(f ) 
+
+> t
+
+← x(f ) 
+
+> t
+
+− μf
+
+σf
+
+,
+
+where μf and σf denote the mean and standard deviation of feature f . The same normalization parameters are reused during validation and testing to avoid data leakage. 
+
+E.3 Handling Missing Values 
+
+Missing sensor readings are handled using forward filling when gaps are short, and discarded when missingness exceeds a predefined threshold. This strategy avoids introducing artificial temporal dynamics while maintaining continuity in physiological signals. 
+
+E.4 Label Assignment 
+
+For each sliding window, the anomaly label is inherited from the final time step in the window. This formulation aligns with online detection settings, where decisions must be made based on past and current observations only. 
+
+# F Architectural Study of ORCA Components 
+
+Table S1 presents an architectural study evaluating the impact of key ORCA components on anomaly detection performance. Replacing the convolutional front-end with a purely recurrent backbone (MinGRU) yields a substantial improvement, indicating that gated temporal memory is more effective than local convolution for capturing contextual physiological anomalies. Introducing relative attention without temporal context truncation ( K = 0) further improves precision and recall by enabling global temporal interactions within each window. Finally, constraining relative attention to a bounded receptive field ( K = 5) achieves the best overall performance, demonstrating that selectively focusing on a limited temporal neighborhood improves discrimination while avoiding noise from irrelevant long-range dependencies. These results motivate ORCA’s design choice of combining minimal recurrence with adaptive, bounded attention for robust contextual anomaly detection. From an algorithmic perspective, this study highlights the progressive benefits of structured temporal modeling. Convolutional layers capture short-range patterns but lack explicit memory, limiting their ability to model contextual anomalies. MinGRU introduces gated state propagation, enabling temporal abstraction across the window. Relative attention further refines this representation by selectively weighting historical states, while bounded attention enforces an inductive bias toward locally relevant temporal context. Together, these components form the basis of ORCA’s efficient and adaptive temporal modeling strategy. 
+
+# G Additional Experimental Results 
+
+This section presents extended experimental analyses that complement the main paper results and provide additional insight into ORCA’s behavior. 19 G.1 Interpretability and Forecasting via Temporal Fusion Transformer 
+
+While ORCA is designed for efficient real-time anomaly detection, interpretability and short-horizon forecasting are often required in clinical and monitoring settings. To support these objectives, we integrate a Temporal Fusion Transformer (TFT) as a post-hoc analysis module. The TFT operates on detected segments or buffered windows and provides feature attribution and short-term trend estimation. Importantly, this module is decoupled from the core detection pipeline and does not participate in real-time inference. As a result, ORCA maintains edge deployability while enabling richer interpretability when additional computational resources are available. 
+
+G.2 Receptive Field Usage Statistics 
+
+We analyze the frequency with which different receptive field sizes are selected by the agentic controller. Across both datasets, ORCA exhibits non-degenerate behavior, actively switching between short and long temporal contexts depending on local signal characteristics. This confirms that the agent does not collapse to a single fixed receptive field. 
+
+G.3 Performance Across Signal Regimes 
+
+To assess robustness under heterogeneous conditions, we stratify the test windows into low, medium, and high-volatility regimes based on empirical signal variance. ORCA maintains stable detection performance across regimes, whereas fixed-context baselines exhibit increased sensitivity to regime-specific temporal dynamics. Figure S1 analyzes anomaly detection performance across distinct signal regimes on the WBAN dataset, stratified by low, medium, and high volatility segments. While all methods achieve near-perfect AUROC in stable and highly dynamic regimes, performance differences emerge in the intermediate (medium-volatility) regime, which is characterized by partial nonstationarity and ambiguous temporal context. In this setting, fixed receptive field configurations exhibit a noticeable drop in performance, whereas ORCA’s agentic context selection maintains consistently high AUROC. This indicates that adaptive receptive field selection is most beneficial when the appropriate temporal context is unclear a priori, enabling ORCA to remain robust under heterogeneous and evolving physiological dynamics. 
+
+Figure S1: Performance across signal volatility regimes (WBAN) 
+
+G.4 Score Distribution Analysis 
+
+We further examine the distribution of anomaly scores for nominal and anomalous windows. ORCA produces well-separated score distributions, indicating strong calibration and consistent confidence across datasets. These results support the observed AUROC and AUPRC trends reported in the main paper. 20 G.5 Accuracy–Efficiency Tradeoffs 
+
+Finally, we analyze the tradeoff between detection performance and computational cost by varying the maximum allowable receptive field. Adaptive context selection achieves performance comparable to the best fixed-context configuration while avoiding unnecessary attention computation in stable regimes, highlighting its suitability for resource-constrained deployment. 
+
+# H Runtime and Memory Analysis 
+
+Figures S2–S3 provide empirical evidence supporting ORCA’s suitability for edge deployment. While full Transformers incur quadratic memory and latency costs, ORCA dynamically adapts its temporal context, resulting in lower peak memory usage and stable inference latency across window lengths. Notably, ORCA exhibits tighter latency distributions than fixed-k baselines, highlighting the benefits of agentic receptive field selection for predictable real-time inference. 
+
+Figure S2: Inference latency distribution across models. ORCA exhibits lower median latency and reduced variance than fixed-k attention, indicating stable runtime behavior suitable for edge deployment. 
+
+Figure S3: Inference latency as a function of window length L. ORCA maintains sub-linear growth by adapting its effective receptive field, unlike fixed-k attention. Table S2 compares inference latency across different temporal modeling strategies under edge-like deployment conditions. While all models achieve comparable median latency, substantial differences emerge in tail behavior. ORCA attains the lowest 95th percentile latency among attention-based approaches, indicating more predictable runtime under varying input conditions. In contrast, fixed-k attention exhibits significantly higher worst-case latency due to its static attention span, while Transformer-based models, despite low median latency, lack bounded computational cost. These results highlight the advantage of agentic receptive field selection in achieving stable and efficient inference suitable for resource-constrained environments. 21 Table S2: Inference latency comparison under edge-like settings.          
+
+> Model Median Latency (ms) 95th %ile (ms)
+> Transformer 0.021 0.028 Fixed-kAttention ( k=3 )0.037 0.112 ORCA (Agentic) 0.021 0.054
+
+# I Extended Analysis of Agentic Receptive Field Adaptation 
+
+Across volatility regimes S3, detection performance remains near saturation for both fixed-context and adaptive configurations. Importantly, adaptive receptive field selection preserves optimal performance across regimes without requiring oracle selection of a fixed temporal horizon, supporting its robustness under heterogeneous signal dynamics. Table S3: AUROC across volatility regimes on the custom dataset. Performance is near saturation across all configurations; adaptive context selection preserves optimal performance without oracle tuning of k.                   
+
+> Regime k= 1 k= 3 k= 5 ORCA (Agentic)
+> Low volatility 0.9997 0.9997 0.9997 0.9996 Medium volatility 0.9991 0.9991 0.9991 0.9991 High volatility 0.9997 0.9997 0.9997 0.9997
+
+Table S4 analyzes the behavior of the supervisory controller by reporting the distribution of selected temporal receptive fields. Across all windows, the agent exhibits non-degenerate behavior, selecting both short ( k = 1) and long ( k = 5) temporal contexts with comparable frequency. During normal windows, shorter receptive fields dominate, indicating that local temporal information is typically sufficient under stable physiological dynamics. In contrast, anomalous windows induce a pronounced shift toward larger temporal contexts, with 
+
+k = 5 selected in over 73% of cases. This behavior suggests that anomalous events exhibit longer-range temporal dependencies, and confirms that agentic inductive bias control dynamically alters model operation in a structured and interpretable manner. Table S4: Full distribution of agent-selected temporal receptive fields ( k) on the custom dataset.                
+
+> Subset k= 1 k= 3 k= 5 All windows 41.86% 13.28% 44.86% Normal windows 48.21% 11.91% 39.88% Anomalous windows 5.89% 21.05% 73.06%
+
+On MIMIC-IV S5, adaptive receptive field selection achieves performance comparable to the strongest fixed-k
+
+baseline while exhibiting consistent, non-degenerate k selection across heterogeneous clinical regimes. 22 Table S5: AUROC across volatility regimes on MIMIC-IV. Absolute performance is lower due to weakly supervised labels and heterogeneous clinical dynamics; adaptive context selection preserves performance comparable to the strongest fixed-k baseline.                
+
+> Regime k= 1 k= 3 k= 5 ORCA (Agentic)
+> Medium volatility 0.4360 0.4339 0.4442 0.4448
+> High volatility 0.3611 0.3638 0.3709 0.3611
+
+23

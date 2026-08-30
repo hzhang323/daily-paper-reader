@@ -1,0 +1,319 @@
+Title: PeakBench: Benchmarking Resource-Aware Tool Invocation in LLM Agents
+
+URL Source: https://arxiv.org/pdf/2608.24509v1
+
+Published Time: Wed, 26 Aug 2026 01:06:27 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# PeakBench: Benchmarking Resource-Aware Tool Invocation in LLM Agents 
+
+# Zhi-Kai Chen 1,2 , Xu-Xiang Zhong 1,2 , Song-Yan Li 3, De-Chuan Zhan 1,2 , Han-Jia Ye 1,2 ∗
+
+> 1
+
+School of Artificial Intelligence, Nanjing University, China 
+
+> 2
+
+National Key Laboratory for Novel Software Technology, Nanjing University, China 
+
+> 3
+
+Nanjing University, China 
+
+Abstract 
+
+LLM agents increasingly solve tasks by invoking multiple tools, where parallel execution is essential for low latency but difficult to manage safely. Existing agent benchmarks primar-ily evaluate tool selection, argument generation, and end-to-end success under mostly serial execution, largely overlook-ing valid parallelization and resource-constrained scheduling. This missing scheduling dimension creates a practical fail-ure mode: serial execution is safe but slow, while resource-agnostic parallel execution is fast but prone to avoidable re-source overflows. To address this gap, we introduce Peak-Bench, a benchmark of executable multi-tool workflows with execution-grounded dependency annotations and measured resource profiles. A central challenge in evaluating such work-flows is attribution: failures and inefficiencies may arise from incorrect dependency planning, poor resource-constrained scheduling, or both. PeakBench addresses this challenge with a two-part evaluation framework that disentangles logical planning from physical scheduling, with dedicated metrics for each dimension. Using this framework, we show that strong logical planning does not reliably translate into safe or efficient execution under resource constraints. We further show that ex-posing resource information can reduce avoidable overflows and improve resource utilization, making PeakBench a useful testbed for diagnosing resource-aware agent behavior. Code is available at https://github.com/Czzzk/Staggering-the-Peaks. 
+
+# Introduction 
+
+Large Language Models (LLMs) have undergone a paradigm shift, transitioning from passive conversationalists to au-tonomous “task-solvers” capable of interacting with the phys-ical and digital worlds (Wang et al. 2024; Park et al. 2023; Xi et al. 2025). At the heart of this evolution lies the mecha-nism of tool invocation, which enables agents to extend their reasoning capabilities through external APIs, databases, and computational engines. (Schick et al. 2023; Patil et al. 2024; Yao et al. 2022) As agents are increasingly deployed in com-plex, real-world workflows—ranging from automated soft-ware engineering (Jimenez et al. 2024) to open-ended em-bodied or environment-interactive tasks (Wang et al. 2023)— the ability to interact with tools has become the definitive characteristic of “agentic” intelligence. As task complexity escalates, modern agentic workflows demand concurrent execution to overcome the latency bot-tlenecks of sequential (step-by-step) models (Wei et al. 2022; 
+
+> ∗
+
+Corresponding author. Sequential   
+
+> ABC
+> 77.5s Blind parallel
+> ABC
+> 20.7s Resource-aware
+> ABC
+> 28.7s Blind overflow (%) Tight Moderate Relaxed Avoidable Not avoidable
+
+Figure 1: Motivating tradeoff. Left: completion time and peak overflow for one workflow show that sequential execu-tion is safe but slow, blind parallelism is fast but unsafe, and resource-aware scheduling preserves speedup without over-flow. Right: blind-parallel overflows are decomposed across capacity profiles; avoidable overflow can be removed by a dependency-valid alternative schedule. Ning et al. 2023). Safe concurrency first requires understand-ing step-level prerequisite and concurrency relations: which tool calls must wait for prior outputs, and which calls can run independently (Besta et al. 2024; Liu et al. 2023). Current agents may hallucinate false dependencies (needlessly serial-izing tasks and degrading throughput) or miss critical prereq-uisites (leading to execution-blocking errors) (Valmeekam et al. 2023, 2022). Yet these logical relations only define what may run in parallel; they do not determine whether those parallel calls can safely share finite infrastructure. Furthermore, even when agents identify or are given valid dependency and concurrency structure, a critical systemic vulnerability emerges. Current frameworks conflate “logi-cal independence” with “execution readiness.” Because they are fundamentally resource-agnostic, they operate under the naive assumption of infinite infrastructure capacity (Kwon et al. 2023; Yu et al. 2022; Aminabadi et al. 2022; Mei et al. 2024). Once independent tasks are identified, agents greedily dispatch all parallelizable tool invocations simulta-neously without any physical scheduling awareness. As de-picted in Figure 1, this unmanaged translation from logical parallelism to physical execution triggers massive “Resource Bursts.” Heavy, resource-intensive tools compete for finite hardware, leading to sharp spikes in infrastructure strain (Li et al. 2023b; Patel et al. 2024), severe queuing delays, and arXiv:2608.24509v1 [cs.AI] 25 Aug 2026 Figure 2: PeakBench dataset construction pipeline. Left: benchmark-seeded workflow synthesis samples MCP tools and generates executable multi-tool queries. Middle: sandbox execution observes step-level behavior and validates inter-step relations. Right: execution-order perturbation recovers prerequisite and concurrency structure used by both benchmark dimensions. catastrophic service outages—a systemic bottleneck we for-malize as the “peak load” problem. Despite the severity of these parallelization and physical-scheduling bottlenecks, the evaluation of LLM agents re-mains overwhelmingly “accuracy-centric.” Existing bench-marks (Fan et al. 2025; Li et al. 2023a; Liu et al. 2024; Zhou et al. 2024; Mialon et al. 2024; Srivastava et al. 2023), such as ToolBench and APIBank, primarily evaluate tool selection, argument generation, and end-to-end success under mostly serial execution. While task success is a necessary condition, this narrow focus creates a critical research gap: these frame-works largely overlook valid parallelization and implicitly operate under the assumption of infinite and instantaneous resources. They ignore the temporal congestion and hard-ware footprint of tool-calling. In real-world deployments, an agent that reaches the correct answer but triggers a system-wide crash due to unmanaged request spikes is effectively unusable. Yet, current methodologies lack the vocabulary and metrics to quantify such operational failures. End-to-end tool-agent execution makes failure attribution difficult. A slow or failed workflow may reflect incorrect tool selection, invalid arguments, missing dependencies, unnec-essary serialization, unsafe parallelism, or resource overload under a particular machine capacity. Treating these outcomes as a single task-success score therefore obscures whether the agent failed to recover the step-level dependency structure, failed to schedule otherwise valid tool calls under resource constraints, or failed for unrelated tool-use reasons. This mo-tivates a decoupled benchmark design in which executable workflows provide a validated task substrate, execution-grounded dependency and concurrency relations isolate log-ical planning, and measured resource profiles make physical scheduling observable. Following this design, PeakBench constructs executable multi-tool workflows, derives execution-grounded depen-dency and concurrency annotations, and attaches empirically measured resource profiles to tool invocations. Dimension I evaluates logical planning by asking the agent to recover which workflow steps are prerequisites and which can run concurrently. Dimension II evaluates physical scheduling by giving this verified structure and asking the agent to as-sign execution timestamps under finite resource budgets. This separation makes failures attributable: a model may fail be-cause it misunderstands dependencies, because it overloads resources, or because it does both. Our evaluations using PeakBench reveal a new failure mode: agents that appear competent at logical workflow plan-ning can be “resource-blind” when translating the workflow into physical execution. To test whether this failure is di-agnosable, we include Resource-Aware Scheduling Context (RASC), a simple baseline that exposes resource metadata before scheduling and tests whether models can use such information to reduce avoidable overflow and improve uti-lization. Our core contributions are summarized as follows: 
+
+• We identify logical planning and resource-constrained physical scheduling as distinct evaluation targets often conflated in current LLM-agent benchmarks, and formal-ize the “peak load” failure mode that arises when logically valid parallel tool calls exceed finite resource capacity. 
+
+• We introduce PeakBench, a decoupled benchmark with executable multi-tool workflows, execution-grounded de-pendency and concurrency annotations, measured re-source profiles, and separate protocols for logical plan-ning and physical scheduling. 
+
+• Across representative LLMs, we show that planning strength does not reliably imply safe scheduling, while the RASC baseline yields measurable but model-dependent gains when resource information is exposed. 
+
+# Preliminary: Agentic Workflows as Constrained Scheduling Problems 
+
+We view multi-tool agent execution as a constrained work-flow execution problem. Beyond selecting tools and produc-ing a final answer, an agent must preserve step-level data-flow validity while scheduling invocations under finite in-frastructure capacity. Let V = {v1, v 2, . . . , v n} denote the tool invocations in a workflow and S = {t1, t 2, . . . , t n} their activation schedule. A slow or unsafe run may result from Figure 3: PeakBench evaluation pipeline. Dimension I evaluates the model as a “Dependency Analyzer” by comparing its predicted prerequisite structure against the execution-grounded structure using dependency metrics. Dimension II gives the model the verified structure and evaluates it as a “System Scheduler” under measured resource profiles, using Scheduling Latency, Capacity Violation Area, and strict MRU. an invalid prerequisite structure, a poor resource-constrained schedule in practice, or both. 
+
+Overall Execution Objective. Given a benchmark task 
+
+x, available tool descriptions, and candidate invocations V,the agent must produce an executable plan and assign acti-vation timestamps S. The plan must preserve data-flow pre-requisites, and the schedule must keep concurrent resource demand within machine capacity. Because the prerequisite structure is not assumed to be given, it is implicit in whether the resulting execution can correctly use intermediate outputs and complete the task. Resource-aware agentic execution can therefore be formulated as: 
+
+min  
+
+> V,S
+
+SL( S) s.t. Φ( x; V, S) = 1 ,
+
+LS (τ ) ⪯ C, ∀τ. (1) Here Φ( x; V, S) = 1 denotes logical execution success: the selected invocations, arguments, and intermediate data de-pendencies are sufficient to complete the task. The second constraint is physical execution feasibility: LS (τ ) is the ag-gregate resource load induced by S and must remain within capacity C. Equation 1 captures the central coupling: suc-cessful agentic execution requires both a valid dependency structure and a resource-feasible schedule. The equation in-tentionally leaves both constraints abstract; the two stages below instantiate them for evaluation. 
+
+Decoupled Evaluation. A monolithic end-to-end score cannot tell whether a violation of Equation 1 comes from a wrong dependency structure, a poor physical schedule, or both. PeakBench therefore turns the two constraints in Equation 1 into two separate benchmark dimensions. To do so, it derives an execution-grounded prerequisite relation R⋆
+
+over workflow steps and evaluates: 
+
+Φ( x; V, S) = 1 = ⇒ Eval plan ( ˆR, R⋆),
+
+LS (τ ) ⪯ C =⇒ Eval sched (S; R⋆, r, C). (2) Thus, Dimension I evaluates the logical-success constraint by comparing the predicted prerequisite structure with R⋆,while Dimension II evaluates the resource-feasibility con-straint by fixing R⋆ and replaying S under r and C. This decomposition preserves the structure of the overall execu-tion problem while making the source of failure attributable. We next detail the two subproblems. 
+
+Stage 1: Logical Planning (Dependency Extraction). 
+
+Before execution, an agent must infer which tool calls can run concurrently and which must be sequential. We formalize this as a prerequisite relation R ⊆ V × V over workflow steps. A pair (vi, v j ) ∈ R means that vi must complete before vj can begin because vj depends on vi’s output or side effect. The complement of the transitive prerequisite relation determines which step pairs are validly concurrent: 
+
+C(R) = {vi, v j } : ( vi, v j ) /∈ R +, (vj , v i) /∈ R + , (3) where R+ denotes transitive closure. Let ˆC = C( ˆR) and 
+
+C⋆ = C(R⋆). PeakBench instantiates the logical-success constraint as Eval plan ( ˆR, R⋆):
+
+D
+
+Ddep ( ˆR, R⋆), A conc ( ˆC, C⋆)
+
+E
+
+. (4) Here Ddep captures discrepancy in required prerequisite re-lations, while Aconc captures agreement on which step pairs can run concurrently. 
+
+Stage 2: Physical Scheduling (Resource Allocation). 
+
+While R dictates what can be parallelized, the infrastruc-ture capacity C dictates how much can be parallelized safely. Each invocation vi has duration di and measured resource footprint ri, and any candidate schedule induces the resource-load vector: 
+
+L(τ ) = 
+
+> n
+
+X
+
+> i=1
+
+ri ⊮ (τ ∈ [ti, t i + di)) (5) where ⊮(·) is an indicator function for active execution. Given a prerequisite relation R and resource footprints 
+
+{ri}ni=1 , a schedule must respect prerequisite order ( tj ≥ti + di for all (vi, v j ) ∈ R) while keeping aggregate load within capacity. PeakBench instantiates the resource-feasibility constraint as Eval sched (S; R⋆, r, C):
+
+⟨Tend (S), V cap (S; r, C), U safe (S; r, C)⟩ . (6) Here Tend captures completion time, Vcap captures the sever-ity of capacity breaches, and Usafe captures resource utiliza-tion only when the schedule remains feasible. ⪯ denotes element-wise comparison across resource dimensions. 
+
+The “Resource-Blind” Bottleneck. A resource-blind scheduler observes prerequisite structure but not ri or C.Even with correct logical structure, it may therefore launch all ready steps as early as possible and violate L(τ ) ⪯ C,which PeakBench isolates in Dimension II. 
+
+# PeakBench 
+
+PeakBench evaluates whether LLM agents can act as 
+
+resource-aware workflow executors , not only functional tool selectors. It couples a large catalog of MCP-compatible tools with semantically plausible, executable multi-tool workflows whose dependencies and resource footprints are empirically grounded. Each instance supports two linked evaluations: predicting the execution-grounded dependency structure for logical planning, and scheduling the same structure under resource constraints for physical execution. 
+
+Benchmark Construction 
+
+PeakBench operationalizes this design through sandbox-validated workflows, execution-grounded step relations, em-pirical resource profiling, and a two-part evaluation protocol. 
+
+Tool Catalog and Resource Characterization. Peak-Bench builds on approximately 1.2K MCP-compatible tools spanning about 130 servers, aggregated from representa-tive MCP-based tool-use ecosystems and agentic bench-marks, including LiveMCPBench (Mo et al. 2025), MCP-Atlas (Bandi et al. 2026), MCP-Bench (Wang et al. 2025), MCP-Universe (Luo et al. 2025), and MCPMark (Wu et al. 2025). The catalog covers common agentic capabilities such as retrieval, code execution, file manipulation, database ac-cess, web interaction, multimodal processing, and model-in-the-loop computation. We characterize these tools along functional and opera-tional axes. The former captures agentic roles and application domains, while the latter summarizes the dominant bottle-necks shown in Table 1. This distinction matters because functionally similar tools can impose very different system costs, so resource-aware scheduling cannot be inferred from tool semantics alone. Each tool is further associated with an empirically measured resource profile; the profiling protocol is detailed in Appendix B. 
+
+Benchmark-Seeded Workflow Synthesis. Workflow syn-thesis starts from task domains, question styles, and tool-usage patterns observed in existing API/MCP benchmarks. Given these seeds, PeakBench samples MCP tools and gen-erates semantically nearby executable workflows over the sampled components. This preserves benchmark-grounded task intent and tool-composition patterns while allowing con-                     
+
+> Functional #Resource Tag #
+> Life Services 196 Lightweight 436 Finance & Market Data 116 Memory-heavy 632 Research & Knowledge 198 CPU-heavy 201 Development Tools 332 Network-heavy 417 Content & Design 196 Disk-I/O-heavy 64 Utility Tools 154 Process-fanout 7
+
+Table 1: PeakBench tool catalog taxonomy. Functional cate-gories are mutually exclusive; resource-cost tags are multi-label over profiling-eligible tools. trolled variation in invocation scale, dependency depth, par-allel branch width, and resource heterogeneity. We define difficulty through workflow structure rather than linguistic complexity. PeakBench contains 300 executable workflows, stratified into 150 easy, 100 medium, and 50 hard tasks, with tier definitions reported in Appendix C. For each tier, we sample MCP servers and tools from benchmark-derived domains, then prompt an LLM to synthesize an ex-ecutable user query that requires the selected components and induces a concrete multi-step workflow. Figure 2 (Left) illustrates this benchmark-seeded synthesis stage. 
+
+Execution-Grounded Step Relation Annotation. After a workflow query is synthesized, we execute its tool invoca-tions inside a controlled containerized sandbox exposing the sampled MCP tools and servers. This stage is used to observe and annotate step-level relations rather than merely to check whether the query is executable. We first collect execution traces showing which steps consume prior outputs and which can proceed independently. We then perturb candidate execu-tion orders inside the sandbox and monitor data-flow failures, such as missing inputs or violated prerequisites. These obser-vations identify required prerequisite relations and feasible concurrent groups, producing the execution-grounded struc-ture used by both benchmark dimensions, as illustrated in Figure 2 (Middle, Right). This execution-grounded structure plays a dual role in PeakBench’s decoupled evaluation paradigm. In the first di-mension, it serves as the structural ground truth against which an agent’s predicted dependency structure is evaluated. In the second dimension, it is provided directly to the agent as an or-acle workflow specification, thereby isolating resource-aware scheduling from uncertainty in logical planning. 
+
+Decoupled Evaluation Protocol 
+
+Traditional agent benchmarks primarily evaluate whether a model can iteratively select tools to reach a correct final answer. PeakBench instead evaluates whether a validated multi-tool workflow can be executed efficiently under fi-nite infrastructure constraints. To avoid conflating workflow-understanding errors with scheduling errors, we separate the evaluation into two dimensions: Dimension I tests depen-dency recovery, while Dimension II fixes the execution-grounded prerequisite structure and tests resource-aware scheduling. The following subsections specify the inputs, outputs, and metrics for each dimension. Dimension I: Logical Planning via Dependency Ex-traction. The first evaluation dimension treats the agent as a Dependency Analyzer . Its objective is to test whether the model can recover the intrinsic data-flow constraints of a multi-tool workflow before physical execution. This capa-bility is foundational: without a sound structure, later par-allelization or resource allocation would rest on flawed and unsafe assumptions. Given a user query together with the descriptions of the relevant tools and servers, the agent must output a prerequi-site structure indicating which tool invocations must precede others and which can be safely executed in parallel. For met-ric computation, this prerequisite structure is represented as a DAG. To establish ground truth without exhaustive human annotation, we use the execution-grounded structure recov-ered through sandbox perturbation, as described above. This procedure yields an empirical structural target derived from actual tool behavior rather than manual interpretation alone. We compare the agent’s predicted prerequisite structure against this execution-derived target using two metrics. First, Graph Edit Distance (GED) measures the minimum num-ber of graph operations required to transform the predicted structure into the ground-truth structure. Second, Edge F1 evaluates the precision and recall of the predicted prereq-uisite edges, penalizing both hallucinated dependencies and missing constraints. Together, these metrics quantify whether the agent can recover the logical structure necessary to max-imize concurrency. 
+
+Dimension II: Physical Scheduling under Resource Constraints. The second evaluation dimension treats the agent as a System Scheduler . While dependency extraction identifies the potential for concurrency, realizing that poten-tial requires physical orchestration under finite infrastructure budgets. This dimension therefore evaluates whether an agent can flatten latency without triggering resource contention, peak overload, or system-level failure. Unlike Dimension I, the goal here is not to infer work-flow structure. Instead, we directly provide the execution-grounded prerequisite structure as an oracle input, thereby removing ambiguity about precedence constraints and isolat-ing the agent’s scheduling ability. Given this verified struc-ture together with historical resource profiles, the agent must decide when each tool invocation should be activated so as to balance parallel throughput against physical feasibility. To ground this task in system reality, we use the mea-sured resource profiles defined above and adopt a dual-state cost model to capture temporal resource behavior. The total consumption for invocation v with input x is defined as 
+
+rtotal (v, x ) = rstatic (v) + rdynamic (v, x ), (7) where rstatic (v) represents the persistent baseline overhead required to keep a tool ready (e.g., loaded model weights in GPU memory), and rdynamic (v, x ) captures the tran-sient surge triggered during active execution. We estimate these quantities through high-frequency system telemetry collected across diverse instructions Xi.The agent must assign execution timestamps to minimize end-to-end latency while preventing overlapping tool acti-vations from breaching hard physical limits. We evaluate schedules using three metrics: Scheduling Latency (SL), Capacity Violation Area (CVA), and strict mean resource utilization (strict MRU). Because resource dimensions have different physical units, we first normalize each dimension by its machine capacity. For a replayed schedule, let seg-ment k have duration ∆k and dimensionless utilization ratio 
+
+uk,m = Lk,m /C m on resource dimension m. We compute 
+
+CVA = X
+
+> k
+
+∆k
+
+X
+
+> m
+
+[uk,m − 1] +, (8) where [x]+ = max( x, 0) , so CVA is zero exactly when the schedule never exceeds capacity in any dimension. Mean re-source utilization (MRU) is the duration-weighted average of the composite normalized load, and strict MRU equals MRU only for zero-CVA schedules. Thus, CVA measures violation severity, while strict MRU rewards high utilization only when the schedule is physically safe. In this sense, Dimension II evaluates not whether an agent understands workflow logic, but whether it can translate a verified workflow structure into a safe, efficient execution schedule. 
+
+Human Quality Audit 
+
+Although PeakBench derives its workflow structure through execution perturbation, we also conduct a manual quality audit on approximately 100 sampled workflows. Annotators compare each generated structure against an optimal struc-ture derived from the query, tool descriptions, and execution trace. About 94% of the audited samples match the optimal structure. Since each workflow typically requires about 4–5 minutes to audit manually, this agreement supports the relia-bility of our execution-grounded construction pipeline while illustrating why exhaustive manual annotation is impractical. 
+
+# Resource-Aware Scheduling Context (RASC) 
+
+The decoupled protocol exposes a natural diagnostic ques-tion: given the correct workflow structure, can an agent use explicit resource information to schedule more safely? Resource-Aware Scheduling Context (RASC) answers this question by augmenting the scheduling input with pre-execution resource metadata. Before execution, the agent sees not only which tool calls are ready, but also how ex-pensive those calls are and what capacity limits they must share. This lets the model reason about physical contention before committing to an invocation order. Concretely, RASC takes four inputs: the user question, the verified workflow structure, the target machine capacity C,and a structured resource profile for every tool invocation. Each profile records the estimated execution duration and measured resource footprint of the invocation. The context also states the execution semantics: tool calls whose depen-dencies are satisfied may run concurrently, but the aggregate load of all active calls should remain below the machine capacity. The model is then asked to output an execution schedule, i.e., a start time or scheduling delay for each work-flow node. Formally, for a workflow question q and verified prerequi-site structure R⋆, the resource-blind scheduler observes only the logical planning context, whereas RASC additionally ex-poses the invocation profiles P = {(di, ri)} and machine capacity: 
+
+πbase  
+
+> θ
+
+= πθ (q, R⋆), πRASC  
+
+> θ
+
+= πθ (q, R⋆, P, C). (9) Thus, RASC changes only the scheduling context supplied to the model at decision time, not the model parameters or the verified workflow structure. This changes the agent’s decision criterion from “launch every ready tool as early as possible” to “launch ready tools only when their combined resource pressure is acceptable.” RASC therefore targets peak load by preserving parallelism where capacity permits while discouraging resource bursts. It requires no retraining or external optimizer; the JSON-style context schema is shown in Appendix E. 
+
+# Experiment 
+
+Experimental Setup 
+
+Models. We evaluate eight frontier API models on Peak-Bench: DeepSeek-V4-Flash, DeepSeek-V4-Pro, GLM-5, Kimi-K2.5, Claude Sonnet 4.6, GPT-4.1, GPT-5, and o3. All models are accessed through their public API interfaces and evaluated under the same prompting and parsing protocol. 
+
+Benchmark and scheduling protocol. Both bench-mark dimensions use the same PeakBench questions and execution-grounded workflows. Dimension I asks the model to recover the dependency structure from the task and tool descriptions. Dimension II gives the model the verified struc-ture and asks it to assign start timestamps to all tool invo-cations under three machine profiles ( small , medium , and 
+
+large ); the profile construction is reported in Appendix D. We compare two model settings. The no-profile setting provides the verified structure but hides tool-level resource telemetry. RASC additionally provides structured resource profiles and machine capacities. We also include non-LLM baselines: ASAP, serial topological execution, and resource-constrained list schedulers ordered by duration, critical-path length, or normalized resource pressure. The same simulator replays all schedules and computes the Dimension II metrics. 
+
+Metrics. We use the Dimension I and Dimension II met-rics defined above: GED and Edge F1 for dependency recov-ery, and Scheduling Latency (SL), Capacity Violation Area (CVA), and strict mean resource utilization (strict MRU) for scheduling. Arrows in the tables indicate whether lower or higher values are better. 
+
+Benchmark Results 
+
+Table 2 reports PeakBench’s two benchmark dimensions. The Baseline row gives the shared earliest-ready execution state before model scheduling, while each model row reports the no-profile schedule produced by that model. Dimension II uses the verified structure and evaluates Scheduling Latency, CVA, and strict MRU under resource limits before applying RASC. Relative to the Baseline, models can reduce CVA and improve strict MRU without resource telemetry, but mainly by adding conservative delays, which raises Scheduling La-tency. This reveals the resource-blind scheduling regime that 
+
+Figure 4: Planning–scheduling decoupling across models. Both axes are normalized higher-better. The x-axis averages Edge F1 and inverse normalized GED; the y-axis uses one mi-nus normalized CVA. The dashed diagonal indicates matched planning and scheduling scores. RASC later targets: models know the workflow structure, but not which concurrent calls compete for the same resources. The contrast between Dimension I and Dimension II shows that strong logical planning does not imply strong resource-aware scheduling. GPT-5 and DeepSeek-V4-Pro achieve the strongest dependency-extraction results, yet their no-profile scheduling results remain close to weaker logical planners under the physical metrics. PeakBench evaluates two com-plementary capabilities: recovering the workflow structure and executing that structure under finite resource budgets. The case-level correlation analysis in Appendix F.3 further validates this separation. Figure 4 shows the same decoupling at the model level: models do not concentrate near the upper-right or along the matched-score diagonal. Across models, dependency-extraction success for a workflow only weakly predicts whether the same workflow will be scheduled safely under finite resources. 
+
+RASC Results 
+
+Providing resource information changes the scheduling be-havior rather than only the input surface. We evaluate this effect from two angles: against classical scheduling rules, and against each model’s no-profile schedule. We also compare RASC against classical scheduling rules, including earliest-ready scheduling (ASAP), serial execu-tion, and resource-constrained list scheduling. Table 3 reports the best RASC setting using DeepSeek-V4-Pro, the strongest complete model under RASC in our runs. ASAP is con-sistently fastest but incurs many resource violations, while serial execution reduces CVA at a large latency cost. RASC nearly matches the best rule-based scheduler in CVA while achieving higher strict MRU, without external optimization. This comparison positions RASC as a context-level diagnos-tic baseline: it does not replace hand-crafted schedulers, but shows that capable LLMs can use explicit resource metadata Dimension I: Logical Planning Dimension II: Scheduling Benchmark Model GED ↓ Edge F1 ↑ SL (s) ↓ CVA ↓ Strict MRU ↑                                             
+
+> GPT-5 (Singh et al. 2025) 0.42 0.839 13.28 3.698 0.125 DeepSeek-V4-Pro (Xu et al. 2026a) 0.54 0.807 12.63 4.032 0.120 OpenAI o3 (OpenAI 2025b) 0.66 0.771 12.98 4.307 0.127
+> GLM-5 (Zeng et al. 2026) 0.65 0.772 11.81 4.616 0.119 Claude Sonnet 4.6 (Anthropic 2026) 0.67 0.764 13.20 4.358 0.126 DeepSeek-V4-Flash (Xu et al. 2026a) 0.81 0.733 12.62 3.458 0.124 Kimi-K2.5 (Team et al. 2026) 1.02 0.688 11.16 4.431 0.120 GPT-4.1 (OpenAI 2025a) 1.14 0.663 13.13 4.588 0.121 Baseline ––8.62 5.865 0.080
+
+Table 2: PeakBench benchmark results across logical planning and physical scheduling on the same PeakBench evaluation questions. Baseline denotes the earliest-ready execution state before model scheduling and is not ranked against model outputs. Bold and underline mark the best and second-best model values within each metric; ties are marked consistently. Dimension II reports no-profile model scheduling before applying RASC.                   
+
+> Method SL (s) ↓CVA ↓Strict MRU ↑
+> ASAP 8.62 5.865 0.080 Serial 15.19 2.925 0.097 Best Rule 9.13 2.925 0.141 RASC 9.11 2.938 0.165
+
+Table 3: RASC compared with classical scheduling baselines on Dimension II, averaged over three machine profiles. Bold and underline mark the best and second-best values within each metric; ties are marked consistently.                               
+
+> Model ∆SL (s) ↓∆CVA ↓∆MRU ↑
+> GPT-5 -4.31 -0.534 +0.040 DeepSeek-V4-Pro -3.51 -1.094 +0.045
+> OpenAI o3 -3.95 -1.053 +0.039 GLM-5 -2.67 -1.457 +0.041 Claude Sonnet 4.6 -3.91 -1.092 +0.021 DeepSeek-V4-Flash -3.49 +0.034 +0.039 Kimi-K2.5 -2.04 -0.305 -0.014 GPT-4.1 -4.29 -0.423 -0.028
+
+Table 4: Effect of resource-aware scheduling context. Values are RASC minus no-profile scheduling, averaged over three machine profiles. For ∆SL and ∆CVA, lower is better; for 
+
+∆MRU, higher is better. Bold and underline mark the best and second-best values within each metric. when deciding tool timing, or expose structured workflow and resource information to an external scheduler. Table 4 isolates the RASC effect by comparing RASC with each model’s no-profile schedule. For most models, RASC reduces Scheduling Latency while lowering CVA and improving strict MRU, suggesting that resource profiles help replace conservative delays with targeted staggering. DeepSeek-V4-Flash is the exception on CVA, where RASC lowers latency and improves strict MRU but slightly increases violation area, indicating that resource telemetry must still be translated into a valid temporal schedule. Additional analyses in Appendix F provide case-level support for these results. Appendix Figure 5 shows that RASC gains are largest under tighter capacity profiles. The model-level breakdown shows that GLM-5, DeepSeek-V4-Pro, Claude Sonnet 4.6, and o3 obtain the largest CVA re-ductions, while DeepSeek-V4-Flash slightly increases CVA. Appendix Tables 7, 8, and 9 show that logical planning suc-cess only weakly predicts physical scheduling safety, RASC remains beneficial under noisy resource profiles, and the gain comes primarily from CPU and memory profiles rather than generic latency awareness. 
+
+Main findings. Taken together, Table 2, Table 3, Table 4, and the analyses in Appendix F support four main findings. First, strong logical planning does not imply strong resource-aware scheduling. Second, no-profile models are not merely earliest-ready schedulers: they often add conservative delays that reduce CVA and improve strict MRU, but at substantially higher Scheduling Latency. Third, RASC turns this coarse caution into more targeted staggering, lowering latency while usually reducing CVA and improving strict MRU. Fourth, RASC nearly matches the best rule-based scheduler in CVA while achieving higher strict MRU, but the benefit remains model-dependent, showing that resource-aware orchestration is a distinct capability rather than an automatic consequence of exposing resource metadata. 
+
+# Conclusion 
+
+We introduced PeakBench, a decoupled benchmark for eval-uating LLM agents’ ability to recover workflow dependen-cies and schedule tool invocations under finite infrastruc-ture constraints. By separating logical planning from physi-cal scheduling, PeakBench makes peak-load failures measur-able and attributable beyond accuracy-centric tool-use eval-uation. Our experiments show that RASC reduces capacity violations and overload, while models still vary in how they translate resource profiles into efficient execution plans. References 
+
+Aminabadi, R. Y.; Rajbhandari, S.; Awan, A. A.; Li, C.; Li, D.; Zheng, E.; Ruwase, O.; Smith, S.; Zhang, M.; Rasley, J.; et al. 2022. Deepspeed-inference: enabling efficient inference of transformer models at unprecedented scale. In SC22: International Conference for High Performance Computing, Networking, Storage and Analysis , 1–15. IEEE. Anthropic. 2026. Claude Sonnet 4.6 System Card. https: //www.anthropic.com/claude-sonnet-4-6-system-card. Ac-cessed: 2026-07-28. Bandi, C.; Dumitru, R.-G.; Hertzberg, B.; Agarwal, D.; Boo, G.; Polakam, T.; Hassaan, S.; Da, J.; Kim, H.; Gupta, V.; et al. 2026. Mcp-atlas: A large-scale benchmark for tool-use competency with real mcp servers. arXiv preprint arXiv:2602.00933 .Besta, M.; Blach, N.; Kubicek, A.; Gerstenberger, R.; Podstawski, M.; Gianinazzi, L.; Gajda, J.; Lehmann, T.; Niewiadomski, H.; Nyczyk, P.; et al. 2024. Graph of thoughts: Solving elaborate problems with large language models. In Proceedings of the AAAI conference on artificial intelligence , volume 38, 17682–17690. Fan, S.; Ding, X.; Zhang, L.; and Mo, L. 2025. Mcptool-bench++: A large scale ai agent model context protocol mcp tool use benchmark. arXiv preprint arXiv:2508.07575 .Jain, R.; and Wetter, M. 2025. R-ConstraintBench: Eval-uating LLMs on NP-Complete Scheduling. arXiv preprint arXiv:2508.15204 .Jimenez, C. E.; Yang, J.; Wettig, A.; Yao, S.; Pei, K.; Press, O.; and Narasimhan, K. 2024. Swe-bench: Can lan-guage models resolve real-world github issues? In Inter-national Conference on Learning Representations , volume 2024, 54107–54157. Kwon, W.; Li, Z.; Zhuang, S.; Sheng, Y.; Zheng, L.; Yu, C. H.; Gonzalez, J.; Zhang, H.; and Stoica, I. 2023. Efficient memory management for large language model serving with pagedattention. In Proceedings of the 29th symposium on operating systems principles , 611–626. Li, M.; Zhao, Y.; Yu, B.; Song, F.; Li, H.; Yu, H.; Li, Z.; Huang, F.; and Li, Y. 2023a. Api-bank: A comprehensive benchmark for tool-augmented llms. In Proceedings of the 2023 conference on empirical methods in natural language processing , 3102–3116. Li, Z.; Zheng, L.; Zhong, Y.; Liu, V.; Sheng, Y.; Jin, X.; Huang, Y.; Chen, Z.; Zhang, H.; Gonzalez, J. E.; et al. 2023b. {AlpaServe }: Statistical multiplexing with model parallelism for deep learning serving. In 17th USENIX Sym-posium on Operating Systems Design and Implementation (OSDI 23) , 663–679. Liu, B.; Jiang, Y.; Zhang, X.; Liu, Q.; Zhang, S.; Biswas, J.; and Stone, P. 2023. Llm+ p: Empowering large language models with optimal planning proficiency. arXiv preprint arXiv:2304.11477 .Liu, J.; Qian, C.; Su, Z.; Zong, Q.; Huang, S.; He, B.; and Fung, Y. R. 2026. Costbench: Evaluating multi-turn cost-optimal planning and adaptation in dynamic environments for llm tool-use agents. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 12826–12858. Liu, X.; Yu, H.; Zhang, H.; Xu, Y.; Lei, X.; Lai, H.; Gu, Y.; Ding, H.; Men, K.; Yang, K.; et al. 2024. Agentbench: Evaluating llms as agents. In International Conference on Learning Representations , volume 2024, 52989–53046. Luo, Z.; Shen, Z.; Yang, W.; Zhao, Z.; Jwalapuram, P.; Saha, A.; Sahoo, D.; Savarese, S.; Xiong, C.; and Li, J. 2025. Mcp-universe: Benchmarking large language models with real-world model context protocol servers. arXiv preprint arXiv:2508.14704 .Mei, K.; Zhu, X.; Xu, W.; Hua, W.; Jin, M.; Li, Z.; Xu, S.; Ye, R.; Ge, Y.; and Zhang, Y. 2024. Aios: Llm agent operating system. arXiv preprint arXiv:2403.16971 .Mialon, G.; Fourrier, C.; Wolf, T.; LeCun, Y.; and Scialom, T. 2024. Gaia: a benchmark for general ai assistants. In Inter-national Conference on Learning Representations , volume 2024, 9025–9049. Mo, G.; Zhong, W.; Chen, J.; Yuan, Q.; Chen, X.; Lu, Y.; Lin, H.; He, B.; Han, X.; and Sun, L. 2025. Livemcpbench: Can agents navigate an ocean of mcp tools? arXiv preprint arXiv:2508.01780 .Ning, X.; Lin, Z.; Zhou, Z.; Wang, Z.; Yang, H.; and Wang, Y. 2023. Skeleton-of-thought: Large language models can do parallel decoding. Proceedings ENLSP-III .OpenAI. 2025a. Introducing GPT-4.1 in the API. https: //openai.com/index/gpt-4-1/. Accessed: 2026-07-28. OpenAI. 2025b. OpenAI o3 and o4-mini System Card. https: //openai.com/index/o3-o4-mini-system-card/. Accessed: 2026-07-28. Park, J. S.; O’Brien, J.; Cai, C. J.; Morris, M. R.; Liang, P.; and Bernstein, M. S. 2023. Generative agents: Interac-tive simulacra of human behavior. In Proceedings of the 36th annual acm symposium on user interface software and technology , 1–22. Patel, P.; Choukse, E.; Zhang, C.; Shah, A.; Goiri, Í.; Maleki, S.; and Bianchini, R. 2024. Splitwise: Efficient generative llm inference using phase splitting. In 2024 ACM/IEEE 51st Annual International Symposium on Computer Architecture (ISCA) , 118–132. IEEE. Patil, S. G.; Zhang, T.; Wang, X.; and Gonzalez, J. E. 2024. Gorilla: Large language model connected with massive apis. 
+
+Advances in Neural Information Processing Systems , 37: 126544–126565. Qin, T.; Bai, F.; Hu, T.-Y.; Vemulapalli, R.; Koppula, H. S.; Xu, Z.; Jin, B.; Cemri, M.; Lu, J.; Wang, Z.; et al. 2025. COM-PASS: Benchmarking Constrained Optimization in LLM Agents. arXiv preprint arXiv:2510.07043 .Schick, T.; Dwivedi-Yu, J.; Dessì, R.; Raileanu, R.; Lomeli, M.; Hambro, E.; Zettlemoyer, L.; Cancedda, N.; and Scialom, T. 2023. Toolformer: Language models can teach themselves to use tools. Advances in neural information processing systems , 36: 68539–68551. Singh, A.; Fry, A.; Perelman, A.; Tart, A.; Ganesh, A.; El-Kishky, A.; McLaughlin, A.; Low, A.; Ostrow, A.; Anan-thram, A.; et al. 2025. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 .Srivastava, A.; Rastogi, A.; Rao, A.; Shoeb, A. A. M.; Abid, A.; Fisch, A.; Brown, A. R.; Santoro, A.; Gupta, A.; Garriga-Alonso, A.; et al. 2023. Beyond the imitation game: Quanti-fying and extrapolating the capabilities of language models. 
+
+Transactions on machine learning research .Team, K.; Bai, T.; Bai, Y.; Bao, Y.; Cai, S.; Cao, Y.; Charles, Y.; Che, H.; Chen, C.; Chen, G.; et al. 2026. Kimi K2. 5: Vi-sual Agentic Intelligence. arXiv preprint arXiv:2602.02276 .Valmeekam, K.; Marquez, M.; Olmo, A.; Sreedharan, S.; and Kambhampati, S. 2023. Planbench: An extensible bench-mark for evaluating large language models on planning and reasoning about change. Advances in Neural Information Processing Systems , 36: 38975–38987. Valmeekam, K.; Olmo, A.; Sreedharan, S.; and Kambham-pati, S. 2022. Large language models still can’t plan (a bench-mark for LLMs on planning and reasoning about change). In NeurIPS 2022 Foundation Models for Decision Making Workshop .Wang, G.; Xie, Y.; Jiang, Y.; Mandlekar, A.; Xiao, C.; Zhu, Y.; Fan, L.; and Anandkumar, A. 2023. Voyager: An open-ended embodied agent with large language models. arXiv preprint arXiv:2305.16291 .Wang, L.; Ma, C.; Feng, X.; Zhang, Z.; Yang, H.; Zhang, J.; Chen, Z.; Tang, J.; Chen, X.; Lin, Y.; et al. 2024. A survey on large language model based autonomous agents. Frontiers of Computer Science , 18(6): 186345. Wang, Z.; Chang, Q.; Patel, H.; Biju, S.; Wu, C.-E.; Liu, Q.; Ding, A.; Rezazadeh, A.; Shah, A.; Bao, Y.; et al. 2025. Mcp-bench: Benchmarking tool-using llm agents with complex real-world tasks via mcp servers. arXiv preprint arXiv:2508.20453 .Wei, J.; Wang, X.; Schuurmans, D.; Bosma, M.; Xia, F.; Chi, E.; Le, Q. V.; Zhou, D.; et al. 2022. Chain-of-thought prompt-ing elicits reasoning in large language models. Advances in neural information processing systems , 35: 24824–24837. Wu, Z.; Liu, X.; Zhang, X.; Chen, L.; Meng, F.; Du, L.; Zhao, Y.; Zhang, F.; Ye, Y.; Wang, J.; et al. 2025. Mcpmark: A benchmark for stress-testing realistic and comprehensive mcp use. arXiv preprint arXiv:2509.24002 .Xi, Z.; Chen, W.; Guo, X.; He, W.; Ding, Y.; Hong, B.; Zhang, M.; Wang, J.; Jin, S.; Zhou, E.; et al. 2025. The rise and potential of large language model based agents: A survey. Science China Information Sciences , 68(2): 121101. Xiang, D.; Chu, K.; Xu, W.; Zhang, W.; and Zhang, W. 2026. LLM-as-Scheduler: Agentic Workflow Dynamic Scheduling. In Proceedings of the 64th Annual Meeting of the Associa-tion for Computational Linguistics (Volume 1: Long Papers) ,12752–12763. Xu, A.; Lin, B.; Xue, B.; Wang, B.; Xu, B.; Wu, B.; Zhang, B.; Lin, C.; Dong, C.; Ling, C.; et al. 2026a. Deepseek-v4: Towards highly efficient million-token context intelligence. 
+
+arXiv preprint arXiv:2606.19348 .Xu, H.; Huang, X.; Liu, Y.; and Deng, Z. 2026b. TPS-Bench: Evaluating AI agents’ tool planning & scheduling abilities in compounding tasks. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 34949–34961. Yao, S.; Zhao, J.; Yu, D.; Du, N.; Shafran, I.; Narasimhan, K.; and Cao, Y. 2022. React: Synergizing reasoning and acting in language models. arXiv preprint arXiv:2210.03629 .Ye, J.; Zhang, G.; Fu, W.; Gui, T.; Zhang, Q.; and Huang, X. 2026. CCTU: A Benchmark for Tool Use under Complex Constraints. arXiv preprint arXiv:2603.15309 .Yu, G.-I.; Jeong, J. S.; Kim, G.-W.; Kim, S.; and Chun, B.-G. 2022. Orca: A distributed serving system for {Transformer-Based } generative models. In 16th USENIX symposium on operating systems design and implementation (OSDI 22) ,521–538. Zeng, A.; Lv, X.; Hou, Z.; Du, Z.; Zheng, Q.; Chen, B.; Yin, D.; Ge, C.; Huang, C.; Xie, C.; et al. 2026. Glm-5: from vibe coding to agentic engineering. arXiv preprint arXiv:2602.15763 .Zhou, S.; Xu, F. F.; Zhu, H.; Zhou, X.; Lo, R.; Sridhar, A.; Cheng, X.; Ou, T.; Bisk, Y.; Fried, D.; et al. 2024. Webarena: A realistic web environment for building autonomous agents. In International Conference on Learning Representations ,volume 2024, 15585–15606. A Additional Related Work 
+
+LLM Agents and Tool-Augmented Reasoning. Tool-augmented LLM agents interleave reasoning with external actions through APIs, environments, and specialized tools. ReAct (Yao et al. 2022) and Toolformer (Schick et al. 2023) established tool use as a core agent capability, while systems such as Voyager (Wang et al. 2023) and SWE-bench (Jimenez et al. 2024) show that agents increasingly execute multi-step workflows rather than only generate text. These works demonstrate tool-use capability, but they do not evaluate whether concurrent tool invocations are physically sched-uled under finite resources. 
+
+Evaluation Frameworks for LLM Agents. Agent bench-marks such as API-Bank (Li et al. 2023a), GAIA (Mialon et al. 2024), BIG-bench (Srivastava et al. 2023), LiveMCP-Bench (Mo et al. 2025), MCP-bench (Wang et al. 2025), MCP-Universe (Luo et al. 2025), MCP-Atlas (Bandi et al. 2026), MCPToolBench++ (Fan et al. 2025), and MCP-Mark (Wu et al. 2025) evaluate API use, tool selection, and task completion over increasingly broad tool ecosys-tems. TPS-Bench (Xu et al. 2026b) is closest to our set-ting because it studies whether agents can plan and schedule tool calls efficiently in compounding tasks, mainly through task success and execution-efficiency measures such as time, tool-call turns, and cost. PeakBench instead isolates phys-ical scheduling under measured resource profiles, evaluat-ing whether logically valid parallel tool invocations violate finite infrastructure capacity. More broadly, existing bench-marks are essential for measuring functional capability and tool-orchestration efficiency, but they largely abstract away resource contention. 
+
+Constraint- and Cost-Aware Agent Evaluation. Recent benchmarks also study whether agents can satisfy constraints or optimize costs during tool use. CCTU (Ye et al. 2026) eval-uates tool use under explicit constraints spanning resource, behavior, toolset, and response categories, COMPASS (Qin et al. 2025) studies constrained preference optimization in multi-turn travel planning, and CostBench (Liu et al. 2026) evaluates cost-optimal planning and adaptation in dynamic tool-use environments. R-ConstraintBench (Jain and Wetter 2025) similarly stresses reasoning under interacting plan-ning and allocation constraints. PeakBench is complemen-tary: instead of treating resources primarily as semantic task constraints or monetary costs, it attaches empirical infras-tructure profiles to tool invocations and measures whether the resulting concurrent execution exceeds finite capacities. 
+
+Resource Efficiency and System Scheduling in AI. Clas-sical scheduling and modern AI serving systems study how to allocate limited compute resources. Systems such as vLLM (Kwon et al. 2023) and DeepSpeed-Inference (Am-inabadi et al. 2022) optimize inference throughput and mem-ory management, while AIOS (Mei et al. 2024) explores operating-system abstractions for LLM agents. Workflow-level systems such as LLM-as-Scheduler (Xiang et al. 2026) dynamically route queries among alternative agent work-flows to reduce latency and token cost. These works opti-mize infrastructure or workflow choice once requests arrive, whereas PeakBench asks whether the agent-side workflow itself exposes enough dependency and resource information to avoid creating avoidable peak load. 
+
+# B Detailed Resource Characterization of Agentic Tools 
+
+To accurately quantify the infrastructure strain caused by agentic tool-use, we characterize each tool invocation through a structured 5-dimensional resource footprint: r =
+
+⟨ρcpu , ρ mem , ρ gpu , ρ net , ρ io ⟩. These dimensions are strategi-cally selected to cover the complete hardware stack utilized by modern LLM-driven agents: 
+
+General-Purpose Computing (CPU & RAM). We mon-itor CPU core utilization ( ρcpu ) and memory residency (ρmem ) to capture the baseline algorithmic overhead. These dimensions represent the primary costs of general logic exe-cution and the volatile storage required for tool runtimes and intermediate data structures. 
+
+Specialized Hardware Acceleration (GPU & VRAM). 
+
+Recognizing the prevalence of “model-in-the-loop” tools, we explicitly track GPU/VRAM allocation ( ρgpu ). Unlike general-purpose memory, VRAM is a highly scarce resource in agentic clusters; tracking this dimension is critical for identifying bottlenecks in AI-intensive tasks such as image generation, local tensor operations, or specialized embedding retrievals. 
+
+Connectivity and Persistence (Network & Disk I/O). 
+
+We measure network throughput ( ρnet ) and disk I/O in-tensity ( ρio ) to account for tools that are “environment-interactive.” This includes data-intensive operations such as large-scale web scraping, external API communications, or heavy read/write tasks in database management. 
+
+Resource Profile Measurement Protocol. For each profiling-eligible tool, we generate three semantically differ-ent valid inputs with an LLM, conditioned on the tool schema and description. This input set is intended to cover typical ar-gument patterns for the tool rather than a single hand-picked example. We execute the tool once per generated input un-der an instrumented sandbox and record wall-clock duration together with CPU, memory, GPU, network, and disk-I/O telemetry. We explicitly distinguish cold-start and warm-start pro-files. A cold-start run starts from an unloaded tool or server state and therefore captures persistent setup costs such as pro-cess initialization, model loading, cache creation, or connec-tion setup. A warm-start run reuses the initialized tool state and captures the transient cost of active invocation after the tool is ready. The resulting profile stores both components: 
+
+rstatic for the persistent baseline footprint and rdynamic for the per-invocation surge. Unless otherwise stated, schedul-ing simulations use the aggregated profile obtained from the three inputs, while retaining the cold-/warm-start distinction for tools whose setup cost materially affects capacity pres-sure. 
+
+# C Construction Details of PeakBench 
+
+PeakBench is constructed to stress both dependency rea-soning and physical scheduling. We do not claim that the workflow set reproduces the full distribution of real user re-quests. Instead, we use existing API/MCP agent benchmarks Difficulty # Servers # Invocations # Workflows             
+
+> Easy 1–2 2–4 150 Medium 3–5 5–8 100 Hard 6–10 10–15 50 Total ––300
+
+Table 5: PeakBench workflow composition by difficulty tier.         
+
+> Profile Capacity rule No-prof. CVA
+> Small max(step p95, layer p65) 11.924 Medium max(step p98, layer p80) 5.068 Large max(step p99, layer p95) 0.602
+
+Table 6: Machine profiles used in Dimension II simulation. Capacities are derived from observed single-step and earliest-layer loads, not fixed hardware specifications. to seed task domains and tool-use patterns, then synthesize nearby executable workflows whose structure can be con-trolled and verified. As summarized in Table 5, the workflow set is stratified by difficulty. Easy cases contain short, shallow workflows over a small number of servers, while medium and hard cases increase both the number of servers and the num-ber of tool invocations. This design prevents the benchmark from being dominated by either trivial single-server calls or unrealistically large workflows, and creates a controlled pro-gression from simple dependency extraction to multi-server scheduling pressure. Table 1 describes the tool catalog used to instantiate these workflows. The functional taxonomy ensures cover-age across common agent use cases such as development, research, finance, content generation, and utility services. The resource-cost taxonomy is deliberately multi-label: tools can be memory-heavy, CPU-heavy, network-heavy, or disk-I/O-heavy at the same time. This matters for Dimension II because scheduling failures often come from overlapping heterogeneous costs rather than from a single tool type. To-gether, Tables 5 and 1 show that PeakBench combines con-trolled workflow complexity with diverse resource profiles. 
+
+# D Simulated Machine Profiles 
+
+Dimension II evaluates schedules under three resource regimes derived from the validated PeakBench workflows. For each resource, the small profile uses the maximum of the 95th percentile single-step load and the 65th percentile earliest-layer load; medium uses step p98 and layer p80; large uses step p99 and layer p95. This construction creates progressively relaxed capacities while keeping all profiles grounded in observed MCP tool costs. 
+
+# E RASC Scheduling Context Format 
+
+RASC exposes the scheduling objective and resource meta-data to the model in a structured JSON-style block. The fol-lowing template summarizes the fields used in the scheduling context; concrete benchmark instances fill in the question, steps, dependency structure, machine profile, and per-step resource measurements.                                                       
+
+> {"task": "<question>", "steps": {"<step_id>": "<tool call>" }, "dependency_structure": {"<step_id>": ["<prereq>", "..."] }, "earliest_depth": {"<step_id>": "<layer>" }, "scheduling_objective": {"primary": "obey dependencies", "capacity_constraint": "stay within capacity", "latency_constraint": "minimize safe makespan", "execution_semantics": "same-depth steps are concurrent" }, "machine": {"cpu_capacity": "<cpu cores>", "memory_mb_capacity": "<memory MB>" }, "resource_costs": {"schema_version": "resource_cost_v1", "steps": {"<step_id>": {"tool": "<tool_name>", "server": "<server_name>", "duration_s": "<duration>", "cpu_avg_cores": "<avg CPU>", "cpu_peak_cores": "<peak CPU>", "memory_mb": "<peak memory>", "relative_to_case": {"duration_norm": "<duration>", "cpu_peak_norm": "<CPU>", "memory_norm": "<memory>", "pressure_norm": "<pressure>" }, "relative_to_machine": {"cpu_capacity_ratio": "<CPU/cap>", "mem_capacity_ratio": "<mem/cap>", "fits_cpu": "<bool>", "fits_memory": "<bool>" }, "classes": ["<class>", "..."] }}}, "required_output": {"requested_delay": {"<step_id>": "<delay>" }, "reasoning_summary": ["short rationale"] }}
+
+Figure 5: Effect of RASC across machine profiles. Each group reports the change from no-profile scheduling to RASC; text labels show raw ∆ values. 
+
+# F Additional Experimental Results 
+
+F.1 Capacity-Profile Sensitivity 
+
+Figure 5 breaks down the effect of RASC by machine pro-file. The gains are largest on the small and medium profiles, where resource conflicts are more common, and smaller on the large profile, where many workflows are already fea-sible. This supports the interpretation that RASC mainly helps when dependency-valid schedules still need physical resource coordination. 
+
+F.2 Model-Level RASC Gains 
+
+Averaged over machine profiles, RASC reduces CVA most strongly for GLM-5 (-1.457), DeepSeek-V4-Pro (-1.094), Claude Sonnet 4.6 (-1.092), and o3 (-1.053), while DeepSeek-V4-Flash shows a slight CVA increase. 
+
+F.3 Relationship between Logical Planning and Scheduling 
+
+Table 7 reports per-model, case-level correlations between Dimension I planning outcomes and Dimension II scheduling metrics for the no-profile schedules in Table 2. CVA and strict MRU are averaged over the three machine profiles for the same case. The weak correlations indicate that a model’s success on dependency extraction for a specific workflow does not reliably predict whether it will produce a safe and efficient physical schedule for that workflow. 
+
+F.4 Resource-Profile Noise Robustness 
+
+Table 8 reports robustness to noisy resource profiles. RASC remains beneficial under 10–50% perturbations, but the feasible-rate gain decreases as profile noise increases. This analysis uses the seven model runs with complete noise-robustness results. Feasible rate is used here as an auxiliary binary safety diagnostic; the main text reports CVA and strict MRU as the primary Dimension II metrics. 
+
+F.5 RASC Input Ablation 
+
+Table 9 isolates which parts of the RASC input are responsi-ble for the scheduling improvement. The main phenomenon is that latency awareness alone is not enough: providing only duration information does not improve feasibility over the no-profile setting. The improvement appears once CPU and memory profiles are exposed, which indicates that the method works by helping the model reason about capacity conflicts rather than by simply encouraging shorter or longer schedules. We report feasible rate here as a compact auxiliary safety diagnostic for this ablation. The remaining rows in Table 9 further show that CPU and memory account for nearly all of the observed gain in the current benchmark. Adding the full profile or machine-normalized ratios changes the result only marginally, sug-gesting that the dominant scheduling bottleneck is the coarse capacity conflict captured by CPU and memory pressure. We therefore use the full structured RASC format in the main experiments for completeness, while interpreting its effect primarily as resource-capacity awareness rather than generic context enrichment. Model CVA ↓ strict MRU ↑
+
+Exact r Edge F1 r Exact r Edge F1 r
+
+GPT-5 -0.097 -0.003 +0.049 +0.027 DeepSeek-V4-Pro -0.115 -0.023 +0.094 +0.067 OpenAI o3 -0.102 -0.028 +0.030 +0.001 GLM-5 -0.098 -0.036 +0.098 +0.102 Claude Sonnet 4.6 -0.063 -0.000 +0.054 +0.062 DeepSeek-V4-Flash -0.093 -0.022 +0.036 +0.031 Kimi-K2.5 -0.105 -0.045 +0.053 +0.047 GPT-4.1 -0.053 -0.004 -0.052 -0.063 
+
+Table 7: Per-model case-level Pearson correlation between logical planning and physical scheduling. CVA and strict MRU are averaged over three machine profiles for each case. 
+
+Machine Noise Feasible ∆ Violation reduction SL overhead 
+
+Large 10% +4.4 0.279 +0.14s Large 25% +4.1 0.305 +0.14s Large 50% +3.2 0.354 +0.14s Medium 10% +10.4 2.488 +0.49s Medium 25% +8.4 2.601 +0.50s Medium 50% +6.0 2.792 +0.50s Small 10% +6.2 4.536 +0.59s Small 25% +4.8 4.804 +0.60s Small 50% +3.5 5.282 +0.60s 
+
+Table 8: Resource-profile noise robustness. We perturb resource profiles before scheduling and report averages over seven complete model runs. Feasible ∆ is the RASC improvement over no-profile scheduling. 
+
+Input Feas. ∆ Viol. red. 
+
+No profile 74.9% – –Duration only 74.9% +0.0 −0.0%CPU+memory 87.6% +12.7 48.5% Full profile 87.8% +12.9 48.1% Full + ratio 87.6% +12.7 45.8% 
+
+Table 9: RASC input ablation using DeepSeek-V4-Flash on the PeakBench evaluation set and three machine profiles.

@@ -1,0 +1,1259 @@
+Title: ALPHABET: A Laplace-Pole History Aggregator with Banked Exponential Transport
+
+URL Source: https://arxiv.org/pdf/2608.24051v1
+
+Published Time: Wed, 26 Aug 2026 00:33:00 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# ALPHABET: A Laplace-Pole History Aggregator with Banked Exponential Transport 
+
+## Daehwa Ko, JaeHyeon Kim, Oh Seong Kwon, and Jay Hoon Jung 
+
+Department of Artificial Intelligence, Korea Aerospace University, Goyang, Republic of Korea daehwa001210@gmail.com, kjh990127@kau.kr, kos_25@kau.kr, jhjung@kau.ac.kr 
+
+Abstract 
+
+Can a sequence model remain competitive with only a few thousand parameters and an explicitly auditable prediction interface? We introduce ALPHABET, a compact linear-time model that compresses temporal history into stable complex pole modes: a direct bank synthesizes its modal states back into the feature trajectory, an independent cascaded bank analyzes the transformed trajectory without resynthesis, and an affine head reads only modal energies and lag moments from both banks. We characterize the temporal information this descriptor retains: for a stationary, fully observed feature process, each mode energy is a frequency-localized measurement of the second-order spectrum, the continuum of such measurements identifies the spectrum, and almost every mode separates any fixed finite set of spectrally distinct classes. On a Gaussian control with matched low-lag statistics, the learned descriptor approaches the Bayes oracle where raw autocovariances remain at chance. Across the fixed 82-task registry, ALPHABET attains mean rank 3.97 in the complete ten-family comparison. At the common-width D = 64 runtime anchor, its 6,437 parameters deliver 5.02 × faster inference and 3.93 × faster complete training steps than the nine baselines on average. 
+
+## Introduction 
+
+A sequence model turns temporal history into a state that a predictor can use. Modern architectures have made that state increasingly powerful: gated recurrence propagates hidden states token by token, attention constructs contextual represen-tations from pairwise interactions, and structured or selective state-space models evolve states through learned dynamics (Hochreiter and Schmidhuber 1997; Cho et al. 2014; Vaswani et al. 2017; Gu, Goel, and Re 2022; Gu and Dao 2024). Yet competitive temporal prediction should not require a large, slow, and opaque backbone—and opacity has a concrete cost: it is rarely stated which temporal information the retained state preserves. Without such an account, the adequacy of a com-pact state is assessed mainly through downstream accuracy, and it remains unclear where its guarantees end. We therefore study how much discriminative temporal structure a deliberately compact, stable state can preserve. Classical model reduction asks how few dynamical degrees of freedom approximate a known input–output system (Moore 1981; Antoulas 2005; Benner, Gugercin, and Willcox 2015). We pose the analogous question for prediction: a sequence encoder summarizes its recurrent states into a compact pre-diction interface, aiming not to reconstruct every input token but to expose a small set of temporal measurements whose meaning, stability, and empirical utility can all be checked. ALPHABET uses two banks of complex recurrent modes parameterized by stable Laplace poles, with each pole specify-ing the decay and oscillation of its mode. Pole locations may be trained, but the spectral coverage of the bank and its modal moment readout are the essential construction. An input lift first forms a real-valued feature trajectory. The direct pole bank then accumulates projected features through interval-aware modal dynamics, projects the resulting complex states back into the real feature space, and adds them to the feature trajec-tory. An independent cascaded pole bank applies a second set of modal dynamics to the resulting, nonlinearly transformed trajectory—a feature process shaped by direct-bank synthesis rather than the original lifted trajectory—without resynthesis. Both banks return mode-wise energies and complex-lag mo-ments, whose concatenation forms a fixed affine prediction interface. The representation also has a precise population interpre-tation: for a stationary feature process, each pole energy is a directional, Poisson-localized measurement of its matrix-valued spectrum. The continuum of admissible measurements uniquely identifies that spectrum, and almost every admis-sible mode separates any fixed finite collection of distinct class spectra. Whenever a finite bank contains such a mode, there exists an affine head that exactly separates the resulting population prototypes. Under ergodicity, the corresponding empirical decision becomes consistent as sequence length grows. Independently, stable normalized dynamics bound the realized descriptor uniformly in sequence length. This analysis characterizes the information available to the model for a fixed feature process. Because the head is affine in these modal statistics, auditability is concrete: each predicted margin splits exactly into per-pole terms, and removing the top-attributed poles degrades accuracy far beyond random removal. The empirical study asks whether this structured compres-sion retains useful predictive information in practice. Our contributions are threefold. First, we introduce a linear-time sequence model with a direct pole bank, an independent cascaded pole bank, and a fixed affine prediction interface that reads only mode-wise energies and lag moments from arXiv:2608.24051v1 [cs.LG] 25 Aug 2026 Figure 1: ALPHABET architecture. The direct bank produces a 7×M modal descriptor (seven coordinates for each of M modes) and synthesizes H(1) ; the independent cascaded bank returns a second 7×M descriptor without resynthesis. Their concatenation forms the 14 ×M -dimensional affine prediction interface. both banks. Second, for a fixed, fully observed, equal-step, second-order stationary feature process, we characterize mode energies as frequency-localized spectral measurements, show that the continuum family identifies the second-order spec-trum, and establish generic population separation for finite collections of spectrally distinct classes. Separately, stable interval-aware dynamics and normalized excitation yield sequence-length-independent bounds for realized finite-bank prediction interfaces. Third, we test whether end-to-end learn-ing realizes useful finite-mode representations through a fixed 82-task registry and a complete 82-task comparison against nine trainable sequence-model families, a moment-matched spectral diagnostic, and boundary and systems audits across data regimes, corruptions, sequence shapes, and execution phases. 
+
+## Related Work 
+
+Temporal state construction. Recurrent models such as LSTMs and GRUs propagate gated hidden states through time, while Transformers construct contextual representations through attention (Hochreiter and Schmidhuber 1997; Cho et al. 2014; Vaswani et al. 2017). Structured and diagonal state-space models, including HiPPO, S4, DSS, S4D, S5, LRUs, and Mamba, instead represent temporal history through learned linear or selective dynamics (Gu et al. 2020; Gu, Goel, and Re 2022; Gupta, Gu, and Berant 2022; Gu et al. 2022; Smith, Warrington, and Linderman 2023; Orvieto et al. 2023; Gu and Dao 2024). Models for irregular observations, such as GRU-D, ODE-RNN, Latent ODE, and Neural CDE, additionally incorporate elapsed time through explicit decay, continuous-time evolution, or controlled differential equations (Che et al. 2018; Rubanova, Chen, and Duvenaud 2019; Kidger et al. 2020). ALPHABET shares the linear-time recurrent form of diagonal state-space models but differs in its prediction interface: the head never sees the state trajectory itself, only mode-wise energies and complex-lag moments from the two banks. 
+
+Structured spectral representations. Balanced reduction, dynamic mode decomposition, and Laguerre or Kautz bases seek compact dynamical descriptions (Moore 1981; Antoulas 2005; Schmid 2010; Wahlberg and Mäkilä 1996; Ninness and Gustafsson 1997). Filter-output covariance and state co-variance are classical spectral interpolation objects (Byrnes, Georgiou, and Lindquist 2000; Georgiou 2002); wavelet variances, random autoregressive filter banks, recurrent co-variance features, and complex-pole arrays provide related localized summaries (Li and Oh 2002; Farahmand, Pourazarm, and Nikovski 2017; Gilson et al. 2020; Orellana, Mirtaheri, and Hammer 2021). Dedicated time-series models—random convolutional pipelines such as ROCKET and MiniRocket (Dempster, Petitjean, and Webb 2020; Dempster, Schmidt, and Webb 2021) and specialized architectures such as In-ceptionTime and TimesNet (Ismail Fawaz et al. 2020; Wu et al. 2023)—achieve strong accuracy on the same archives; our comparison instead spans generic trainable sequence backbones under one shared protocol covering classification, forecasting, and irregular sampling, so we view them as complementary rather than competing baselines. Our use of learned poles is supervised, but the main distinction is not the filter family alone: we connect the implemented modal statistics to a characteristic continuum embedding, generic affine separation, and a bounded prediction interface. 
+
+## ALPHABET 
+
+Notation and shapes. Suppressing the batch dimension, let X = [ x1, . . . , x T ]⊤ ∈ RT ×C , h ∈ RT
+
+> ≥0
+
+, o ∈ { 0, 1}T ×C ,and w ∈ { 0, 1}T . Here, ht is the elapsed time from step t − 1
+
+to t, while ot,c and wt indicate channel availability and token validity, respectively; a token-level scalar mask is broadcast across channels. We define the event-level availability eot =max c ot,c . The mask o removes unavailable raw entries, its reduction eo gates external excitation, and w excludes padded or invalid tokens from local features and moment estimates. Let D, M , and K denote the real feature width, the num-ber of complex modes per bank, and the output dimension, respectively, and let r = 1 , 2 index the direct and cascaded banks, respectively. 
+
+H(r−1) , U (r) ∈ RT ×D, Z(r) ∈ CT ×M , WX ∈ RD×C ,Ar ∈ RD×2M , A⊤ 
+
+> r
+
+Ar = I2M , 2M ≤ D. 
+
+The paired coordinates of Ar form the real and imaginary parts of the M complex excitations. The finite set T ⊂
+
+N>0 contains the token lags used by the modal readout, and s1, γ 1 ∈ RD parameterize the direct-bank residual and feedthrough terms. We write ϕ(r)(X), g(X), and fΘ(X),suppressing their dependence on h, o, w .
+
+Stable Laplace-pole dynamics 
+
+Fix a bank r ∈ { 1, 2} and suppress its index. For each mode 
+
+m ∈ { 1, . . . , M }, let 
+
+λm = −αm + iω m, αm > 0,
+
+where αm and ωm are the decay rate and angular frequency. ALPHABET maps vt ∈ RD to complex excitations et ∈ CM ,with m-th component em,t .Let pm,t = eλmht and zm,t ∈ C denote the discrete pole and modal state. Under a zero-order hold on em,t , the exact evolution is 
+
+zm,t = pm,t zm,t −1 + χ(r)
+
+> t
+
+pm,t − 1
+
+λm
+
+em,t . (1) The injection gates are 
+
+χ(1)  
+
+> t
+
+= wteot, χ(2)  
+
+> t
+
+= wt.
+
+Thus wt blocks injection at invalid tokens, while eot addition-ally blocks direct-bank injection at fully unobserved tokens; neither stops the elapsed-time state transition. The cascaded bank omits o to preserve memory transported by the direct bank. For ht > 0,
+
+|pm,t | = e−αmht < 1.
+
+Regular sampling therefore yields a fixed pole pm, whereas irregular sampling changes pm,t with ht while preserving stability. 
+
+Modal moment readout 
+
+For either bank, suppress the bank index and set wt,τ =
+
+wtwt−τ for in-range pairs and zero otherwise. For each 
+
+τ ∈ { 0} ∪ T , mode m contributes 
+
+Rm,τ =
+
+P 
+
+> t
+
+wt,τ zm,t zm,t −τ
+
+max {1, P 
+
+> t
+
+wt,τ } . (2) Here Rm, 0 is the empirical modal energy, while the com-plex nonzero-lag moments retain phase-sensitive temporal dependence. Define 
+
+rlog( u) = 
+
+log(1 + |u|) u/ |u|, u̸ = 0 ,
+
+0, u = 0 .
+
+Representing each complex value by its real and imaginary parts, the descriptor of mode m is 
+
+ϕm =
+
+h
+
+log(1 + Rm, 0)  rlog Rm,τ 
+
+ 
+
+> τ∈T
+
+i
+
+∈ R1+2 |T | . (3) 
+
+Algorithm 1 ALPHABET forward pass 
+
+Require: Values X, intervals h, observation mask o, validity mask 
+
+w, lag set T
+
+1: α(r) 
+
+> m
+
+← αmin + ( αmax − αmin ) sigmoid( δ(r) 
+
+> m
+
+)
+
+2: ω(r) 
+
+> m
+
+← ωmax tanh( ϑ(r) 
+
+> m
+
+), λ(r) 
+
+> m
+
+← − α(r) 
+
+> m
+
++ iω (r)
+
+> m
+
+3: eot ← max c ot,c 
+
+4: χ(1)  
+
+> t
+
+← wt eot, χ(2)  
+
+> t
+
+← wt
+
+5: H(0) ← w ⊙ SiLU(DWConv( w ⊙ (( o ⊙ X)W ⊤ 
+
+> X
+
+))) 
+
+6: U (1) ← RMSNorm( H(0) )
+
+7: [E(1)  
+
+> ℜ
+
+| E(1)  
+
+> ℑ
+
+] ← U (1) A1, E(1) ← E(1)  
+
+> ℜ
+
++ iE (1) 
+
+> ℑ
+
+8: Z(1) ← DirectBankScan( E(1) ; λ(1) , h, χ (1) )
+
+9: H(1) ← H(0) + s1 ⊙
+
+
+
+[ℜZ(1) | ℑ Z(1) ]A⊤ 
+
+> 1
+
++ γ1 ⊙ U (1) 
+
+
+
+10: ϕ(1) ← MomentReadout( Z(1) ; w, T )
+
+11: H(1) ← w ⊙ H(1) 
+
+12: U (2) ← w ⊙ RMSNorm 
+
+
+
+SiLU(DWConv( H(1) )) 
+
+
+
+13: [E(2)  
+
+> ℜ
+
+| E(2)  
+
+> ℑ
+
+] ← U (2) A2, E(2) ← E(2)  
+
+> ℜ
+
++ iE (2) 
+
+> ℑ
+
+14: Z(2) ← CascadedBankScan( E(2) ; λ(2) , h, χ (2) )
+
+15: ϕ(2) ← MomentReadout( Z(2) ; w, T )
+
+16: return Whead [ϕ(1) | ϕ(2) ] + bhead 
+
+We use T = {1, 2, 4}, giving seven real coordinates per mode and 7M coordinates per bank. Let ϕ(r)(X) ∈ R7M
+
+concatenate the mode descriptors from bank r. The final descriptor and logits are g(X) = [ ϕ(1) (X) | ϕ(2) (X)] ∈
+
+R14 M and fΘ(X) = Whead g(X) + bhead ∈ RK .
+
+## Theoretical Properties of Modal Compression 
+
+Pole moments as spectral measurements 
+
+On an equal-step, fully observed grid, let V (y) 
+
+> t
+
+∈ RD be the second-order stationary feature process entering a pole bank for class y, with spectral measure Fy defined by 
+
+Γy (k) = E[V (y)
+
+> t+k
+
+V (y)⊤ 
+
+> t
+
+] = 
+
+Z π
+
+> −π
+
+eikθ Fy (dθ ). (4) We use uncentered moments, so a nonzero feature mean appears as an atom at frequency zero. For orthonormal analysis directions a, b ∈ RD, set c = a + ib and e(y) 
+
+> t
+
+= V (y)⊤ 
+
+> t
+
+c,whose scalar spectral measure is μy,c (dθ ) = c⊤Fy (dθ )¯ c.Write p = eλh = ρe iφ and γh(λ) = ( eλh − 1) /λ . Here 
+
+φ selects the preferred frequency, while ρ < 1 controls the bandwidth. The frequency response and stationary state are 
+
+Hλ,h (eiθ ) = γh(λ)1 − pe −iθ , zt = γh(λ)
+
+> ∞
+
+X
+
+> j=0
+
+pj et−j . (5) Stable linear filtering gives (Byrnes, Georgiou, and Lindquist 2000; Georgiou 2002) 
+
+Qy (c, λ ; h) := E|zt|2 = |γh(λ)|2
+
+Z π
+
+> −π
+
+μy,c (dθ )
+
+|eiθ − p|2 , (6) 
+
+Ry,τ (c, λ ; h) := E[zt ¯zt−τ ] = |γh(λ)|2
+
+Z π
+
+> −π
+
+eiτ θ μy,c (dθ )
+
+|eiθ − p|2 .
+
+(7) Thus Qy is localized spectral mass rather than energy at a single Fourier frequency. The kernel is centered near φ
+
+and sharpens as ρ approaches one. Defining Pp(θ) = (1 −|p|2)/|eiθ − p|2 gives 
+
+1 − | p|2
+
+|γh(λ)|2 Qy (c, λ ; h) = 
+
+Z
+
+Pp(θ) μy,c (dθ ). (8) Hence modal energy is a positive rescaling of a Poisson-localized spectral mass. The complex moments Ry,τ retain phase-sensitive lag information and provide additional coor-dinates for the implemented finite bank. 
+
+Characteristicness and affine separation 
+
+Define the directional Poisson transform 
+
+PF(c, p ) := 
+
+Z π
+
+> −π
+
+Pp(θ) c⊤F(dθ )¯ c. (9) For fixed c, this transform determines the directional spectral measure; varying the real and imaginary directions recovers the full matrix-valued measure. Its real-analytic parameter dependence yields the following result. 
+
+Theorem 1 (Characteristicness and generic separation) . Let 
+
+D ≥ 3, let V2(RD ) be the Stiefel manifold of orthonormal direction pairs, and let Λp be a connected open set of poles satisfying 0 < |p| < 1. Set Ξ = V2(RD ) × Λp and, for 
+
+ξ = (( a, b ), p ) ∈ Ξ, define PF(ξ) = PF(a + ib, p ).If finite matrix-valued spectral measures F and G satisfy 
+
+PF(ξ) = PG(ξ) on a measurable set E ⊆ Ξ of positive smooth volume, then F = G. Consequently, for any pairwise distinct F1, . . . , FK , their transform values are pairwise distinct for almost every ξ ∈ Ξ. Injectivity also holds at any fixed damping radius ρ ∈ (0 , 1) when frequency and direction pairs vary. For p = eλh ,
+
+QF(c, λ ; h) = |γh(λ)|2
+
+1 − | p|2 PF(c, p ).
+
+The positive class-independent factor transfers generic sep-aration to the modal energies Qy . Thus a generic mode can separate classes that have the same feature mean and Γ(0) 
+
+but differ in some Γ( k), k̸ = 0 .
+
+Corollary 1 (Affine realizability and sequence-length con-sistency) . Fix a mode whose class energies Q1, . . . , Q K are pairwise distinct, and set qy = log(1 + Qy ). The affine log-its ℓy (q) = 2 qy q − q2 
+
+> y
+
+classify every population prototype exactly, since 
+
+ℓi(qi) − ℓj (qi) = ( qi − qj )2 > 0 (i̸ = j).
+
+Suppose each class feature process is stationary ergodic with finite second moments. For the zero-initialized state trajectory, define 
+
+bQT = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+|zt|2, byT = arg max 
+
+> j
+
+ℓj
+
+
+
+log(1 + bQT )
+
+
+
+.
+
+Then 
+
+bQT
+
+> a.s.
+
+−−−−→  
+
+> T→∞
+
+Qy , Pr( byT̸ = y) −→ 0. (10) Under bounded excitation and summable energy autoco-variance, the supplementary proof gives an O(T −1) error-probability bound. When 2M ≤ D, the separating direction pair can be completed to the model’s semi-orthogonal M -mode frame; finite-bank margins are examined below. 
+
+Information-preserving moment conditioning 
+
+We show that the logarithmic conditioning used in the modal descriptor preserves moment information while controlling perturbations. 
+
+Lemma 1 (Moment conditioning) . For 
+
+u =  u0, (uτ )τ ∈T 
+
+ ∈ R≥0 × C|T | ,
+
+define 
+
+Ψ( u) = 
+
+h
+
+log(1 + u0)  rlog( uτ ) 
+
+> τ∈T
+
+i
+
+,
+
+identifying complex coordinates with pairs of real coordinates. Then Ψ is injective and, for all u, v ,
+
+∥Ψ( u)−Ψ( v)∥22 ≤ ⟨ Ψ( u)−Ψ( v), u −v⟩ ≤ ∥ u−v∥22. (11) Moreover, if ∥u∥2, ∥v∥2 ≤ U , then 
+
+11 + U ∥u − v∥2 ≤ ∥ Ψ( u) − Ψ( v)∥2 ≤ ∥ u − v∥2. (12) These statements extend to direct sums over all modes and both banks. The proof and a trajectory-to-descriptor perturbation bound are in the supplement. 
+
+Stable dynamics and bounded prediction 
+
+Unlike the spectral results, the following bounds require only stable poles, bounded normalized excitation, and ht ≥ 0, and apply to both banks. 
+
+Proposition 1 (Modal input-to-state bound) . If α⋆ =min m αm > 0, ∥et∥2 ≤ V , and Tn = Pnt=1 ht, then 
+
+∥zn∥2 ≤ e−α⋆Tn ∥z0∥2 + Vα⋆
+
+(1 − e−α⋆Tn ). (13) Thus, for z0 = 0 , ∥zn∥2 ≤ V /α ⋆ independently of token count. Modewise and synthesized-stream refinements are given in the supplement. 
+
+Corollary 2 (Bounded prediction interface) . Let ηr ∈ RD be the RMSNorm gain of bank r ∈ { 1, 2}. Semi-orthogonality and RMS normalization imply 
+
+∥e(r) 
+
+> t
+
+∥2 ≤ κr := √D∥ηr ∥∞, Br,m := κr
+
+α(r)
+
+> m
+
+.
+
+Define 
+
+C2 
+
+> g
+
+= (1 + |T | )
+
+> 2
+
+X
+
+> r=1
+> M
+
+X
+
+> m=1
+
+log 2(1 + B2
+
+> r,m
+
+).
+
+With zero-initialized stable states, 
+
+∥g(X)∥2 ≤ Cg ,
+
+∥fΘ(X)∥2 ≤ ∥ Whead ∥2Cg + ∥bhead ∥2, (14) 10K 30K 100K     
+
+> median trainable parameters
+> 4567
+> mean rank (46 tasks)
+> CNN1D GRU LRU LSTM Mamba S4D S5 TCN Transformer
+> ALPHABET
+> 10K 30K 100K 300K
+> anchor trainable parameters
+> 0.1 0.5 1510
+> latency (ms)
+> ALPHABET
+> inference complete step
+> CNN1D GRU LRU LSTM Mamba S4D S5 TCN Transformer
+
+Figure 2: Predictive and systems efficiency. Left: Mean TEST rank versus median trainable parameters over the complete ten-family subset. Right: FP32 inference and complete-step latency at the same-width D = 64 anchor ( B = 32 , T =512 ). uniformly over finite raw-input amplitudes, sequence lengths, validity patterns, and nonnegative interval grids in exact arithmetic. This independence from raw-input amplitude and upstream operator norms follows because RMS normalization precedes each scan and the head uses only modal moments. 
+
+## Experiments 
+
+Evaluation protocol 
+
+We evaluate a fixed registry of 82 public tasks: 30 UCR datasets (Dau et al. 2019), 31 multivariate sequence and vibra-tion/fault tasks including UEA (Bagnall et al. 2018), and 21 additional sequence, ECG, clinical/activity, and forecasting tasks. The registry spans univariate and multivariate signals, regular and irregular observations, and classification, multil-abel, and forecasting objectives; it is coverage-oriented rather than archive-exhaustive (Bagnall et al. 2017). Each task is trained independently on its predefined split, with no pooled multi-dataset training. All ten families complete every task without missing or imputed cells. For each task–family pair, one of 18 family-native candidates is selected using TRAIN-derived validation, frozen before TEST, and evaluated over five final-training seeds. Full registry, split, preprocessing, and selection appear in the supplement. 
+
+Predictive rank, capacity, and systems efficiency 
+
+The left panel of Figure 2 summarizes predictive rank and model capacity on the 82 tasks with complete results for all ten families. ALPHABET has mean rank 3.97 , 14 Top-1 placements, and 43 Top-3 placements. We optimize ALPHABET with parity-gated Triton kernels and shape-static CUDA Graph capture, then measure steady-state FP32 inference and complete training steps against nine baselines on one RTX 4090. We use each family’s fastest pub-lic implementation under an identical measurement harness, enabling compiled kernels when provided. At the evaluation-width anchor ( D=64 , B=32 , T =512 ), ALPHABET is the smallest and fastest model tested, with 6,437 trainable pa-rameters, 5.02 × faster inference and 3.93 × faster complete steps on average. Across the broader audited grid of batch sizes and sequence lengths, this efficiency advantage gener-ally persists, although its magnitude varies with execution phase, shape, and baseline. Full shape-wise results, timing methodology, and numerical-parity checks are reported in the supplementary systems evaluation. 
+
+Controlled spectral recovery under structural compression 
+
+Theorem 1 establishes continuum identification and generic population separation for fixed, spectrally distinct feature processes. The remaining finite-bank question is whether end-to-end learning realizes a margin large enough to estimate and exploit in practice. Moreover, because almost every ad-missible mode separates any fixed finite collection of distinct spectra, a covering fixed random bank can plausibly remain competitive with learned poles. The following diagnostics test these predictions using TRAIN-derived validation only. We use a stronger moment-matched control. Class 0 is unit-variance white Gaussian noise; class 1 is a sparse stationary MA(5) process with nonzero coefficients only at lags 0 and 5, 
+
+Xt = aZ t + bZ t−5, where a2 + b2 = 1 and 2ab = ϵ. Their population autocovariances agree exactly for lags 0 through 4 and first differ at lag 5. Moment matching removes population separation from the explicitly supplied lag-0:4 coordinates, turning Figure 3 into a controlled test of higher-lag spectral access under compression. Consistent with this population match, the raw bΓ(0:4) control remains at chance empirically, while the oracle-informed bΓ(0:8) control nearly reaches the Bayes ceiling. The full ALPHABET descriptor rises from 
+
+.567 to .991 as the spectral separation ϵ increases, without being given the distinguishing lag. At ϵ = .4, the 5.7k-parameter descriptor (the diagnostic-task configuration) reaches .856 balanced accuracy, compared with .787 for LRU and .750 for S4D under the evaluated configurations. Increasing T closes the remaining gap: Bayes-normalized excess-over-chance accuracy rises from 91 .3% 
+
+at T = 128 to 99 .7% at T = 1024 . This supports a finite-sample explanation for the short-sequence deficit; it does not establish the O(T −1) rate or exact asymptotic equivalence to Bayes. 
+
+Focused structural ablation 
+
+We isolate the two-scan design under a doubly matched control: M ′ = 32 gives the one-scan baseline the same 224 real coordinates as the two 7M summaries, and D′ = 72 
+
+equalizes trainable parameters on every task. It is not a smaller model, but the same budget spent on a single bank. The audit contains 17 UCR tasks, each run over five TRAIN-derived validation seeds with no TEST access. The full model exceeds the capacity-matched one-scan con-trol by 3.33 points (task-paired 95% CI [0 .05 , 6.62] ; W/T/L 
+
+10 /3/4). It exceeds the no-synthesis and energy-only con-trols by 1.67 ([−0.53 , 3.88] ) and 5.48 points ( [0 .74 , 10 .21] ), respectively. The energy-only MLP remains matched within 0.2 0.4 0.6 0.8       
+
+> spectral separation
+> 0.5 0.6 0.7 0.8 0.9 1.0
+> validation balanced accuracy
+> chance = .50
+> 128 256 512 1024 2048
+> sequence length T
+> 0.86 0.88 0.90 0.92 0.94 0.96 0.98 1.00
+> (BA  . 5)/(Bayes  . 5)
+> Bayes-normalized ceiling 91.3% 93.5% 97.2% 99.7% 99.7%
+> Bayes ceiling raw (0 : 4)
+> raw (0 : 8)
+> ALPHABET (5.7k) S4D (21.6k) LRU (25.7k) GRU (200k) Transformer (67.2k)
+
+Figure 3: Controlled spectral recovery under structural com-pression. Left: Validation balanced accuracy versus spectral separation over five seeds. Right: Bayes-normalized excess-over-chance accuracy versus sequence length with paired 95% Student-t intervals. All results use TRAIN-derived validation only. 
+
+0.2% of the full model’s trainable count, so extra head capac-ity does not generally recover the lag-coordinate information. Fixed poles trail by 1.67 points but remain statistically com-petitive ( [−1.01 , 4.36] ), as the genericity result predicts. None of the four reported contrasts has Holm-adjusted p < . 05 ; the results therefore indicate a task-dependent two-scan advantage without treating any component as universally necessary. 
+
+Pole-level prediction audit 
+
+For predicted class y and runner-up j, the affine head gives an exact per-pole margin decomposition. Let Ib,m index the seven coordinates of bank b and pole m, and let μ be the optimization-fold mean descriptor: 
+
+cb,m = ( Wy − Wj )⊤ 
+
+> Ib,m
+
+(g − μ)Ib,m ,βyj (μ) = by − bj + ( Wy − Wj )⊤μ, ℓy − ℓj = βyj (μ) + X
+
+> b,m
+
+cb,m .
+
+This algebraic identity reconstructs FP32 margins within 
+
+8.6×10 −6. Unlike an unstructured coordinate decomposition, ALPHABET groups its compact descriptor explicitly by bank and pole. Removal replaces a pole’s seven descriptor coordinates with their optimization-fold means, leaving all other coordinates in-
+
+Variant BA ∆ (pp) Seed SD Med. params Full two-scan .863 — .061 5,698 Matched one-scan .830 −3.33 .074 5,698 No synthesis .847 −1.67 .071 5,570 Fixed poles .847 −1.67 .074 5,634 Energy-only MLP .808 −5.48 .085 5,705 
+
+Table 1: Matched structural ablation on 17 UCR tasks and five TRAIN-derived validation seeds. BA and seed SD are averaged across tasks, parameter counts are task-wise medians, and ∆ is relative to the full model. ( )
+
+> 2, 3
+> 1, 5
+> 1, 4
+> 1, 6
+> 1, 2
+> rest
+
+0123        
+
+> Predicted vs runner-up margin  () = +1.13; c= +2.61
+> margin = +3.74
+> (a) ECG200: exact margin ledger
+> random bottom random bottom 0.0 0.2 0.4
+> validation difference  +29 pp +32 pp +18 pp +32 pp
+> removal retention
+> (b) Frozen ranking predicts reliance
+
+Figure 4: Pole attribution audit. Left: Exact ECG200 margin contributions from the top five poles and remainder. Right: Validation contrasts for frozen TRAIN-ranked top-eight re-moval/retention against random and bottom controls over 17 datasets. Points denote datasets, diamonds means, and bars paired 95% t intervals. tact. Across 17 datasets and 85 checkpoints, optimization-fold pole rankings transfer to validation with mean rank correlation 
+
+.990 . Removing the top eight poles reduces balanced accuracy by 26 .9 points more than random removal (paired 95% CI 
+
+[19 .0, 34 .7] ), while retaining only the top eight improves full-model agreement (prediction agreement with the unmasked model) by 23 .3 points over random retention ( [16 .6, 30 .0] ). The top-versus-bottom contrasts are 29 .4 ([21 .2, 37 .7] ) and 
+
+43 .7 points ( [33 .8, 53 .6] ), respectively (Figure 4). The cascaded bank accounts for 63 .5% of validation attri-bution and 64 .4% of top-eight positions, with at least one cas-caded pole in 84 of 85 checkpoints. Removing all 16 cascaded poles costs 13 .6 points more than a size-matched random mask ([6 .8, 20 .4] ), whereas cascaded-only retention remains border-line and inconclusive ( 4.3 points, [−0.04 , 8.65] ; p = .052 ). Thus the audit shows systematic use of the cascaded bank without treating mean masking as proof of architectural ne-cessity. 
+
+Corruption audit 
+
+Mechanistic prediction. The modal equations predict an asymmetric response to these corruptions. If a residual global scale s > 0 reaches a linear modal path, then 
+
+Q(s) 
+
+> m
+
+= s2Qm, R(s) 
+
+> m,τ
+
+= s2Rm,τ .
+
+Scaling therefore preserves modal phase, while the radial-log map compresses the magnitude change to log(1 + s2|Rm,τ |).RMS normalization before each scan further attenuates global scale changes, although the nonlinear lift prevents exact invariance. Writing the exact interval update as 
+
+Φh(z, e ) = eλh z + γh(λ)e, 
+
+constant excitation gives 
+
+Φh2 (Φ h1 (z, e ), e ) = Φ h1+h2 (z, e ).
+
+Elapsed-time transport is therefore resolution-consistent un-der a zero-order-hold signal, although discarded samples, clean amp ×0.5 amp ×1.5 half rate noise  
+
+> σ=.1 noise
+> σ=.2 0.3 0.4 0.5 0.6
+> balanced accuracy
+> +2.1 +3.4 +8.1 +4.1 -5.3 -9.3
+> rescaling and resampling leave the statistics intact broadband noise attacks the statistics
+> ALPHABET six controls (range)
+
+Figure 5: Corruption audit on 17 UCR datasets and five seeds. Gray bars span the nine controls’ across-task means, stars show ALPHABET’s across-task mean, and annotations give its gap to the best control mean. These synthetic corruptions are not domain-level OOD. aliasing, and token-lag readout prevent exact invariance after downsampling. Additive white noise acts differently. Under the feature-space idealization Vt = St + Nt, with independent isotropic white noise Cov( Nt) = σ2I, the spectral identities give 
+
+QS+N = QS + ν, RS+N,τ = RS,τ + νp τ ,ν = σ2∥c∥22
+
+|γh(λ)|2
+
+1 − | p|2 > 0, p = eλh .
+
+Thus white noise creates a pole-dependent energy floor and contaminates the lag moments; radial-log conditioning com-presses but does not remove these terms. The model should therefore be comparatively more robust to amplitude and sampling-resolution shifts than to broadband additive noise. We test this prediction against nine validation-frozen con-trols under five deterministic TEST corruptions across 17 UCR tasks (Figure 5). In across-task means, ALPHABET leads the best control by 10 .2 and 9.4 points at amplitude 
+
+×0.5 and ×1.5, and by 1.3 points after half-rate resam-pling. Dataset-paired intervals against each task’s best control span zero for both amplitude shifts, so these are aggregate advantages rather than universal task-wise wins. Under ad-ditive noise the aggregate ordering reverses: ALPHABET trails by 1.6 and 4.3 points at σ = .1 and .2. The stricter task-paired gaps are −7.2 ([−13 .6, −0.8] ) and −10 .4 points ([−17 .8, −3.0] ), respectively. This reversal matches the predicted asymmetry, so we report additive noise as a distinct failure mode rather than averaging all corruptions into a generic robustness score. 
+
+## Discussion and Limitations 
+
+The spectral bridge has a precise domain: identification and affine consistency hold with the encoder fixed and the fea-ture process stationary, fully observed, and equal-step. Two boundaries matter. First, the object identified is the spec-trum of the learned feature process, not of the raw input; the theory characterizes what the modal readout preserves about the encoder’s output, not what the encoder discards. Second, the guarantee is generic rather than constructive: it does not show that optimization finds a separating mode, and the learned-bank diagnostics supply only empirical evidence that it can. Outside this domain, the interval-aware recurrence and the descriptor and logit bounds remain valid on irregular grids without stationarity; higher-order non-Gaussian class differences fall outside the second-order theory entirely. The empirical boundaries are equally concrete. The clearest is additive noise, where broadband energy contaminates the modal statistics at both evaluated noise levels; we would not recommend this representation in low-SNR settings. Across 17 tasks, the two-scan advantage stays positive but no abla-tion contrast survives Holm correction, fixed poles remain competitive, and attribution in the fixed-pole variant is sim-ilarly concentrated—so the evidence supports an auditable stable-bank interface more strongly than uniquely meaningful learned pole placement. A post-hoc shrinkage rule that suppresses weak lag mo-ments failed to transfer to dataset-disjoint validation (supple-ment), consistent with a descriptor-level ambiguity: weak lag coherence may be nuisance noise or weak class-bearing signal, and an unconditional rule cannot separate them. The natural response—input-conditioned, pole-response-aware debiasing of Qm and Rm,τ —must be frozen and tested prospectively. 
+
+## Conclusion 
+
+ALPHABET provides evidence that competitive temporal pre-diction can be achieved without a large or opaque backbone. Two banks of stable Laplace poles compress temporal history into a fixed set of modal statistics whose spectral meaning is characterized by the theory, while predictions decompose exactly into per-pole contributions. Under the matched evalu-ation settings considered in this work, ALPHABET achieves substantially lower latency than all evaluated baselines. The audits show that this transparency is functional rather than nominal, and demonstrate that compactness, speed, and an auditable representation can be achieved simultaneously. Proofs and Mathematical Boundaries 
+
+Radial-log geometry 
+
+Lemma 2 (Injective non-expansive moment conditioning) .
+
+For a finite lag set T , let ΨT apply log(1 + ·) to the energy and rlog( u) = log(1 + |u|)u/ |u| to each complex lag, with 
+
+rlog(0) = 0 . Identifying C with R2, ΨT is injective and maps zero to zero. For moment descriptors r, s ∈ R≥0 × C|T | ,writing ∆Ψ = Ψ T (r) − ΨT (s), it satisfies 
+
+∥∆Ψ∥22 ≤ ⟨ ∆Ψ, r − s⟩ ≤ ∥ r − s∥22, (15) Moreover, for any U ≥ 0 such that ∥r∥2, ∥s∥2 ≤ U ,
+
+11 + U ∥r − s∥2 ≤ ∥ ∆Ψ∥2 ≤ ∥ r − s∥2. (16) Here U is the radius of the bounded moment-descriptor region, not a bound on the raw input. Both statements extend by direct sums. 
+
+Proof. Identify C with R2 and write ψ(u) = log(1 + 
+
+|u|)u/ |u|. Its radial and tangential Jacobian eigenvalues are 
+
+11 + |u| , log(1 + |u|)
+
+|u| .
+
+They extend to one at zero and lie in [(1 + U )−1, 1] on 
+
+|u| ≤ U ; the scalar energy coordinate has the same bounds. Since the Euclidean ball is convex, s + td remains in this ball for t ∈ [0 , 1] . For d = r − s, ∆ = Ψ T (r) − ΨT (s), and the block Jacobian Jt at s + td ,
+
+∥∆∥22 ≤
+
+Z 10
+
+∥Jtd∥22dt ≤
+
+Z 10
+
+⟨Jtd, d ⟩dt = ⟨∆, d ⟩ ≤ ∥ d∥22.
+
+The lower Jacobian bound and Cauchy–Schwarz give Equa-tion (16); strict radial monotonicity (inverse radius er − 1)gives injectivity. Direct sums complete the proof. 
+
+Spectral embedding, generic separation, and consistency 
+
+Under the main paper’s equal-step, fully observed pop-ulation model, its energy and lag identities reduce the pole statistics to Poisson-kernel integrals. Positive rescal-ing and Lemma 2 therefore preserve identification. Let 
+
+d(ξ) = PF(ξ)−P G(ξ) on the connected real-analytic param-eter manifold Ξ, equipped with its smooth volume measure. If d vanishes on a positive-volume set, real analyticity implies 
+
+d ≡ 0. For c = a + ib , let μ∆,c (A) = c⊤(F − G)( A)¯ c be the corresponding finite complex Borel measure. Its Poisson integral is then zero. At any fixed radius r ∈ (0 , 1) ,
+
+Pre iφ (θ) = X
+
+> k∈Z
+
+r|k|eik (θ−φ). (17) All multipliers are nonzero, so every Fourier–Stieltjes coeffi-cient of μ∆,c vanishes and hence μ∆,c = 0 .To recover the matrix measure, write ∆(A) = S + iA 0
+
+with S real symmetric and A0 real skew-symmetric. For every orthonormal a, b and c = a + ib ,
+
+c⊤∆(A)¯ c = a⊤Sa + b⊤Sb + 2 a⊤A0b = 0 . (18) Subtracting the equation with b replaced by −b gives 
+
+a⊤A0b = 0 for every orthonormal pair a, b , and hence 
+
+A0 = 0 . The remaining identity is a⊤Sa + b⊤Sb = 0 .In an eigenbasis of S, this is σi + σj = 0 for i̸ = j; three indices (and hence D ≥ 3) force S = 0 . Thus F = G.The same argument applies at a fixed damping radius when direction and frequency vary. For pairwise distinct class spectra, each difference 
+
+dij (a, b, p ) = PFi (a + ib, p ) − P Fj (a + ib, p ) is analytic on the connected parameter manifold and not identically zero. Its zero set therefore has measure zero; a finite union over class pairs proves simultaneous single-mode separation for almost every direction and pole. When 2M ≤ D, the separating pair can be completed by Gram–Schmidt to an admissible M -mode frame. This is an existence statement, not a claim that optimization finds that frame. For a stationary ergodic process satisfying E|z⋆ 
+
+> 0
+
+|2 < ∞,Birkhoff’s theorem gives T −1 PTt=1 |z⋆t |2 → Qy almost surely. The zero-initialization transient satisfies z(0)  
+
+> t
+
+− z⋆t =
+
+−ptz⋆ 
+
+> 0
+
+and contributes vanishing average energy. Thus 
+
+bQT → Qy ; a positive minimum class margin gives even-tual correctness and Pr( byT̸ = y) → 0.A finite-length bound requires bounded excitation and summable energy autocovariance. With |et| ≤ Be and r =
+
+|p| < 1,
+
+Z = |γh(λ)|Be
+
+1 − r , (19) 
+
+Γ(E) 
+
+> y
+
+= Var( |z⋆ 
+
+> 0
+
+|2) + 2 X
+
+> k≥1
+
+Cov( |z⋆ 
+
+> 0
+
+|2, |z⋆k |2) < ∞. (20) The transient discrepancy is bounded by 
+
+bT = 2Z2
+
+T (1 − r) . (21) With class-y radius 
+
+ϱy = min  
+
+> j̸=y
+
+q
+
+(1 + Qy )(1 + Qj ) − (1 + Qy ) , (22) misclassification requires an additional deviation of at least 
+
+ϱy − bT . Chebyshev’s inequality gives, when bT < ϱ y ,
+
+Pr  
+
+> y
+
+(byT̸ = y) ≤ Γ(E)
+
+> y
+
+T (ϱy − bT )2 . (23) 
+
+Proposition 2 (Finite-bank boundary) . For any fixed finite pole bank and finite collection of energy and raw complex-autocorrelation moments, there exist distinct strictly positive, real-analytic, full-support scalar spectral densities that pro-duce identical modal population descriptors. 
+
+Proof. The finite moments define finitely many linear func-tionals on any sufficiently large finite-dimensional space H
+
+of real even trigonometric polynomials. A nonzero common-kernel element h yields f± = c ± ϵh with identical measured moments for sufficiently small ϵ > 0. These are distinct, strictly positive analytic spectra, so the finite learned bank is not globally injective. This proposition rules out global injectivity over the full class of analytic spectra, but does not preclude separation on finite task families or under the generic conditions stated above. 
+
+Cumulative-step and prediction-interface bounds 
+
+For the exact-ZOH recurrence in the main paper, write Tn =Pnt=1 ht and γh(λ) = ( eλh − 1) /λ . Variation of constants (Chen 1999) gives the exact unroll 
+
+zm,n = eλmTn zm, 0 +
+
+> n
+
+X
+
+> j=1
+
+eλm(Tn−Tj )γhj (λm)χ(r) 
+
+> j
+
+e(r) 
+
+> m,j
+
+.
+
+(24) Semi-orthogonality gives ∥vA r ∥2 ≤ ∥ v∥2. Applying this contraction to Equation (24), using |χ(r) 
+
+> j
+
+| ≤ 1, ∥e(r) 
+
+> j
+
+∥2 ≤
+
+V , and |γh(λm)| ≤ R h 
+
+> 0
+
+e−αmu du , and summing adjacent physical-time intervals gives the main-paper bound 
+
+∥zn∥2 ≤ e−α⋆Tn ∥z0∥2 + Vα⋆
+
+(1 − e−α⋆Tn ).
+
+This argument requires only ht ≥ 0 and stable poles, not stationarity or equal spacing. For FP32, the implementation substitutes h for γh(λ) when 
+
+|λh | < δ 0 = 10 −6. Its coefficient error is at most 12 δ0eδ0 h,and the same state bound holds after multiplying the input term by χ0 = δ0/(1 − e−δ0 ). This finite-precision qualification does not strengthen the exact-arithmetic proposition. 
+
+Proposition 3 (Synthesized-stream bound) . Assume 
+
+∥H(0)  
+
+> n
+
+∥2 ≤ H, ∥U (1)  
+
+> n
+
+∥2 ≤ V , and input gates have mag-nitude at most one. In this proposition, α⋆ and z0 refer to the direct bank. Define 
+
+Bn = e−α⋆Tn ∥z0∥2 + Vα⋆
+
+(1 − e−α⋆Tn ). (25) Then the synthesized direct-bank trajectory satisfies 
+
+∥H(1)  
+
+> n
+
+∥2 ≤ H + ∥s1∥∞
+
+ Bn + ∥γ1∥∞V . (26) 
+
+Proof. Semi-orthogonality bounds the excitation by V and the modal state by Bn; the synthesis triangle inequality proves Equation (26). Because of the identity residual, this internal-stream bound remains input-relative. The FP32 branch replaces Bn by BFP32  
+
+> n
+
+= e−α⋆Tn ∥z0∥2 + χ0V (1 −
+
+e−α⋆Tn )/α ⋆.For bank r, RMS normalization and semi-orthogonal anal-ysis give 
+
+∥e(r) 
+
+> t
+
+∥2 ≤ κr := √D∥ηr ∥∞.
+
+With zero initialization, the modewise form of the state bound gives |z(r)
+
+> m,t
+
+| ≤ Br,m := κr /α (r) 
+
+> m
+
+. Consequently, 0 ≤
+
+R(r) 
+
+> m, 0
+
+≤ B2
+
+> r,m
+
+, and Cauchy–Schwarz gives |R(r) 
+
+> m,τ
+
+| ≤ B2
+
+> r,m
+
+for every selected token lag. Each of the 1 + |T | radial-log blocks therefore contributes at most log 2(1+ B2
+
+> r,m
+
+) per mode. Summing over both banks proves 
+
+∥g(X)∥22 ≤ (1 + |T | )
+
+> 2
+
+X
+
+> r=1
+> M
+
+X
+
+> m=1
+
+log 2(1 + B2
+
+> r,m
+
+) = C2 
+
+> g
+
+.
+
+The affine head therefore obeys ∥fΘ(X)∥2 ≤ ∥ Whead ∥2Cg +
+
+∥bhead ∥2. Under the stated normalization, stability, and param-eter bounds, the descriptor norm is independent of raw-input amplitude and token count; validity masks with no eligible pairs contribute zero by the denominator convention in the main-paper moment definition. 
+
+Proposition 4 (Trajectory-to-descriptor perturbation) . For the implemented lag set T = {1, 2, 4} and bank r ∈ { 1, 2},suppose two modal trajectories use the same validity weights and satisfy ∥z(r) 
+
+> t
+
+∥2, ∥z′(r) 
+
+> t
+
+∥2 ≤ Br and ∥z(r) 
+
+> t
+
+− z′(r) 
+
+> t
+
+∥2 ≤ εr
+
+for every token. Then their joint radial-log descriptors obey 
+
+∥g − g′∥2 ≤ 4
+
+q
+
+B21 ε21 + B22 ε22. (27) Consequently the affine scores differ by at most 
+
+∥fΘ − f ′
+
+> Θ
+
+∥2 ≤ ∥ Whead ∥2∥g − g′∥2.
+
+Proof. Componentwise squaring and the Hadamard-product inequality give 
+
+|zt|2 − | z′
+
+> t
+
+|2 
+
+> 2
+
+≤ 2Br εr ,
+
+∥zt ⊙ ¯zt−τ − z′ 
+
+> t
+
+⊙ ¯z′ 
+
+> t−τ
+
+∥2 ≤ 2Br εr .
+
+Averaging and Lemma 2 preserve these bounds, so each block differs by at most 2Br εr. Concatenating one energy block and three complex-lag blocks gives 
+
+∥g(r) − g′(r)∥2 ≤ 4Br εr .
+
+Concatenating the two banks proves Equation (27); a coordi-natewise bound εcoord  
+
+> r
+
+implies εr = √M ε coord  
+
+> r
+
+.
+
+## Model Implementation 
+
+The two banks use Ar = [ Ar, ℜ | Ar, ℑ], A⊤ 
+
+> r
+
+Ar = I2M ,maintained by a matrix-exponential Stiefel parameterization (Lezcano-Casado and Martínez-Rubio 2019). Independently for each bank, 
+
+αm = 10 −3 + (2 − 10 −3) sigmoid( δm),ωm = π tanh( ϑm),
+
+initialized with δ = linspace M (−3, 1) and ϑ =atanh(linspace M (0 , . 75)) ; modal states start at zero. Each local lift is a centered depthwise kernel of size 5 and di-lation 4, followed by learned bias and SiLU (Elfwing, Uchibe, and Doya 2018). Only the direct bank synthesizes through 
+
+A⊤ 
+
+> 1
+
+. With T = {1, 2, 4}, the affine head has K(14 M + 1) 
+
+parameters and no pooled D-dimensional path. On equal-step inputs, T = {1, 2, 4} denotes token offsets shared by both banks. When time_delta is supplied, the implementation switches both local lifts and modal readout to fixed physical-time offsets in the normalized units of 
+
+time_delta : local kernels sample the piecewise-linear signal interpolant, and modal moments query/interpolate states at t − τ . The exact-ZOH transition uses the same elapsed-time metadata. Validity masks gate the interpolation support, and an empty support set returns zero. Thus the equal-step equations are the unit-grid special case, whereas irregular runs use physical-time interpolation/quadrature. For fixed D, M, K , the two width-5 lifts cost O(T D ), the two diagonal pole recurrences and direct-bank synthesis cost 
+
+O(T M D ), and the fixed lag set costs O(T M ). The terminal affine head costs O(M K ). Memory can be streamed with the current modal states and fixed-lag buffers, so the sequence-dependent compute is O(T ); the implemented training path may retain trajectories for automatic differentiation without changing that arithmetic complexity. 
+
+Systems efficiency audit 
+
+Final radial-log kernel specialization Scope and dispatch. The optimized target is the final radial-log affine ALPHABET with (C, D, M, K ) = (2 , 64 , 16 , 5) .The specialized path is used only for no-gradient CUDA inference with static poles, FP32 tensors, B ∈ { 32 , 64 },and 1 ≤ T ≤ 2048 . Unsupported shapes, masks, variable-step metadata, and non-FP32 inputs use the reference graph. Framework-level TF32 is disabled; the packed projection kernel explicitly uses Triton’s tf32x3 decomposition and is validated numerically against the FP32 reference. 
+
+Associative time-parallel scan. For one mode, write a recurrence step as 
+
+gm,t (z) = am,t z + bm,t ,
+
+(a2, b 2) ⋆ (a1, b 1) = ( a2a1, a 2b1 + b2).
+
+Because ⋆ is associative, a parallel prefix scan produces the same states as the sequential recurrence. In the specialized path, am,t = pm is static, and the Triton kernel evaluates the prefixes with tl.associative_scan . Each bank therefore retains O(T ) work with O(log T ) parallel scan depth. This is a parallel affine scan rather than Mamba’s selective scan: the specialized transition is static, and the direct and cascaded banks remain serially composed because the latter depends on the synthesized direct trajectory. The scan also accumulates the seven per-mode statistics: log energy and the real and imaginary radial-log moments at lags {1, 2, 4}.Parallel reassociation changes FP32 rounding order, so the specialized path is numerical-parity gated rather than required to be bitwise identical to the sequential reference. 
+
+Fused inference dataflow. The supported inference path is edge lift −→ writer scan + moments 
+
+−→ synthesis + reader drive 
+
+−→ reader moments-only scan −→ affine logits .
+
+The writer scan retains its modal trajectory because synthesis through A⊤ 
+
+> 1
+
+is required. A fused producer constructs the reader drive from the synthesized direct trajectory, the residual stream, and the reader lift. The reader then uses a moments-only parallel scan that does not materialize or export its full state trajectory, returning the 7M radial-log descriptor directly. A final Triton kernel applies the affine classifier to the two 7M descriptors without a separate concatenation or linear launch. These fusions preserve the main-paper forward map while reducing intermediate global-memory traffic and kernel launches. 
+
+Complete-step training path. Training uses differentiable time-parallel scans for the forward states and reverse adjoints, together with fused edge and terminal-reader operations. The model and loss are compiled, and gradient-norm reduction, clipping, and AdamW are combined in a fused optimizer tail. A CUDA 12.8 graph captures the complete training step, including forward/loss, backward, optimization, and post-update frame constraints. The inference graph similarly captures one supported static-shape forward pass. Compila-tion, graph construction, and warmup are excluded from the reported steady-state measurements. 
+
+Systems audit protocol. After freezing the specialization, the runtime audit compares repository-native CNN1D, TCN, Transformer, S4D, S5, LRU, GRU, and LSTM with official 
+
+mamba-ssm 2.3.2.post1 using causal-conv1d 1.6.1 and its fast path. The audit environment uses PyTorch 2.9.1+cu128, Triton 3.5.1, Python 3.13.14, CUDA 12.8, and a single 24 GiB RTX 4090. The runtime audit uses two capacity controls, distinct from the task-level 18-candidate selection protocol. The approxi-mately parameter-matched control selects, for each family, the nearest realizable variant from its predeclared structural choices to the parameter count of the reference ALPHABET design. Here D denotes the width of the reference design; a matched baseline may therefore use a different native width. No inactive parameters are added to force exact equality. The resulting 81 comparisons cover nine one-factor shapes: 
+
+B ∈ { 1, 8, 32 , 64 }, (T, D ) = (512 , 64) ,T ∈ { 128 , 512 , 2048 }, (B, D ) = (32 , 64) ,D ∈ { 16 , 32 , 64 , 128 }, (B, T ) = (32 , 512) .
+
+Inference uses the specialized kernel in the four D = 64 
+
+rows with B ∈ { 32 , 64 }, giving 36 baseline comparisons; the remaining five rows use the reference graph, giving 45 com-parisons. Complete-step measurements use the differentiable training runtime at every shape. The maximum parameter-count gap is 5.3%, and all other gaps are below 2.5%. This is an approximate parameter control rather than a FLOP-, activation-, or memory-matched comparison. The reported speedups should therefore be interpreted as empirical results under the stated parameter and workload controls. The separate same-width control fixes the external hidden width at D = 64 and the workload at (B, T ) = (32 , 512) ,while retaining each family’s native internal structure. Its nine comparisons intentionally do not match parameter counts and are reported separately from the parameter-matched aggregate. 
+
+Measurement protocol. Correctness-valid runtime candi-dates are frozen by median latency at the off-grid (4 , 256 , 64) 
+
+calibration shape. TF32 and autocast are disabled; a repeat calibration targets 25 ms and is excluded. Five warmups pre-cede seven seeded balanced ABBA/BAAB groups. Inference is forward-only; a complete step includes cross entropy, back-ward, global gradient clipping, AdamW, and model constraints. Each family uses its fastest correctness-valid calibrated path, and the manifest records authoritative imports. Design B/T /D CNN TCN Trf. Mamba S4D S5 LRU GRU LSTM Param. 1/512/64 1.05/0.41 0.99/0.34 18.47/25.79 1.88/0.64 5.88/1.34 5.45/1.29 3.90/1.00 21.00/18.81 11.14/2.02 Param. 8/512/64 0.21/0.58 0.21/0.51 3.97/23.42 0.41/0.62 1.17/1.36 1.20/1.37 0.85/0.98 4.28/16.24 2.06/1.81 Param. 32/128/64 0.83/0.55 0.96/0.44 14.36/25.06 1.30/0.61 4.26/1.33 2.77/0.96 2.19/0.79 6.72/16.95 2.99/0.90 Param. 32/512/16 0.27/0.54 0.53/0.73 10.83/19.75 0.62/0.64 1.08/0.83 1.68/1.17 1.13/0.93 6.19/16.37 5.03/2.74 Param. 32/512/32 0.39/0.65 0.40/0.50 8.96/14.93 0.59/0.58 1.54/1.10 2.07/1.43 2.37/1.51 7.26/16.88 3.89/1.98 Param. 32/512/64 0.50/0.60 0.60/0.48 14.13/18.29 1.07/0.77 2.58/1.38 2.66/1.46 1.78/0.95 6.63/3.32 3.64/1.54 Param. 32/512/128 0.41/0.44 0.46/0.39 4.34/6.69 0.83/0.66 1.12/0.89 3.78/2.99 2.57/1.80 2.23/5.50 3.04/7.72 Param. 32/2048/64 0.34/0.48 0.38/0.30 44.38/20.20 1.09/0.92 1.72/1.42 3.17/2.34 1.62/1.30 7.11/5.48 3.84/2.47 Param. 64/512/64 0.42/0.48 0.48/0.39 16.67/12.01 1.02/0.85 1.99/1.40 2.20/1.41 1.39/0.88 4.17/8.38 2.39/1.20 Same width 32/512/64 1.68/1.59 2.42/1.89 16.21/17.47 2.90/1.84 3.27/1.84 4.09/2.37 4.08/2.30 14.87/16.09 12.99/14.35 
+
+Table 2: Complete 90-cell systems ledger. Each entry is inference/complete-step speedup (baseline latency divided by ALPHABET latency); values above one favor ALPHABET. “Param.” denotes approximately parameter-matched comparisons (maximum gap 5.3%; all but one at most 2.49%). The final row fixes D = 64 at (B, T ) = (32 , 512) without matching parameter counts. Each cell is the median of seven paired CUDA-event groups. 
+
+Parity and retained evidence. Maximum logit error is 
+
+8.345 × 10 −7. Input/parameter gradients and three-step opti-mization trajectories pass at both anchors for seeds {7, 11 , 19 },with additional gates for T = 2048 , T = 31 , seven modes, zero drive, finite differences, and NaN/Inf propagation. The fail-closed 140-group evaluator reports status=pass . Ta-ble entries are medians over seven paired groups; grid sum-maries are computed from the 90 cell medians (180 phase rows and 1,260 timing groups). 
+
+## Evaluation Protocol 
+
+The nine control families are CNN1D, TCN, Transformer, Mamba, S4D, S5, LRU, GRU, and LSTM. Candidate counts and final-seed counts are matched across families: every task–family cell uses 18 candidates and five final-training seeds. Native parameter counts, FLOPs, optimizer steps, and wall-clock costs are not matched. TCN denotes the disclosed causal dilated CNN control rather than the canonical two-convolution residual TCN. The capacity schedule for the proposed ALPHABET is specified separately from the control-family ledger. 
+
+Proposed-model capacity schedule. For the complete benchmark, ALPHABET uses the six capacity pairs 
+
+(D, M ) ∈ { (32 , 8) , (32 , 16) , (64 , 16) , (64 , 32) , (128 , 16) , (128 , 32) },
+
+each combined with the three common optimizer recipes. This gives 18 candidates per task–model cell. The schedule is part of the proposed model’s benchmark specification and is not treated as an additional control-family row. 
+
+Model configuration ledger 
+
+Table 3 lists the structural configurations available to each con-trol family. The common candidate-selection, optimization, and TEST-sealing rules are given below; diagnostic-specific budgets are stated with their corresponding protocols. Stage 1 evaluates all 18 candidates at seed 7 and retains the validation Top-6. Stage 2 evaluates those six candidates at seeds 11 and 19 and freezes the configuration with the highest mean validation score over seeds {7, 11 , 19 }. Exact ties are resolved using the predeclared configuration key.                                 
+
+> Family group Component Choices CNN1D depth/kernel (2 ,3) ,(4 ,5)
+> TCN depth/kernel (3 ,3) ,(5 ,5)
+> Transformer depth/heads (1 ,2) ,(2 ,4)
+> Mamba state/conv (16 ,3) ,(32 ,4)
+> S4D depth/state (1 ,16) ,(3 ,16)
+> S5/LRU/GRU/LSTM depth/state (1 ,16) ,(2 ,32)
+
+Table 3: Control-family configuration ledger. Each family uses widths {32 , 64 , 128 }, the two listed structural choices, and recipes A/B/C, giving 18 candidates per task–family cell. Recipes A/B/C respectively use the learning-rate and clipping pairs (10 −3, 0.5) , (3 ×10 −3, 1) , and (10 −2, 2) , with weight decay 10 −4 and effective batch size 64. Width 128 uses microbatches of 32 with two-step gradient accumulation; the other widths use batches of 64. Regular-sequence tasks use at most 100 epochs. Final training uses seeds {23 , 31 , 43 , 47 , 59 }, and official TEST data remain sealed until configuration selection is complete. 
+
+Tasks, objectives, and data sealing 
+
+The fixed registry contains 82 independently trained tasks: 30 UCR datasets (Dau et al. 2019), 21 general sequence, ECG, clinical/activity, and forecasting tasks, and 31 multivariate and vibration/fault tasks, including UEA (Bagnall et al. 2018). Registry membership was determined using public data avail-ability, reproducible split and preprocessing requirements, compatibility with the common sequence interface, and broad coverage across task and application types. The registry is nei-ther exhaustive nor intended to be statistically representative of all time-series problems. Non-UCR tasks use public releases and frozen manifests: PTB-XL and MIT-BIH ECG (Wagner et al. 2020; Moody and Mark 2001; de Chazal, O’Dwyer, and Reilly 2004), CWRU bearing signals (Smith and Randall 2015), ETT, Electricity, and Weather (Zhou et al. 2021; Trindade 2015; Max Planck Institute for Biogeochemistry n.d.), Sequential CIFAR-10 (Krizhevsky 2009), and balanced AudioSet VGGish features (Gemmeke et al. 2017; Hershey et al. 2017; Google Re-search n.d.). The remaining registry sources are PhysioNet 2012/2019 (Silva et al. 2012; Reyna et al. 2020), PAMAP2 (Reiss and Stricker 2012; Reiss 2012), UCI Localization Human Activity (UCI Machine Learning Repository 2008), USHCN as processed by GRU-ODE-Bayes (De Brouwer et al. 2019), ISRUC-Sleep (Khalighi et al. 2016), Chapman-Shaoxing ECG (Zheng et al. 2020), and MFPT and Paderborn bearing data (Machinery Failure Prevention Technology So-ciety n.d.; Lessmeier et al. 2016). No dataset was added or removed because of observed ALPHABET or baseline performance. Released manifests fix the task-specific splits and preprocessing procedures. UCR and UEA configuration selection uses only official TRAIN data; official TEST data remain sealed until final evaluation. Forecasting windows do not cross chronological TRAIN/validation/TEST boundaries. Other external tasks retain their predefined record-, group-, or patient-level splits. Selection artifacts contain no TEST tensors or TEST-set identifiers. Normalization and all other data-dependent pre-processing are fitted without access to TEST data. 
+
+## Diagnostic Protocols 
+
+Common protocol. These TRAIN-only diagnostics test whether a finite bank separates temporal dependence when static first and second moments agree. UCR experiments use a stratified 80/20 official-TRAIN split, fit preprocessing on the optimization fold, and never load official TEST. Unless stated otherwise, we use (D, M ) = (64 , 16) , 100 epochs, seeds 
+
+{7, 11 , 19 }, and confirmatory trial 4: AdamW with learning rate 3×10 −3, weight decay 10 −4, effective batch size 64, and gradient clipping at 1. The synthetic control uses 60 epochs. 
+
+Moment-matched spectral control 
+
+Class 0 is Xt = Zt, and class 1 is 
+
+Xt = aZ t + bZ t−5, a2 + b2 = 1 , 2ab = ϵ, 
+
+for independent standard Gaussian innovations. Both are stationary, Gaussian, and unit variance; their population autocovariances agree for |k| ≤ 4 and first differ at lag 5. We sweep ϵ ∈ { .1, . 2, . 4, . 8} over seeds 23, 31, 43, 47, and 59, using 512 optimization and 256 validation paths of length 128 per seed. Four estimators share the same realized samples: the exact Gaussian Bayes likelihood ratio, a nearest-prototype classifier using only empirical raw bΓ(0:4) , the capacity-matched energy-only model, and the full radial-log model. The neural models use (D, M ) = (64 , 16) and 60 epochs. The main-paper diagnostic reports the resulting validation curves; this appendix records the protocol and TEST exclusion only. 
+
+Capacity-matched structural ablation 
+
+The energy-only control uses the same 17 datasets, seeds, two-bank backbone, optimization recipe, TRAIN-derived 80/20 split, and selection rule as the other ablations. It gives a nonlinear MLP only the direct and cascaded lag-zero energies and matches the complete model’s trainable count within 
+
+0.2% . The two-scan comparison gives a one-scan baseline the same 224 real coordinates with M ′ = 32 and equalizes trainable parameters with D′ = 72 . The main-paper ablation reports the resulting task-paired comparison. 
+
+Pole-coordinate audit 
+
+We audit learned- and fixed-random-pole checkpoints from the same 17-task campaign at seeds {23 , 31 , 43 , 47 , 59 }. Using the affine margin identity, we rank the 32 bank–pole blocks by optimization-fold mean absolute contribution. For each check-point, neutralization replaces a selected seven-coordinate block by its optimization-fold mean, while retention keeps only selected blocks. Top and bottom subsets use the frozen ranking; random entries average 64 uniformly sampled sub-sets per checkpoint. The main-paper attribution audit reports the resulting validation contrasts; no official TEST data are used here. 
+
+Synthetic-corruption protocol 
+
+We train ALPHABET and nine controls on 17 UCR tasks and seeds {23 , 31 , 43 , 47 , 59 }, using configurations frozen from TRAIN-derived validation. The 10 × 17 × 5 = 850 
+
+checkpoints are evaluated without retraining under Gaussian noise σ ∈ { .1, . 2}, amplitude multipliers {.5, 1.5}, and half-rate downsampling followed by restoration to the original length. The main paper reports the corruption outcomes; this section records the evaluation contract and TEST-free configuration freeze. 
+
+## Complete TEST Results 
+
+Configuration freezing and final evaluation 
+
+The control-family candidates are listed in Table 3, and the proposed ALPHABET capacity schedule is specified in the Evaluation Protocol. Each task–family cell contains 18 candidate configurations. In Stage 1, all 18 candidates are evaluated at seed 7, and the six configurations with the highest validation scores are retained. In Stage 2, these six configurations are evaluated at seeds 11 and 19, and the configuration with the highest mean validation score across seeds {7, 11 , 19 } is frozen for final training. Exact ties are resolved using the predeclared configuration key. Regular-sequence tasks are trained for at most 100 epochs, with validation checkpointing and an early-stopping patience of eight epochs. For each task–family cell, the selection and final-evaluation protocol requires 18 Stage 1 fits, 12 additional Stage 2 fits, and five final-training fits. Across 82 tasks and ten model families, this yields a total of 28,700 fits. Within each benchmark suite, all model families use the same epoch limit, validation split, checkpointing rule, and selection metric. Neither configuration-selection stage ac-cesses the TEST data, and each campaign manifest fixes the final-training seed set before TEST evaluation. For UCR datasets, the selected configuration is retrained on the full official TRAIN set for the rounded median of its validation-selected epoch counts. For the remaining datasets, final evaluation uses the predefined TRAIN split and restores the validation-loss checkpoint obtained under the frozen Dataset ALPHABET CNN1D TCN Mamba S4D ACSF1 (Bal. Acc. ↑) 0.788 (0.020) 0.718 (0.059) 0.682 (0.029) 0.750 (0.019) 0.680 (0.031) Adiac (Bal. Acc. ↑) 0.536 (0.148) 0.407 (0.118) 0.455 (0.017) 0.492 (0.064) 0.638 (0.061) 
+
+ArrowHead (Bal. Acc. ↑) 0.630 (0.040) 0.543 (0.132) 0.556 (0.029) 0.474 (0.078) 0.501 (0.046) BME (Bal. Acc. ↑) 0.995 (0.006) 0.752 (0.020) 0.815 (0.024) 0.932 (0.057) 0.873 (0.063) CinCECGTorso (Bal. Acc. ↑) 0.674 (0.052) 0.638 (0.138) 0.309 (0.052) 0.557 (0.045) 0.326 (0.027) Coffee (Bal. Acc. ↑) 1.000 (0.000) 0.865 (0.162) 1.000 (0.000) 0.967 (0.000) 0.887 (0.098) CricketX (Bal. Acc. ↑) 0.683 (0.018) 0.739 (0.042) 0.673 (0.041) 0.676 (0.014) 0.747 (0.009) 
+
+Crop (Bal. Acc. ↑) 0.726 (0.006) 0.742 (0.004) 0.733 (0.003) 0.706 (0.004) 0.738 (0.003) ECG200 (Bal. Acc. ↑) 0.831 (0.037) 0.832 (0.029) 0.845 (0.028) 0.776 (0.039) 0.811 (0.025) ECG5000 (Bal. Acc. ↑) 0.534 (0.010) 0.518 (0.026) 0.524 (0.006) 0.513 (0.024) 0.529 (0.015) ECGFiveDays (Bal. Acc. ↑) 0.830 (0.122) 0.818 (0.025) 0.968 (0.036) 0.818 (0.040) 0.737 (0.010) EOGHorizontalSignal (Bal. Acc. ↑) 0.560 (0.030) 0.512 (0.055) 0.469 (0.043) 0.492 (0.040) 0.599 (0.027) 
+
+Earthquakes (Bal. Acc. ↑) 0.526 (0.035) 0.500 (0.000) 0.500 (0.000) 0.500 (0.000) 0.500 (0.000) FordA (Bal. Acc. ↑) 0.953 (0.005) 0.930 (0.018) 0.947 (0.009) 0.916 (0.009) 0.945 (0.003) FordB (Bal. Acc. ↑) 0.823 (0.017) 0.804 (0.010) 0.821 (0.034) 0.784 (0.030) 0.803 (0.011) GunPoint (Bal. Acc. ↑) 0.982 (0.010) 0.999 (0.003) 0.954 (0.015) 0.927 (0.042) 0.966 (0.007) InsectEPGRegularTrain (Bal. Acc. ↑) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 
+
+InsectWingbeatSound (Bal. Acc. ↑) 0.511 (0.014) 0.367 (0.033) 0.566 (0.008) 0.439 (0.016) 0.611 (0.013) 
+
+ItalyPowerDemand (Bal. Acc. ↑) 0.944 (0.018) 0.882 (0.024) 0.761 (0.139) 0.672 (0.147) 0.917 (0.020) MoteStrain (Bal. Acc. ↑) 0.879 (0.026) 0.825 (0.043) 0.828 (0.025) 0.849 (0.015) 0.872 (0.010) Plane (Bal. Acc. ↑) 0.996 (0.005) 1.000 (0.000) 0.944 (0.037) 0.995 (0.007) 0.959 (0.013) PowerCons (Bal. Acc. ↑) 0.983 (0.012) 0.830 (0.056) 0.978 (0.004) 0.963 (0.009) 0.979 (0.014) Rock (Bal. Acc. ↑) 0.321 (0.058) 0.440 (0.019) 0.360 (0.092) 0.297 (0.037) 0.271 (0.071) ShapesAll (Bal. Acc. ↑) 0.781 (0.008) 0.769 (0.059) 0.712 (0.040) 0.769 (0.015) 0.823 (0.016) 
+
+StarLightCurves (Bal. Acc. ↑) 0.947 (0.015) 0.922 (0.031) 0.946 (0.010) 0.938 (0.008) 0.951 (0.017) SwedishLeaf (Bal. Acc. ↑) 0.897 (0.011) 0.931 (0.059) 0.894 (0.008) 0.914 (0.009) 0.936 (0.008) 
+
+Trace (Bal. Acc. ↑) 1.000 (0.000) 0.722 (0.283) 0.974 (0.009) 0.997 (0.006) 0.980 (0.010) TwoLeadECG (Bal. Acc. ↑) 0.853 (0.144) 0.988 (0.021) 0.797 (0.077) 0.897 (0.056) 0.963 (0.013) Wafer (Bal. Acc. ↑) 0.987 (0.005) 0.940 (0.056) 0.986 (0.007) 0.952 (0.023) 0.985 (0.005) Worms (Bal. Acc. ↑) 0.569 (0.097) 0.577 (0.066) 0.525 (0.114) 0.554 (0.082) 0.628 (0.046) 
+
+Table 4: Panel (a): UCR classification, comparison block 1. Entries are mean (sample SD) over final-seed replicates; best and second-best displayed means are bold and underlined. configuration. Only the configuration selected by the two-stage validation procedure contributes to the reported TEST result; results from nonselected configurations do not affect TEST reporting or cross-model ranking. 
+
+Final metrics and PhysioNet handling 
+
+The metric contract is fixed per dataset in the registry. UCR, UEA, fault-diagnosis, Human Activity, ISRUC-Sleep, and Chapman-Shaoxing rows report balanced accuracy; forecast-ing rows report MSE. AudioSet reports macro AUPRC. The remaining standard multiclass rows report accuracy, and the PTB-XL and PhysioNet rows report macro AUROC or AU-ROC, respectively. Every row in Table 4 names its metric and direction. Where selection and reporting differ, validation selec-tion uses the imbalance-sensitive metric fixed before TEST access—balanced accuracy for standard multiclass tasks, macro AUPRC/AUPRC for multilabel or binary clinical tasks, and macro-F1 for multiclass PAMAP2—while the primary row retains the dataset’s conventional accuracy or AUROC endpoint for comparison with prior work. The in-dented companion rows in Table 4 report the corresponding final-TEST selection metric for the same frozen configu-rations and seeds; these rows are not used for reselection or cross-task ranking. For K classes, balanced accuracy is 
+
+K−1 PKk=1 TP k/(TP k +FN k). Macro AUROC/AUPRC av-erage one-vs-rest label scores without prevalence weighting, and MSE averages squared error over the reported forecast targets. 
+
+Dataset-specific protocol: PhysioNet 2012 
+
+The PhysioNet 2012 endpoint uses ICU mortality records (Silva et al. 2012; Goldberger et al. 2000). Original minute timestamp groups are retained without binning or forward filling. Inputs combine standardized values, observation in-dicators, elapsed time, and timestep validity; ALPHABET receives the last two as metadata and controls as channels. Set A is split into 3,200 optimization and 800 valida-tion records; Set C remains sealed until configuration freez-ing, and standardization uses optimization records only. The preselection-frozen Set-C parser ignores nameless measure-ments, rejects non-empty unknown variables, and right-truncates beyond the Set-A-selected 208-step geometry (Set-A maximum: 203 groups). AUROC and AUPRC are threshold-free; balanced accuracy uses the Set-A-validation threshold. 
+
+Completeness, ranking, and statistical scope 
+
+Aggregation requires every key in each campaign’s expected-key manifest. Per-task ranks follow the stated metric direction; values satisfying isclose with rtol = 10 −5, atol = 10 −8Dataset ALPHABET S5 LRU GRU LSTM Transformer ACSF1 (Bal. Acc. ↑) 0.788 (0.020) 0.722 (0.102) 0.680 (0.042) 0.714 (0.050) 0.776 (0.023) 0.588 (0.081) Adiac (Bal. Acc. ↑) 0.536 (0.148) 0.415 (0.062) 0.276 (0.092) 0.230 (0.036) 0.275 (0.064) 0.563 (0.044) ArrowHead (Bal. Acc. ↑) 0.630 (0.040) 0.392 (0.087) 0.534 (0.066) 0.524 (0.040) 0.483 (0.065) 0.494 (0.050) BME (Bal. Acc. ↑) 0.995 (0.006) 0.913 (0.055) 0.884 (0.041) 0.983 (0.039) 0.995 (0.006) 0.907 (0.101) CinCECGTorso (Bal. Acc. ↑) 0.674 (0.052) 0.262 (0.014) 0.546 (0.144) 0.571 (0.044) 0.352 (0.017) 0.837 (0.040) 
+
+Coffee (Bal. Acc. ↑) 1.000 (0.000) 0.824 (0.147) 0.933 (0.061) 0.960 (0.015) 0.836 (0.213) 0.967 (0.024) CricketX (Bal. Acc. ↑) 0.683 (0.018) 0.732 (0.017) 0.605 (0.047) 0.674 (0.023) 0.690 (0.021) 0.539 (0.028) Crop (Bal. Acc. ↑) 0.726 (0.006) 0.709 (0.007) 0.747 (0.014) 0.717 (0.008) 0.709 (0.008) 0.713 (0.008) ECG200 (Bal. Acc. ↑) 0.831 (0.037) 0.813 (0.024) 0.809 (0.044) 0.751 (0.020) 0.803 (0.041) 0.822 (0.034) ECG5000 (Bal. Acc. ↑) 0.534 (0.010) 0.537 (0.015) 0.477 (0.043) 0.530 (0.012) 0.502 (0.039) 0.550 (0.015) 
+
+ECGFiveDays (Bal. Acc. ↑) 0.830 (0.122) 0.715 (0.076) 0.911 (0.085) 0.733 (0.011) 0.677 (0.070) 0.770 (0.048) EOGHorizontalSignal (Bal. Acc. ↑) 0.560 (0.030) 0.542 (0.026) 0.405 (0.053) 0.594 (0.026) 0.520 (0.028) 0.509 (0.032) Earthquakes (Bal. Acc. ↑) 0.526 (0.035) 0.500 (0.000) 0.500 (0.000) 0.548 (0.046) 0.500 (0.000) 0.544 (0.067) FordA (Bal. Acc. ↑) 0.953 (0.005) 0.941 (0.011) 0.935 (0.011) 0.937 (0.007) 0.918 (0.011) 0.561 (0.022) FordB (Bal. Acc. ↑) 0.823 (0.017) 0.816 (0.017) 0.804 (0.011) 0.808 (0.019) 0.780 (0.037) 0.577 (0.026) GunPoint (Bal. Acc. ↑) 0.982 (0.010) 0.924 (0.048) 0.900 (0.097) 0.952 (0.022) 0.817 (0.130) 0.929 (0.034) InsectEPGRegularTrain (Bal. Acc. ↑) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 
+
+InsectWingbeatSound (Bal. Acc. ↑) 0.511 (0.014) 0.581 (0.008) 0.528 (0.059) 0.503 (0.026) 0.491 (0.026) 0.499 (0.043) ItalyPowerDemand (Bal. Acc. ↑) 0.944 (0.018) 0.882 (0.059) 0.924 (0.041) 0.755 (0.165) 0.869 (0.052) 0.944 (0.028) 
+
+MoteStrain (Bal. Acc. ↑) 0.879 (0.026) 0.897 (0.008) 0.884 (0.024) 0.880 (0.024) 0.839 (0.047) 0.800 (0.021) Plane (Bal. Acc. ↑) 0.996 (0.005) 0.960 (0.024) 0.971 (0.015) 0.974 (0.015) 0.971 (0.035) 0.940 (0.078) PowerCons (Bal. Acc. ↑) 0.983 (0.012) 0.977 (0.005) 0.889 (0.052) 0.941 (0.010) 0.936 (0.009) 1.000 (0.000) 
+
+Rock (Bal. Acc. ↑) 0.321 (0.058) 0.346 (0.060) 0.275 (0.046) 0.373 (0.041) 0.368 (0.072) 0.466 (0.006) 
+
+ShapesAll (Bal. Acc. ↑) 0.781 (0.008) 0.792 (0.016) 0.443 (0.309) 0.766 (0.024) 0.705 (0.024) 0.667 (0.008) StarLightCurves (Bal. Acc. ↑) 0.947 (0.015) 0.951 (0.006) 0.935 (0.027) 0.953 (0.008) 0.927 (0.015) 0.900 (0.040) SwedishLeaf (Bal. Acc. ↑) 0.897 (0.011) 0.905 (0.033) 0.752 (0.184) 0.863 (0.019) 0.842 (0.021) 0.828 (0.025) Trace (Bal. Acc. ↑) 1.000 (0.000) 0.935 (0.109) 0.978 (0.018) 0.957 (0.009) 0.992 (0.013) 0.842 (0.146) TwoLeadECG (Bal. Acc. ↑) 0.853 (0.144) 0.849 (0.098) 0.926 (0.102) 0.961 (0.021) 0.930 (0.063) 0.667 (0.058) Wafer (Bal. Acc. ↑) 0.987 (0.005) 0.976 (0.006) 0.982 (0.017) 0.963 (0.006) 0.951 (0.025) 0.976 (0.012) Worms (Bal. Acc. ↑) 0.569 (0.097) 0.554 (0.084) 0.538 (0.085) 0.609 (0.082) 0.504 (0.044) 0.377 (0.041) 
+
+Table 4: Panel (a), continued: UCR classification, comparison block 2. ALPHABET is repeated to keep both comparison blocks directly readable. share average rank. Registry summaries average ranks, not heterogeneous raw metrics. Friedman tests use tasks as units; pairwise signed-rank tests operate on taskwise rank differ-ences, retain zeros by Pratt’s convention, and use Holm correction (Demšar 2006). Dataset ALPHABET CNN1D TCN Mamba S4D PTB-XL (AUROC ↑) 0.921 (0.002) 0.921 (0.003) 0.925 (0.002) 0.907 (0.002) 0.913 (0.003) 
+
+Selection: AUPRC ↑ 0.810 (0.005) 0.809 (0.005) 0.817 (0.005) 0.781 (0.004) 0.796 (0.006) MIT-BIH (Acc. ↑) 0.873 (0.030) 0.886 (0.009) 0.817 (0.065) 0.871 (0.025) 0.863 (0.048) 
+
+Selection: Bal. Acc. ↑ 0.337 (0.017) 0.268 (0.034) 0.442 (0.063) 0.358 (0.050) 0.372 (0.039) CWRU (Acc. ↑) 0.978 (0.028) 0.974 (0.031) 0.936 (0.038) 0.974 (0.015) 0.941 (0.023) 
+
+Selection: Bal. Acc. ↑ 0.974 (0.033) 0.969 (0.036) 0.925 (0.046) 0.970 (0.018) 0.940 (0.017) ETTm1 (MSE ↓) 0.576 (0.023) 0.871 (0.095) 0.780 (0.031) 0.811 (0.067) 0.620 (0.027) ETTm2 (MSE ↓) 0.618 (0.200) 0.600 (0.095) 0.542 (0.085) 0.592 (0.215) 0.596 (0.087) Electricity (MSE ↓) 0.299 (0.007) 0.295 (0.006) 0.312 (0.010) 0.322 (0.005) 0.336 (0.013) Weather (MSE ↓) 0.196 (0.010) 0.272 (0.009) 0.291 (0.020) 0.235 (0.018) 0.222 (0.007) Sequential CIFAR (Acc. ↑) 0.601 (0.007) 0.666 (0.014) 0.633 (0.004) 0.613 (0.007) 0.653 (0.008) 
+
+Selection: Bal. Acc. ↑ 0.601 (0.007) 0.666 (0.014) 0.633 (0.004) 0.613 (0.007) 0.653 (0.008) AudioSet (AUPRC ↑) 0.114 (0.002) 0.141 (0.001) 0.118 (0.003) 0.125 (0.001) 0.141 (0.000) PhysioNet-2012 (AUROC ↑) 0.783 (0.014) 0.773 (0.005) 0.773 (0.016) 0.769 (0.028) 0.805 (0.003) 
+
+Selection: AUPRC ↑ 0.382 (0.028) 0.394 (0.015) 0.384 (0.019) 0.376 (0.027) 0.432 (0.009) PhysioNet-2019 (AUROC ↑) 0.889 (0.009) 0.890 (0.008) 0.894 (0.009) 0.839 (0.018) 0.890 (0.009) 
+
+Selection: AUPRC ↑ 0.604 (0.015) 0.494 (0.018) 0.506 (0.014) 0.507 (0.012) 0.639 (0.012) PAM (PAMAP2) (Acc. ↑) 0.969 (0.011) 0.980 (0.001) 0.979 (0.006) 0.977 (0.003) 0.973 (0.002) 
+
+Selection: Macro-F1 ↑ 0.972 (0.010) 0.983 (0.001) 0.981 (0.006) 0.979 (0.003) 0.977 (0.002) Human Activity (Bal. Acc. ↑) 0.682 (0.016) 0.612 (0.033) 0.643 (0.013) 0.646 (0.027) 0.768 (0.018) 
+
+USHCN-Daily (MSE ↓) 0.375 (0.006) 0.374 (0.005) 0.379 (0.005) 0.384 (0.012) 0.265 (0.084) ISRUC-Sleep (Bal. Acc. ↑) 0.699 (0.006) 0.557 (0.024) 0.693 (0.006) 0.655 (0.009) 0.708 (0.013) 
+
+Chapman-Shaoxing (Bal. Acc. ↑) 0.422 (0.025) 0.321 (0.003) 0.384 (0.008) 0.398 (0.009) 0.429 (0.004) ETTh1 (MSE ↓) 1.041 (0.058) 1.005 (0.019) 1.695 (0.103) 1.540 (0.129) 1.200 (0.038) ETTh2 (MSE ↓) 2.515 (0.129) 3.732 (0.089) 3.668 (1.093) 2.895 (0.297) 1.715 (0.103) 
+
+Traffic (MSE ↓) 0.676 (0.010) 0.943 (0.029) 0.827 (0.071) 0.772 (0.036) 0.851 (0.038) ILI (MSE ↓) 5.693 (0.764) 8.861 (1.057) 7.027 (0.655) 6.529 (1.060) 5.096 (0.122) Exchange-Rate (MSE ↓) 1.299 (0.429) 0.976 (0.222) 1.163 (0.176) 1.949 (0.286) 0.756 (0.140) 
+
+Table 5: Panel (b): general sequence, ECG, irregular clinical/activity, and forecasting tasks, comparison block 1. Entries are mean (sample SD) over final-seed replicates; best and second-best displayed means are bold and underlined. Dataset ALPHABET S5 LRU GRU LSTM Transformer PTB-XL (AUROC ↑) 0.921 (0.002) 0.915 (0.002) 0.914 (0.004) 0.917 (0.003) 0.908 (0.004) 0.882 (0.003) 
+
+Selection: AUPRC ↑ 0.810 (0.005) 0.798 (0.005) 0.793 (0.012) 0.801 (0.006) 0.787 (0.009) 0.737 (0.008) MIT-BIH (Acc. ↑) 0.873 (0.030) 0.797 (0.089) 0.886 (0.028) 0.848 (0.039) 0.840 (0.026) 0.816 (0.093) 
+
+Selection: Bal. Acc. ↑ 0.337 (0.017) 0.368 (0.029) 0.293 (0.032) 0.372 (0.019) 0.338 (0.023) 0.385 (0.054) CWRU (Acc. ↑) 0.978 (0.028) 0.939 (0.013) 0.906 (0.047) 0.975 (0.008) 0.964 (0.005) 0.839 (0.012) 
+
+Selection: Bal. Acc. ↑ 0.974 (0.033) 0.933 (0.011) 0.902 (0.048) 0.974 (0.010) 0.962 (0.005) 0.839 (0.022) ETTm1 (MSE ↓) 0.576 (0.023) 0.634 (0.030) 0.577 (0.027) 0.691 (0.055) 0.778 (0.035) 0.555 (0.029) 
+
+ETTm2 (MSE ↓) 0.618 (0.200) 0.493 (0.107) 0.570 (0.220) 0.525 (0.074) 0.640 (0.069) 0.400 (0.046) 
+
+Electricity (MSE ↓) 0.299 (0.007) 0.377 (0.011) 0.320 (0.016) 0.287 (0.010) 0.292 (0.007) 0.280 (0.006) 
+
+Weather (MSE ↓) 0.196 (0.010) 0.236 (0.015) 0.245 (0.016) 0.224 (0.009) 0.275 (0.023) 0.169 (0.007) 
+
+Sequential CIFAR (Acc. ↑) 0.601 (0.007) 0.636 (0.007) 0.620 (0.005) 0.632 (0.007) 0.617 (0.009) 0.585 (0.003) 
+
+Selection: Bal. Acc. ↑ 0.601 (0.007) 0.636 (0.007) 0.620 (0.005) 0.632 (0.007) 0.617 (0.009) 0.585 (0.003) AudioSet (AUPRC ↑) 0.114 (0.002) 0.142 (0.003) 0.133 (0.003) 0.129 (0.001) 0.134 (0.000) 0.151 (0.001) 
+
+PhysioNet-2012 (AUROC ↑) 0.783 (0.014) 0.822 (0.003) 0.769 (0.004) 0.815 (0.009) 0.803 (0.003) 0.778 (0.009) 
+
+Selection: AUPRC ↑ 0.382 (0.028) 0.463 (0.004) 0.380 (0.017) 0.439 (0.030) 0.398 (0.012) 0.375 (0.018) PhysioNet-2019 (AUROC ↑) 0.889 (0.009) 0.911 (0.008) 0.877 (0.020) 0.850 (0.031) 0.890 (0.008) 0.852 (0.018) 
+
+Selection: AUPRC ↑ 0.604 (0.015) 0.646 (0.013) 0.596 (0.013) 0.539 (0.030) 0.585 (0.020) 0.599 (0.002) PAM (PAMAP2) (Acc. ↑) 0.969 (0.011) 0.967 (0.003) 0.953 (0.012) 0.951 (0.011) 0.970 (0.009) 0.944 (0.012) 
+
+Selection: Macro-F1 ↑ 0.972 (0.010) 0.970 (0.004) 0.960 (0.009) 0.956 (0.010) 0.973 (0.008) 0.952 (0.012) Human Activity (Bal. Acc. ↑) 0.682 (0.016) 0.731 (0.019) 0.652 (0.028) 0.698 (0.021) 0.753 (0.046) 0.758 (0.046) USHCN-Daily (MSE ↓) 0.375 (0.006) 0.372 (0.033) 0.379 (0.009) 0.277 (0.082) 0.242 (0.041) 0.382 (0.009) ISRUC-Sleep (Bal. Acc. ↑) 0.699 (0.006) 0.653 (0.010) 0.686 (0.009) 0.701 (0.007) 0.651 (0.023) 0.524 (0.017) Chapman-Shaoxing (Bal. Acc. ↑) 0.422 (0.025) 0.434 (0.021) 0.356 (0.013) 0.386 (0.013) 0.379 (0.008) 0.284 (0.015) ETTh1 (MSE ↓) 1.041 (0.058) 1.120 (0.262) 1.158 (0.139) 1.099 (0.110) 1.196 (0.002) 0.916 (0.187) 
+
+ETTh2 (MSE ↓) 2.515 (0.129) 1.831 (0.045) 2.189 (0.221) 2.270 (0.219) 2.423 (0.342) 1.720 (0.222) Traffic (MSE ↓) 0.676 (0.010) 0.945 (0.096) 0.846 (0.056) 0.755 (0.003) 0.713 (0.016) 0.757 (0.023) ILI (MSE ↓) 5.693 (0.764) 5.242 (0.302) 5.028 (0.395) 5.831 (0.227) 6.463 (0.237) 5.114 (0.164) Exchange-Rate (MSE ↓) 1.299 (0.429) 1.044 (0.297) 1.156 (0.148) 1.062 (0.161) 1.096 (0.066) 0.899 (0.127) 
+
+Table 5: Panel (b), continued: general sequence, ECG, irregular clinical/activity, and forecasting tasks, comparison block 2. ALPHABET is repeated to keep both comparison blocks directly readable. Dataset ALPHABET CNN1D TCN Mamba S4D ArticularyWordRecognition (Bal. Acc. ↑) 0.971 (0.008) 0.956 (0.002) 0.852 (0.036) 0.978 (0.002) 0.974 (0.005) AtrialFibrillation (Bal. Acc. ↑) 0.267 (0.115) 0.244 (0.077) 0.289 (0.038) 0.289 (0.038) 0.400 (0.000) 
+
+BasicMotions (Bal. Acc. ↑) 1.000 (0.000) 0.967 (0.014) 0.992 (0.014) 1.000 (0.000) 1.000 (0.000) 
+
+CharacterTrajectories (Bal. Acc. ↑) 0.988 (0.005) 0.950 (0.019) 0.988 (0.008) 0.987 (0.001) 0.995 (0.001) 
+
+Cricket (Bal. Acc. ↑) 0.986 (0.000) 0.986 (0.000) 0.921 (0.008) 0.986 (0.000) 0.977 (0.008) DuckDuckGeese (Bal. Acc. ↑) 0.593 (0.101) 0.507 (0.095) 0.300 (0.053) 0.327 (0.095) 0.447 (0.064) EigenWorms (Bal. Acc. ↑) 0.837 (0.027) 0.369 (0.055) 0.582 (0.111) 0.793 (0.043) 0.755 (0.006) Epilepsy (Bal. Acc. ↑) 0.977 (0.001) 0.962 (0.004) 0.939 (0.012) 0.958 (0.000) 0.945 (0.004) ERing (Bal. Acc. ↑) 0.862 (0.032) 0.806 (0.013) 0.836 (0.028) 0.851 (0.019) 0.859 (0.026) EthanolConcentration (Bal. Acc. ↑) 0.289 (0.022) 0.271 (0.015) 0.276 (0.017) 0.247 (0.008) 0.265 (0.013) FaceDetection (Bal. Acc. ↑) 0.630 (0.006) 0.546 (0.005) 0.550 (0.013) 0.566 (0.008) 0.611 (0.024) FingerMovements (Bal. Acc. ↑) 0.521 (0.013) 0.493 (0.028) 0.470 (0.047) 0.507 (0.044) 0.474 (0.023) HandMovementDirection (Bal. Acc. ↑) 0.240 (0.014) 0.278 (0.048) 0.295 (0.063) 0.286 (0.066) 0.352 (0.034) Handwriting (Bal. Acc. ↑) 0.304 (0.021) 0.288 (0.021) 0.225 (0.065) 0.310 (0.029) 0.269 (0.008) Heartbeat (Bal. Acc. ↑) 0.635 (0.033) 0.623 (0.030) 0.631 (0.007) 0.609 (0.051) 0.660 (0.016) 
+
+InsectWingbeat (Bal. Acc. ↑) 0.602 (0.004) 0.583 (0.005) 0.552 (0.010) 0.613 (0.007) 0.640 (0.002) 
+
+JapaneseVowels (Bal. Acc. ↑) 0.984 (0.000) 0.982 (0.007) 0.928 (0.009) 0.977 (0.002) 0.983 (0.004) Libras (Bal. Acc. ↑) 0.898 (0.026) 0.887 (0.029) 0.617 (0.091) 0.791 (0.059) 0.831 (0.014) LSST (Bal. Acc. ↑) 0.442 (0.010) 0.300 (0.023) 0.482 (0.026) 0.496 (0.013) 0.491 (0.035) MotorImagery (Bal. Acc. ↑) 0.547 (0.015) 0.577 (0.015) 0.497 (0.040) 0.543 (0.025) 0.593 (0.035) 
+
+NATOPS (Bal. Acc. ↑) 0.950 (0.024) 0.952 (0.008) 0.863 (0.027) 0.913 (0.050) 0.889 (0.020) PEMS-SF (Bal. Acc. ↑) 0.719 (0.004) 0.715 (0.045) 0.702 (0.042) 0.687 (0.029) 0.683 (0.011) PenDigits (Bal. Acc. ↑) 0.978 (0.006) 0.988 (0.003) 0.982 (0.002) 0.978 (0.007) 0.984 (0.003) RacketSports (Bal. Acc. ↑) 0.861 (0.011) 0.841 (0.034) 0.823 (0.020) 0.848 (0.051) 0.918 (0.009) SelfRegulationSCP1 (Bal. Acc. ↑) 0.731 (0.018) 0.777 (0.019) 0.772 (0.007) 0.725 (0.041) 0.769 (0.024) SelfRegulationSCP2 (Bal. Acc. ↑) 0.494 (0.024) 0.463 (0.055) 0.504 (0.029) 0.524 (0.022) 0.491 (0.018) SpokenArabicDigits (Bal. Acc. ↑) 0.987 (0.001) 0.982 (0.003) 0.981 (0.006) 0.985 (0.003) 0.992 (0.002) 
+
+StandWalkJump (Bal. Acc. ↑) 0.333 (0.000) 0.333 (0.000) 0.289 (0.077) 0.267 (0.176) 0.333 (0.067) UWaveGestureLibrary (Bal. Acc. ↑) 0.848 (0.015) 0.801 (0.010) 0.598 (0.010) 0.845 (0.041) 0.861 (0.010) MFPT Bearing (Bal. Acc. ↑) 0.733 (0.149) 0.867 (0.098) 0.781 (0.134) 0.706 (0.088) 0.984 (0.035) 
+
+Paderborn (KAT) (Bal. Acc. ↑) 0.612 (0.021) 0.419 (0.086) 0.466 (0.051) 0.611 (0.048) 0.567 (0.122) 
+
+Table 6: Panel (c): UEA multivariate classification and vibration/fault diagnosis, comparison block 1. Entries are mean (sample SD) over final-seed replicates; best and second-best displayed means are bold and underlined. Dataset ALPHABET S5 LRU GRU LSTM Transformer ArticularyWordRecognition (Bal. Acc. ↑) 0.971 (0.008) 0.972 (0.008) 0.978 (0.002) 0.972 (0.002) 0.967 (0.003) 0.923 (0.023) AtrialFibrillation (Bal. Acc. ↑) 0.267 (0.115) 0.378 (0.102) 0.356 (0.077) 0.378 (0.038) 0.222 (0.102) 0.267 (0.115) BasicMotions (Bal. Acc. ↑) 1.000 (0.000) 0.975 (0.000) 1.000 (0.000) 0.967 (0.014) 0.958 (0.014) 0.908 (0.038) CharacterTrajectories (Bal. Acc. ↑) 0.988 (0.005) 0.995 (0.001) 0.982 (0.001) 0.982 (0.002) 0.989 (0.004) 0.959 (0.016) Cricket (Bal. Acc. ↑) 0.986 (0.000) 0.968 (0.016) 0.972 (0.000) 0.954 (0.021) 0.972 (0.014) 0.903 (0.073) DuckDuckGeese (Bal. Acc. ↑) 0.593 (0.101) 0.660 (0.020) 0.573 (0.117) 0.487 (0.050) 0.447 (0.042) 0.507 (0.050) EigenWorms (Bal. Acc. ↑) 0.837 (0.027) 0.759 (0.070) 0.652 (0.120) 0.667 (0.181) 0.747 (0.056) 0.307 (0.186) Epilepsy (Bal. Acc. ↑) 0.977 (0.001) 0.936 (0.019) 0.954 (0.017) 0.959 (0.015) 0.880 (0.018) 0.875 (0.053) ERing (Bal. Acc. ↑) 0.862 (0.032) 0.856 (0.000) 0.833 (0.020) 0.767 (0.006) 0.815 (0.011) 0.819 (0.010) EthanolConcentration (Bal. Acc. ↑) 0.289 (0.022) 0.270 (0.011) 0.276 (0.002) 0.279 (0.012) 0.284 (0.029) 0.284 (0.027) FaceDetection (Bal. Acc. ↑) 0.630 (0.006) 0.639 (0.004) 0.607 (0.053) 0.559 (0.010) 0.570 (0.006) 0.683 (0.014) 
+
+FingerMovements (Bal. Acc. ↑) 0.521 (0.013) 0.477 (0.045) 0.521 (0.026) 0.492 (0.010) 0.504 (0.026) 0.479 (0.018) HandMovementDirection (Bal. Acc. ↑) 0.240 (0.014) 0.353 (0.072) 0.267 (0.045) 0.267 (0.057) 0.277 (0.013) 0.285 (0.034) Handwriting (Bal. Acc. ↑) 0.304 (0.021) 0.340 (0.018) 0.118 (0.042) 0.309 (0.023) 0.369 (0.026) 0.102 (0.008) Heartbeat (Bal. Acc. ↑) 0.635 (0.033) 0.650 (0.015) 0.649 (0.013) 0.647 (0.017) 0.635 (0.009) 0.619 (0.022) InsectWingbeat (Bal. Acc. ↑) 0.602 (0.004) 0.633 (0.010) 0.592 (0.005) 0.627 (0.001) 0.629 (0.001) 0.598 (0.003) JapaneseVowels (Bal. Acc. ↑) 0.984 (0.000) 0.978 (0.002) 0.968 (0.003) 0.971 (0.010) 0.965 (0.004) 0.978 (0.003) Libras (Bal. Acc. ↑) 0.898 (0.026) 0.778 (0.006) 0.744 (0.019) 0.772 (0.040) 0.741 (0.037) 0.706 (0.063) LSST (Bal. Acc. ↑) 0.442 (0.010) 0.486 (0.018) 0.474 (0.005) 0.463 (0.017) 0.474 (0.020) 0.421 (0.025) MotorImagery (Bal. Acc. ↑) 0.547 (0.015) 0.573 (0.042) 0.577 (0.035) 0.590 (0.030) 0.557 (0.032) 0.567 (0.070) NATOPS (Bal. Acc. ↑) 0.950 (0.024) 0.859 (0.006) 0.902 (0.031) 0.874 (0.042) 0.878 (0.044) 0.828 (0.031) PEMS-SF (Bal. Acc. ↑) 0.719 (0.004) 0.709 (0.028) 0.725 (0.044) 0.690 (0.003) 0.694 (0.020) 0.688 (0.038) PenDigits (Bal. Acc. ↑) 0.978 (0.006) 0.978 (0.005) 0.985 (0.003) 0.988 (0.003) 0.987 (0.002) 0.971 (0.003) RacketSports (Bal. Acc. ↑) 0.861 (0.011) 0.925 (0.003) 0.884 (0.039) 0.847 (0.006) 0.869 (0.025) 0.728 (0.030) SelfRegulationSCP1 (Bal. Acc. ↑) 0.731 (0.018) 0.774 (0.010) 0.770 (0.002) 0.789 (0.045) 0.801 (0.019) 0.815 (0.054) 
+
+SelfRegulationSCP2 (Bal. Acc. ↑) 0.494 (0.024) 0.502 (0.032) 0.509 (0.033) 0.483 (0.035) 0.530 (0.062) 0.494 (0.048) SpokenArabicDigits (Bal. Acc. ↑) 0.987 (0.001) 0.987 (0.003) 0.988 (0.002) 0.975 (0.004) 0.979 (0.003) 0.979 (0.007) StandWalkJump (Bal. Acc. ↑) 0.333 (0.000) 0.289 (0.038) 0.422 (0.139) 0.311 (0.038) 0.333 (0.067) 0.289 (0.102) UWaveGestureLibrary (Bal. Acc. ↑) 0.848 (0.015) 0.884 (0.011) 0.653 (0.151) 0.820 (0.024) 0.818 (0.008) 0.728 (0.019) MFPT Bearing (Bal. Acc. ↑) 0.733 (0.149) 0.953 (0.095) 0.875 (0.086) 0.729 (0.090) 0.704 (0.246) 0.671 (0.020) Paderborn (KAT) (Bal. Acc. ↑) 0.612 (0.021) 0.369 (0.080) 0.507 (0.020) 0.316 (0.088) 0.304 (0.125) 0.565 (0.112) 
+
+Table 6: Panel (c), continued: UEA multivariate classification and vibration/fault diagnosis, comparison block 2. ALPHABET is repeated to keep both comparison blocks directly readable. References 
+
+Antoulas, A. C. 2005. Approximation of Large-Scale Dynam-ical Systems . Advances in Design and Control. Society for Industrial and Applied Mathematics. Bagnall, A.; Dau, H. A.; Lines, J.; Flynn, M.; Large, J.; Bostrom, A.; Southam, P.; and Keogh, E. 2018. The UEA Multivariate Time Series Classification Archive, 2018. arXiv preprint arXiv:1811.00075 .Bagnall, A.; Lines, J.; Bostrom, A.; Large, J.; and Keogh, E. 2017. The Great Time Series Classification Bake Off: A Review and Experimental Evaluation of Recent Algorithmic Advances. Data Mining and Knowledge Discovery , 31(3): 606–660. Benner, P.; Gugercin, S.; and Willcox, K. 2015. A Survey of Projection-Based Model Reduction Methods for Parametric Dynamical Systems. SIAM Review , 57(4): 483–531. Byrnes, C. I.; Georgiou, T. T.; and Lindquist, A. 2000. A New Approach to Spectral Estimation: A Tunable High-Resolution Spectral Estimator. IEEE Transactions on Signal Processing ,48(11): 3189–3205. Che, Z.; Purushotham, S.; Cho, K.; Sontag, D.; and Liu, Y. 2018. Recurrent Neural Networks for Multivariate Time Series with Missing Values. Scientific Reports , 8(1). Article 6085. Chen, C.-T. 1999. Linear System Theory and Design . Oxford University Press, 3 edition. Cho, K.; van Merriënboer, B.; Gülçehre, Ç.; Bahdanau, D.; Bougares, F.; Schwenk, H.; and Bengio, Y. 2014. Learn-ing Phrase Representations using RNN Encoder–Decoder for Statistical Machine Translation. In Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP) , 1724–1734. Dau, H. A.; Bagnall, A.; Kamgar, K.; Yeh, C.-C. M.; Zhu, Y.; Gharghabi, S.; Ratanamahatana, C. A.; and Keogh, E. 2019. The UCR Time Series Archive. IEEE/CAA Journal of Automatica Sinica , 6(6): 1293–1305. De Brouwer, E.; Simm, J.; Arany, A.; and Moreau, Y. 2019. GRU-ODE-Bayes: Continuous Modeling of Sporadically-Observed Time Series. In Advances in Neural Information Processing Systems , volume 32. de Chazal, P.; O’Dwyer, M.; and Reilly, R. B. 2004. Automatic Classification of Heartbeats Using ECG Morphology and Heartbeat Interval Features. IEEE Transactions on Biomedi-cal Engineering , 51(7): 1196–1206. Dempster, A.; Petitjean, F.; and Webb, G. I. 2020. ROCKET: Exceptionally Fast and Accurate Time Series Classification Using Random Convolutional Kernels. Data Mining and Knowledge Discovery , 34(5): 1454–1495. Dempster, A.; Schmidt, D. F.; and Webb, G. I. 2021. MiniRocket: A Very Fast (Almost) Deterministic Transform for Time Series Classification. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining , 248–257. Demšar, J. 2006. Statistical Comparisons of Classifiers over Multiple Data Sets. Journal of Machine Learning Research ,7(1): 1–30. Elfwing, S.; Uchibe, E.; and Doya, K. 2018. Sigmoid-Weighted Linear Units for Neural Network Function Ap-proximation in Reinforcement Learning. Neural Networks ,107: 3–11. Farahmand, A.-m.; Pourazarm, S.; and Nikovski, D. 2017. Random Projection Filter Bank for Time Series Data. In Ad-vances in Neural Information Processing Systems , volume 30, 6562–6572. Gemmeke, J. F.; Ellis, D. P. W.; Freedman, D.; Jansen, A.; Lawrence, W.; Moore, R. C.; Plakal, M.; and Ritter, M. 2017. Audio Set: An Ontology and Human-Labeled Dataset for Audio Events. In 2017 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 776–780. Georgiou, T. T. 2002. The Structure of State Covariances and Its Relation to the Power Spectrum of the Input. IEEE Transactions on Automatic Control , 47(7): 1056–1066. Gilson, M.; Dahmen, D.; Moreno-Bote, R.; Insabato, A.; and Helias, M. 2020. The Covariance Perceptron: A New Paradigm for Classification and Processing of Time Series in Recurrent Neuronal Networks. PLOS Computational Biology ,16(10): e1008127. Goldberger, A. L.; Amaral, L. A. N.; Glass, L.; Hausdorff, J. M.; Ivanov, P. C.; Mark, R. G.; Mietus, J. E.; Moody, G. B.; Peng, C.-K.; and Stanley, H. E. 2000. PhysioBank, PhysioToolkit, and PhysioNet: Components of a New Research Resource for Complex Physiologic Signals. Circulation ,101(23): e215–e220. Google Research. n.d. AudioSet: Dataset Download. https: //research.google.com/audioset/download.html. Accessed 2026-07-20; balanced and evaluation segment metadata and class-label index files. Gu, A.; and Dao, T. 2024. Mamba: Linear-Time Sequence Modeling with Selective State Spaces. In First Conference on Language Modeling .Gu, A.; Dao, T.; Ermon, S.; Rudra, A.; and Ré, C. 2020. HiPPO: Recurrent Memory with Optimal Polynomial Projec-tions. In Advances in Neural Information Processing Systems ,volume 33, 1474–1487. Gu, A.; Goel, K.; and Re, C. 2022. Efficiently Modeling Long Sequences with Structured State Spaces. In International Conference on Learning Representations .Gu, A.; Gupta, A.; Goel, K.; and Ré, C. 2022. On the Parameterization and Initialization of Diagonal State Space Models. In Advances in Neural Information Processing Systems , volume 35, 35971–35983. Gupta, A.; Gu, A.; and Berant, J. 2022. Diagonal State Spaces Are as Effective as Structured State Spaces. In Advances in Neural Information Processing Systems , volume 35, 22982– 22994. Hershey, S.; Chaudhuri, S.; Ellis, D. P. W.; Gemmeke, J. F.; Jansen, A.; Moore, R. C.; Plakal, M.; Platt, D.; Saurous, R. A.; Seybold, B.; Slaney, M.; Weiss, R. J.; and Wilson, K. 2017. CNN Architectures for Large-Scale Audio Classification. In 
+
+2017 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 131–135. Hochreiter, S.; and Schmidhuber, J. 1997. Long Short-Term Memory. Neural Computation , 9(8): 1735–1780. Ismail Fawaz, H.; Lucas, B.; Forestier, G.; Pelletier, C.; Schmidt, D. F.; Weber, J.; Webb, G. I.; Idoumghar, L.; Muller, P.-A.; and Petitjean, F. 2020. InceptionTime: Finding AlexNet for Time Series Classification. Data Mining and Knowledge Discovery , 34(6): 1936–1962. Khalighi, S.; Sousa, T.; Santos, J. M.; and Nunes, U. 2016. ISRUC-Sleep: A Comprehensive Public Dataset for Sleep Re-searchers. Computer Methods and Programs in Biomedicine ,124: 180–192. Kidger, P.; Morrill, J.; Foster, J.; and Lyons, T. 2020. Neural Controlled Differential Equations for Irregular Time Series. In Advances in Neural Information Processing Systems , vol-ume 33, 6696–6707. Krizhevsky, A. 2009. Learning Multiple Layers of Features from Tiny Images. Technical report, University of Toronto. Lessmeier, C.; Kimotho, J. K.; Zimmer, D.; and Sextro, W. 2016. Condition Monitoring of Bearing Damage in Elec-tromechanical Drive Systems by Using Motor Current Signals of Electric Motors: A Benchmark Data Set for Data-Driven Classification. In European Conference of the Prognostics and Health Management Society . Bilbao, Spain. Lezcano-Casado, M.; and Martínez-Rubio, D. 2019. Cheap Orthogonal Constraints in Neural Networks: A Simple Parametrization of the Orthogonal and Unitary Group. In 
+
+Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , 3794–3803. Li, T.-H.; and Oh, H.-S. 2002. Wavelet Spectrum and Its Characterization Property for Random Processes. IEEE Transactions on Information Theory , 48(11): 2922–2937. Machinery Failure Prevention Technology Society. n.d. MFPT Fault Data Sets. https://www.mfpt.org/fault-data-sets/. Bear-ing vibration benchmark data; accessed 2026-07-20. Max Planck Institute for Biogeochemistry. n.d. Weather Data from the Jena Weather Station. https://weather.bgc-jena.mpg.de/weather_data.html. Accessed 2026-07-15. Moody, G. B.; and Mark, R. G. 2001. The Impact of the MIT-BIH Arrhythmia Database. IEEE Engineering in Medicine and Biology Magazine , 20(3): 45–50. Moore, B. C. 1981. Principal Component Analysis in Linear Systems: Controllability, Observability, and Model Reduction. 
+
+IEEE Transactions on Automatic Control , 26(1): 17–32. Ninness, B.; and Gustafsson, F. 1997. A Unifying Construc-tion of Orthonormal Bases for System Identification. IEEE Transactions on Automatic Control , 42(4): 515–521. Orellana, M. A. P.; Mirtaheri, P.; and Hammer, H. L. 2021. The Complex-Pole Filter Representation (COFRE) for Spectral Modeling of fNIRS Signals. arXiv:2105.13476. Orvieto, A.; Smith, S. L.; Gu, A.; Fernando, A.; Gülçehre, Ç.; Pascanu, R.; and De, S. 2023. Resurrecting Recurrent Neural Networks for Long Sequences. In Proceedings of the 40th International Conference on Machine Learning ,volume 202 of Proceedings of Machine Learning Research ,26670–26698. Reiss, A. 2012. PAMAP2 Physical Activity Monitoring. UCI Machine Learning Repository; https://doi.org/10.24432/ C5NW2H. Dataset. Reiss, A.; and Stricker, D. 2012. Introducing a New Bench-marked Dataset for Activity Monitoring. In 2012 16th Inter-national Symposium on Wearable Computers , 108–109. Reyna, M. A.; Josef, C. S.; Jeter, R.; Shashikumar, S. P.; Westover, M. B.; Nemati, S.; Clifford, G. D.; and Sharma, A. 2020. Early Prediction of Sepsis From Clinical Data: The PhysioNet/Computing in Cardiology Challenge 2019. 
+
+Critical Care Medicine , 48(2): 210–217. Rubanova, Y.; Chen, R. T. Q.; and Duvenaud, D. 2019. Latent Ordinary Differential Equations for Irregularly-Sampled Time Series. In Advances in Neural Information Processing Systems ,volume 32. Schmid, P. J. 2010. Dynamic Mode Decomposition of Nu-merical and Experimental Data. Journal of Fluid Mechanics ,656: 5–28. Silva, I.; Moody, G.; Scott, D. J.; Celi, L. A.; and Mark, R. G. 2012. Predicting In-Hospital Mortality of ICU Patients: The PhysioNet/Computing in Cardiology Challenge 2012. In 
+
+2012 Computing in Cardiology , volume 39, 245–248. IEEE. Smith, J. T. H.; Warrington, A.; and Linderman, S. W. 2023. Simplified State Space Layers for Sequence Modeling. In 
+
+International Conference on Learning Representations .Smith, W. A.; and Randall, R. B. 2015. Rolling Element Bear-ing Diagnostics Using the Case Western Reserve University Data: A Benchmark Study. Mechanical Systems and Signal Processing , 64–65: 100–131. Trindade, A. 2015. ElectricityLoadDiagrams20112014. UCI Machine Learning Repository. UCI Machine Learning Repository. 2008. Localiza-tion Data for Person Activity. University of California, Irvine; https://archive.ics.uci.edu/dataset/196/localization+ data+for+person+activity. Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. Attention Is All You Need. In Advances in Neural Information Processing Systems , volume 30, 5998–6008. Wagner, P.; Strodthoff, N.; Bousseljot, R.-D.; Kreiseler, D.; Lunze, F. I.; Samek, W.; and Schaeffter, T. 2020. PTB-XL, a Large Publicly Available Electrocardiography Dataset. 
+
+Scientific Data , 7(1). Article 154. Wahlberg, B.; and Mäkilä, P. M. 1996. On Approximation of Stable Linear Dynamical Systems Using Laguerre and Kautz Functions. Automatica , 32(5): 693–708. Wu, H.; Hu, T.; Liu, Y.; Zhou, H.; Wang, J.; and Long, M. 2023. TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis. In International Conference on Learning Representations .Zheng, J.; Zhang, J.; Danioko, S.; Yao, H.; Guo, H.; and Rakovski, C. 2020. A 12-Lead Electrocardiogram Database for Arrhythmia Research Covering More Than 10,000 Patients. 
+
+Scientific Data , 7(1). Article 48. Zhou, H.; Zhang, S.; Peng, J.; Zhang, S.; Li, J.; Xiong, H.; and Zhang, W. 2021. Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 35, 11106–11115. Issue 12.

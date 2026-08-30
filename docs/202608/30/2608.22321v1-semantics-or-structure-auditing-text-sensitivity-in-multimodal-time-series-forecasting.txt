@@ -1,0 +1,935 @@
+Title: Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2608.22321v1
+
+Published Time: Tue, 25 Aug 2026 01:04:25 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+Karthik Sridhar 1 Atharva Gupta 2 Nishant Pradhan 2 Murari Mandal 1 3 Dhruv Kumar 1 2 †
+
+Saurabh Deshpande 1 †
+
+## Abstract 
+
+Multimodal time-series forecasting has emerged as a promising paradigm in which natural-language context is expected to improve predic-tive performance. Recent multimodal founda-tion models, including A URORA , as well as early-and late-fusion approaches such as MM-TSF LIB 
+
+and T ATS, report substantial gains over unimodal baselines on the Time-MMD benchmark, attribut-ing these improvements to textual information. However, whether these models are actually sen-sitive to the semantic content of the text remains unverified. We address this question through con-trolled text perturbations, attribution analyses, and probes of A URORA ’s text pathway. On Time-MMD, swapping each row’s text for any other real text (empty, constant, within-domain shuf-fled, or cross-domain) moves mean MSE by less than 0.5% on all three architectures. The improve-ment reported in the literature is recovered when a co-shipped numeric column is removed without touching text. We conclude that, on this bench-mark and within this family of frozen-encoder architectures, text content is not the operative sig-nal behind the reported gains. To support future work on text integration in multimodal founda-tion models for structured data, we release our perturbation protocol and evaluation harness as a reusable diagnostic toolkit. 
+
+## 1. Introduction 
+
+Many forecasting domains pair numeric series with tem-porally aligned text. Epidemiological reports accompany 
+
+† Equal supervision. Code available at github.com/ birla-ai-labs/SemanticsOrStructure . 1Birla AI Labs, Mumbai, India 2BITS Pilani, Pilani, India 3KIIT, Bhubaneswar, India. Correspondence to: Saurabh Deshpande 
+
+<saurabh.deshpande-c@oab.adityabirla.com >, Dhruv Kumar 
+
+<dhruv.kumar-c@oab.adityabirla.com >.
+
+ICML 2026 Workshop on Foundation Models for Structured Data ,Seoul, South Korea. 2026. Copyright 2026 by the author(s). 
+
+case counts (Wang et al., 2020; Liu et al., 2024); energy dispatches accompany consumption readings (Liu et al., 2024); commodity bulletins and financial news accompany price series (Ding et al., 2015; Araci, 2019; Sawhney et al., 2020). The multimodal time-series literature operationalises the intuition that this text encodes regime changes, domain knowledge, and external events that numeric histories can-not capture (Jin et al., 2024a; Jia et al., 2024; Zhang et al., 2024; Jin et al., 2024b). Three recent systems target this setting on the Time-MMD (Liu et al., 2024) benchmark: the multimodal foundation model AURORA (Wu et al., 2026), and the late- and early-fusion paradigms MM-TSF LIB (Liu et al., 2024) and T ATS (Li et al., 2026). Each provides a dedicated text pathway and reports significant MSE im-provements over its unimodal baseline. The standard evaluation in this literature compares a full multimodal run against a run with the text branch disabled. We refer to the disabled-text configuration as the unimodal baseline , and to the MSE improvement of the multimodal run over it as the multimodal lift . This comparison reveals only that the text pathway contributes some signal. It does not reveal whether the model is responding to what the text says: any fixed, content-blind output of the text branch would produce the same lift. The question of content sensi-tivity , that is, whether the model reacts to which words are in the input, has not been studied systematically in multi-modal time-series forecasting. It parallels probing protocols in NLP that test whether models respond to content or to spurious surface features (Niven & Kao, 2019; McCoy et al., 2019). Concurrent work (Zhang et al., 2025) asks whether multimodal gains generalise across datasets. We ask the orthogonal, within-dataset question of whether the lift ob-served on Time-MMD is attributable to text content or to other inputs that share its fusion path. We test this by holding each of the three models fixed at its released configuration and swapping the text input through five substitutes while leaving every numeric input unchanged. Four of these conditions probe content sen-sitivity to natural language directly, by replacing the text with an empty string, a constant placeholder, within-domain shuffled text, or text from a paired domain. Together they 1arXiv:2608.22321v1 [cs.CL] 23 Aug 2026 Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+span the natural-language hypothesis space. A fifth oracle 
+
+condition replaces the text with a templated sentence list-ing the future ground-truth values. We treat the oracle as a necessary condition rather than a sufficient one: a model that both responds to text and can read numeric prose must register some change. We do not treat oracle insensitivity alone as proof of content blindness, since the encoders these models use may not represent numeric literals as quanti-ties (Wallace et al., 2019). None of the three architectures responds meaningfully to any of the five substitutions. 
+
+Contributions. 
+
+• A text perturbation protocol that varies text content independently of all other inputs, applied to three archi-tectures on Time-MMD spanning one foundation model and two paradigm implementations. All three are insensi-tive to natural-language text content within the precision of this benchmark. • Mechanistic localisation of the multimodal lift: a nu-meric column shipped with the dataset, blended into two architectures’ outputs alongside the text, accounts for the gain. A URORA -specific gradient, attention, and diver-gence probes show that its text pathway is trained but content-blind in the forward pass. Code, patched runners, and the evaluation harness are re-leased for reproducibility. 
+
+## 2. Background 
+
+Time-MMD as evaluation setting. Time-MMD (Liu et al., 2024) spans nine domains (Agriculture, Climate, Economy, Energy, Environment, Health, Security, SocialGood, Traf-fic). Each domain provides a numeric target series with temporally aligned text drawn from public reports and do-main bulletins. Forecast horizons range from 6 to 336 steps depending on sampling frequency. All three architectures we study were originally evaluated on Time-MMD, making it the natural testbed. 
+
+Three text pathways. Each architecture maps a numeric history x ∈ RL and text T to a forecast ˆy ∈ RH through a model-specific text pathway. Full architectural equations are in Appendix A. TATS (Li et al., 2026) performs early fusion . A frozen GPT-2 pooler (Radford et al., 2019) en-codes each row’s text into a vector sequence. The sequence is projected and concatenated to the numeric history along the channel axis, then passed to a time-series backbone. 
+
+MM-TSF LIB (Liu et al., 2024) performs late fusion . A frozen BERT pooler (Devlin et al., 2019) encodes the text into a vector that is layer-normalised and added to the back-bone’s output as a residual. AURORA (Wu et al., 2026) is a pretrained zero-shot foundation model. A frozen BERT-base produces per-token features that a trained text distiller 
+
+compresses into Lk = 10 learnable query tokens. A text guider then injects them into the temporal backbone via cross-attention. All three architectures provide a dedicated text pathway. This motivates the question of whether that pathway is sen-sitive to what the text actually says. 
+
+The unimodal baseline and the multimodal lift. Each model ships a unimodal configuration that gates its text pathway off, providing the natural reference for measuring multimodal contribution. We define the multimodal lift as the MSE improvement of the full multimodal run over this unimodal configuration. We reproduce the published claims in Section 4. 
+
+## 3. Perturbation Protocol 
+
+We replace the text column with five substitutes and re-run each model with all numeric inputs held identical across conditions. Real Time-MMD text carries a long preamble (e.g. “ Available facts are as follows:. . . ”); Table 1 shows a schematic example for clarity.                 
+
+> Table 1. Five text conditions on a schematic row from a weather domain. Numeric history is 11 .9in every condition. The Tests
+> column names the property each substitution isolates.
+> Condition Text fed to model Tests Original “Heavy rainfall expected tomorrow” Baseline
+> Empty (empty string) Text presence
+> Constant “Time series data point.” Token content
+> Shuffled “Hurricane expected” (real text, different row, same domain)
+> Row alignment
+> Cross-domain
+> “Trade balance deteriorated”
+> (date-aligned, paired domain)
+> Topic relevance
+> Oracle “Future values:
+> 12 .4,12 .8,13 .1. . . ” Numeric reading
+
+The first two conditions ablate the text entirely (no tokens, then a fixed placeholder), testing whether the encoder re-acts to mere text presence . The next two preserve real, fluent language but sever its link to the row. Shuffled keeps the text distribution but breaks temporal alignment, while 
+
+Cross-domain also breaks topical relevance. Oracle em-beds the future itself. We treat it as a reference point rather than a strict upper bound, since the encoders may not rep-resent numeric literals as quantities. Domain pairing de-tails are in Appendix D. Each condition is compared to the original-text baseline via the paired relative change 
+
+∆i = (MSE i(c) − MSE i(orig )) / MSE i(orig ), matching cells on (domain, horizon, seed, backbone). We aggre-gate by the ratio of mean MSEs across cells, and attach 
+
+95% bootstrap confidence intervals (CIs, [2 .5% , 97 .5%] per-centile) (Efron & Tibshirani, 1993) with 10 ,000 resamples (Appendix H). We evaluate over nine domains, four hori-2Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+zons, three seeds, and (for T ATS and MM-TSF LIB ) eight backbone variants. 
+
+## 4. Results                                                                         
+
+> Table 2. Text perturbation results. Mean test MSE averaged over
+> 9domains, 4horizons, 3seeds, and (for trained methods) 8back-bones. ∆% is the change in mean MSE relative to the original-text baseline. Bootstrap CIs and per-condition p-values are in Ap-pendix H, Table 11. text-only perturbations; unimodal base-line. Green bold /blue underline mark the lowest/second-lowest MSE per model. Plain bold flags structural ∆% values of magni-tude ≥1% .AURORA MM-TSF LIB TATS
+> Condition MSE ∆% MSE ∆% MSE ∆%
+> Original 8.553 —14.03 —13.19 —Empty 8.555 +0 .02 14.04 +0 .05 13.19 −0.00
+> Constant 8.555 +0 .03 14.05 +0 .16 13.19 +0 .00
+> Shuffled 8.553 +0 .00 14.03 −0.01 13.19 +0 .00
+> Cross-domain 8.552 −0.01 14.03 −0.03 13.19 +0 .00
+> Oracle 8.555 +0 .02 14.01 −0.14 13.19 +0 .00
+> Unimodal baseline 8.553 +0 .00 14.29 +1.87 14.18 +7.54
+
+Text content does not move forecasting error. Table 2 de-livers the headline finding. None of the five text substitutions moves mean MSE by more than 0.5% on any of the three models. The largest shift is +0 .16% on MM-TSF LIB under Constant text. T ATS stays within ±0.001% , and A URORA 
+
+stays within ±0.05% . This null pattern is consistent across every condition and every model. Whether the text pre-serves natural language (Shuffled, Cross-domain, Oracle), removes it (Empty), or replaces it with a fixed placeholder (Constant), the forecast is essentially unchanged. 
+
+The unimodal lifts are real. The bottom row of Table 2 confirms that enabling the text pathway yields a positive multimodal lift, consistent with the gains each method re-ports over its unimodal baseline. What we cannot confirm is that this gain reflects the model reading text content. If it did, substituting cross-domain text or substituting text with future ground-truth values should change something. It does not. (The oracle null in part reflects that frozen GPT-2/BERT tokenise numerals as sub-word pieces that do not preserve magnitude (Wallace et al., 2019); the four natural-language conditions carry the semantic weight.) 
+
+The null is robust across backbones. The mean numbers in Table 2 aggregate over eight backbones for T ATS and MM-TSF LIB . The multimodal lift varies substantially with backbone choice: from +1 .2% (iTransformer) to +15 .0% 
+
+(Autoformer) on T ATS, and from +0 .3% (FEDformer) to 
+
++3 .8% (Autoformer) on MM-TSF LIB . Yet text-only per-turbations stay within ±0.01% on T ATS and ±2.4% on MM-TSF LIB across all backbones (Avg. column, Tables 9, 10). Backbone variance affects the structural-column effect substantially; the text-content null is uniform. 
+
+## 5. Localising the Lift 
+
+The published multimodal lifts are real, yet text content does not move error. Inspecting the architectures explains the gap. 
+
+A numeric column travels with the text. Time-MMD ships alongside its text a numeric column p
+
+(prior history avg ; Appendix B) that stores a nu-meric forecast derived from each row’s target history. It is a numeric feature, not a text feature. Both T ATS and MM-TSF LIB blend p into the model output at the same residual as their text encoder. In T ATS, the final forecast is a convex combination of the backbone output and p directly: 
+
+ˆyTATS = (1 − w) fθ
+
+ [x ∥ch ψ(E)]  + w pL+1: L+H , (1) where fθ is the time-series backbone, ψ(E) is the projected text embedding concatenated to x along the channel axis, and w = 0 .5 by default, so half the forecast is literally p.In MM-TSF LIB , the text embedding and p are summed together and then blended with the backbone: 
+
+ˆyMM-TSF LIB = (1 −w) fθ (x)+ w LN( ¯ϕ(T))+ pL+1: L+H
+
+,
+
+(2) sharing a single residual gated by w. A URORA never reads 
+
+p (Appendix A). In both, the unimodal baseline gates text and p off together through a single switch (Appendix A), so the published lift reflects the combined contribution of text and p. We note that MM-TSF LIB ’s appendix documents p as a centering mechanism on the projection output (Liu et al., 2024), while TATS’s framework (Eq. 6–7 of Li et al. (2026)) defines the forecast as F ([ x; Z⊤]) with no prior-mixing; the convex combination in Eq. 1 appears in the released code, not the paper. 
+
+A 2 ×3 factorial isolates text from p. Table 3 crosses a text axis (Original, Empty, Constant) with a column axis (intact vs. zeroed). The 2×2 block isolates the text effect from the 
+
+p effect; the bottom row gives the unimodal baseline (both off). 
+
+Reading the factorial. (i) Within any column (fixed p sta-tus), changing the text moves MSE by less than 0.2% on MM-TSF LIB , 0.001% on T ATS, 0.05% on A URORA : text content is not the operative signal. (ii) On MM-TSF LIB 
+
+(w = 0 .1), the p-zeroed CI [+1 .21 ,+1 .85] overlaps the uni-modal CI [+1 .50 ,+2 .29] ; the small blend weight perturbs amplitude by only ∼10% , so column-zeroing isolates p’s contribution cleanly. The published MM-TSF LIB lift is 3Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting                                                    
+
+> Table 3. Disentangling text and pcontributions. ∆% MSE vs. the Original-text, p-intact baseline, with 95% bootstrap CIs in brackets. Rows vary the text input; columns toggle the numeric column p. The contrast across rows measures the text effect; the contrast across columns measures the peffect. pintact; p
+> zeroed; unimodal baseline. AURORA MM-TSF LIB TATS
+> Text pin p=0 pin p=0 pin p=0
+> Original 0.00 0.00 0.00 +1.52 0.00 +20 .16
+> Empty +0 .02 +0 .02 +0 .05 +1.62 −0.00 +20 .17
+> Constant +0 .03 +0 .03 +0 .16 +1.63 +0 .00 +20 .16
+> Unimodal +0 .00 +1.87 +7.55
+
+accounted for by p, with the text residual indistinguish-able from zero. (iii) On T ATS ( w = 0 .5), zeroing p halves the prediction scale, so the +20% column-zeroed effect is dominated by an amplitude artifact; the amplitude-matched comparison is the unimodal baseline ( +7 .5% ). The text-content null on T ATS rests on the text-only perturbations, which stay within ±0.001% even with the projection MLP made trainable (Appendix I). 
+
+Backbone choice can hide the picture. On T ATS, the p-zeroed ∆% varies from +4 .5% (Autoformer) to +49 .9% 
+
+(FiLM); on MM-TSF LIB the unimodal-baseline gap ranges from +0 .3% to +3 .8% (Appendix G, Tables 9, 10). A lift on a single backbone can over- or understate p’s contribution by an order of magnitude. 
+
+Aurora’s text pathway is active but content-blind. Since AURORA does not consume p, its null result needs a sepa-rate explanation. Three probes at the text-distiller interface (Appendix E) ask whether the pathway was trained, whether it discriminates between inputs, and whether it moves the forecast.                            
+
+> Trained? Discriminates? Affects forecast?
+> Condition Grad. norm Attn. entropy Pred. change
+> (non-zero (low (large = trained) = focused) = text matters)
+> Original 0.15 0.975 0.041 Empty 0.07 0.975 0.040 Constant 0.16 0.976 0.044 Shuffled 0.15 0.975 0.035 Cross-domain 0.07 0.975 0.035 Oracle 0.13 0.976 0.058
+
+Gradient norms are non-zero ( 0.07 –0.16 ), so the pathway 
+
+was optimised. Attention entropy sits at 0.975 in every condition including oracle: nearly uniform across distilled tokens regardless of text. Prediction change is at most 0.058 ,two orders of magnitude below the test-MSE scale of ∼ 8.6.The pathway is trained but content-blind in the forward pass. 
+
+Is there a usable signal in Time-MMD text? Having es-tablished content insensitivity across all three architectures, we ask whether Time-MMD text carries signal that an at-tentive encoder could exploit. We measure three structural properties of the per-row text embeddings across all nine domains: TTW (text-target Wasserstein distance, lower = better alignment) (Li et al., 2026), ETA (embedding tempo-ral autocorrelation, high = persistent), and SDI (semantic diversity index, high = distinct rows). Formal definitions are in Appendix F.                 
+
+> Table 4. Text diagnostics on Time-MMD (mean over 8domains, ENVIRONMENT excluded as self-paired). Per-domain values and per-perturbation values are in Appendix F, Tables 6–7.
+> Encoder TTW ETA SDI
+> (low = aligned) (high = persistent) (high = distinct)
+> GPT-2 0.056 0.423 0.008 BERT 0.037 0.385 0.031
+
+Table 4 shows moderate TTW and ETA but uniformly low SDI, so consecutive rows produce nearly identical embed-dings. Our perturbations move all three diagnostics substan-tially yet downstream MSE still stays within 0.5% , so none of TTW, ETA, or SDI reliably predicts whether a perturba-tion will move the forecast. 
+
+## 6. Discussion and Conclusion 
+
+On Time-MMD, substituting any plausible text for the orig-inal (empty, constant, shuffled, cross-domain, or oracle) moves mean MSE by less than 0.5% on all three archi-tectures; the lifts are real but survive any text substitution. On T ATS and MM-TSF LIB they localise to a numeric col-umn ( p) co-routed through the same fusion residual as the text encoder; on A URORA the text pathway is trained but content-blind in the forward pass. The standard comparison against a disabled-text baseline cannot distinguish these scenarios: a model that reads text and a model that gates on a co-routed numeric prior both produce the same lift. Established benchmarks for multi-modal time-series forecasting therefore do not verify that reported gains reflect genuine use of text semantics; they verify only that the text pathway contributes some signal, not what kind. Rigorous multimodal benchmarking requires direct text-content intervention and isolation of any numeric features co-shipped through the text-fusion path. Richer corpora with higher per-row semantic diversity would give attentive encoders something genuine to read. 
+
+Limitations. The audit covers Time-MMD and three frozen-encoder architectures; end-to-end trained encoders and higher-diversity benchmarks are natural next steps. A directional oracle such as “a sharp rise is expected” would probe semantic sensitivity more directly than our numeric oracle, which is bottlenecked by sub-word tokenisation. We release our harness so this check becomes a default: what looks like a text gain may be something else entirely. 4Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+## Impact Statement 
+
+This paper presents an audit of multimodal time-series forecasting methods on a public benchmark. The work is methodological: it does not introduce new models, datasets, or applications, and uses only the existing Time-MMD dataset along with publicly released research code. By iden-tifying confounded baselines in published results, the work aims to improve the rigour of evaluation standards in this subfield. We see no specific ethical concerns, direct deploy-ment risks, or applications involving human subjects, per-sonally identifiable information, copyrighted training data, or dual-use technologies that warrant further discussion. Be-yond contributing to the general advancement of machine learning, we do not anticipate societal consequences specific to this work that require highlighting. 
+
+## References 
+
+Araci, D. FinBERT: Financial sentiment analysis with pre-trained language models. arXiv preprint arXiv:1908.10063 , 2019. Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K. BERT: Pre-training of deep bidirectional transformers for lan-guage understanding. In Proceedings of NAACL-HLT ,2019. Ding, X., Zhang, Y., Liu, T., and Duan, J. Deep learning for event-driven stock prediction. In Proceedings of the 24th International Joint Conference on Artificial Intelligence (IJCAI) , 2015. Efron, B. and Tibshirani, R. J. An Introduction to the Boot-strap . Chapman and Hall, 1993. Jia, F., Wang, K., Zheng, Y., Cao, D., and Liu, Y. GPT4MTS: Prompt-based large language model for multimodal time-series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , 2024. Jin, M., Wang, S., Ma, L., Chu, Z., Zhang, J. Y., Shi, X., Chen, P.-Y., Liang, Y., Li, Y.-F., Pan, S., and Wen, Q. Time-LLM: Time series forecasting by reprogramming large language models. In International Conference on Learning Representations , 2024a. Jin, M., Zhang, Y., Chen, W., Zhang, K., Liang, Y., Yang, B., Wang, J., Pan, S., and Wen, Q. Position: What can large language models tell us about time series analysis. In 
+
+International Conference on Machine Learning , 2024b. Li, Z., Lin, X., Liu, Z., Zou, J., Wu, Z., Zheng, L., Fu, D., Zhu, Y., Hamann, H., Tong, H., and He, J. Language in the flow of time: Time-series-paired texts weaved into a unified temporal narrative. In International Conference on Learning Representations , 2026. Liu, H., Xu, S., Zhao, Z., Kong, L., Kamarthi, H., Sasa-nur, A. B., Sharma, M., Cui, J., Wen, Q., Zhang, C., and Prakash, B. A. Time-MMD: A new multi-domain mul-timodal dataset for time series analysis. In Advances in Neural Information Processing Systems , 2024. McCoy, R. T., Pavlick, E., and Linzen, T. Right for the wrong reasons: Diagnosing syntactic heuristics in natural language inference. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics ,2019. Niven, T. and Kao, H.-Y. Probing neural network compre-hension of natural language arguments. In Proceedings of the 57th Annual Meeting of the Association for Com-putational Linguistics , 2019. Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., and Sutskever, I. Language models are unsupervised multitask learners. Technical report, OpenAI, 2019. Sawhney, R., Agarwal, S., Wadhwa, A., and Shah, R. R. Deep attentive learning for stock movement prediction from social media text and company correlations. In Pro-ceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP) , 2020. Wallace, E., Wang, Y., Li, S., Singh, S., and Gardner, M. Do NLP models know numbers? probing numeracy in embeddings. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing ,2019. Wang, L., Adiga, A., Venkatramanan, S., Chen, J., Lewis, B., and Marathe, M. Examining deep learning models with multiple data sources for COVID-19 forecasting. 
+
+IEEE International Conference on Big Data , 2020. Wu, X., Jin, J., Qiu, W., Chen, P., Shu, Y., Yang, B., and Guo, C. Aurora: Towards universal generative multimodal time series forecasting. In International Conference on Learning Representations , 2026. Zhang, X., Chowdhury, R. R., Gupta, R. K., and Shang, J. Large language models for time series: A survey. 
+
+Proceedings of the International Joint Conference on Artificial Intelligence (IJCAI) , 2024. Zhang, X., Han, B., Fang, H., Ansari, A. F., Zhang, S., Maddix, D. C., Hu, C., Wilson, A. G., Mahoney, M. W., Wang, H., Liu, Y., Rangwala, H., Karypis, G., and Wang, B. Does multimodality lead to better time series forecast-ing? arXiv preprint arXiv:2506.21611 , 2025. 5Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+## A. Architecture Equations 
+
+This section gives the full forward-pass equations for each architecture and states formally how their unimodal base-lines are defined. 
+
+Notation. A Time-MMD window of history length L and horizon H provides a numeric history x ∈ RL, per-row text T, the numeric column p ∈ RL+H documented as 
+
+prior history avg (see Appendix B), and target y ∈
+
+RH . A frozen text encoder ϕ maps each row’s text to a vector; E(T) stacks these row-wise. 
+
+TATS (early fusion). A frozen GPT-2 pooler produces text features. A trainable projection ψ : Rde → Rdp is applied row-wise, and the result is concatenated to x along the channel axis before the backbone fθ . The final forecast is a convex combination of the backbone output and the column 
+
+p:
+
+ˆyTATS = (1 − w) fθ
+
+ [x ∥ch ψ(E)]  + w pL+1: L+H .
+
+The default blend weight is w = 0 .5. The unimodal baseline is recovered by setting both the projected text channels to zero (text branch off) and w = 0 (p contribution removed). A single ablation thus removes both signals simultaneously, which is why the unimodal lift in Table 2 cannot be at-tributed to the text channel alone. 
+
+MM-TSF LIB (late fusion). A frozen BERT pooler pro-duces a pooled text embedding, which is projected to a horizon-shaped vector ¯ϕ(T), layer-normalised, summed with p, and blended with the backbone: 
+
+ˆyMM-TSF LIB = (1 −w) fθ (x)+ w LN( ¯ϕ(T))+ pL+1: L+H
+
+.
+
+The default blend weight is w = 0 .1. The unimodal baseline is recovered by setting w = 0 . Because the text term and p
+
+share a single residual gated by w, this ablation also removes both signals simultaneously. 
+
+AURORA (cross-attention, zero-shot). A frozen BERT-base produces per-token features E ∈ RL′×de (L′ = 125 ). A trained text distiller compresses these into Lk = 10 learnable query tokens Q via a transformer decoder. A text guider then injects them into the temporal backbone via cross-attention: 
+
+ZT = TextDistill (Q, E), αt = TextGuider (x, ZT ),
+
+ˆyAURORA = f AURORA  
+
+> θ
+
+(x, α t, E).
+
+AURORA does not consume p; it has no late-fusion residual that would mix text and numeric features. The unimodal baseline is the no-text variant of A URORA ; we expose a flag in our patched runner that disables the text path during inference. 
+
+Summary of unimodal-baseline mechanics. On T ATS and MM-TSF LIB , the standard “unimodal” setting removes both text and p together, because both pass through the same gating coefficient. The published unimodal lift therefore reflects the combined contribution of the text pathway and 
+
+p, not the text alone. A URORA ’s unimodal baseline removes only text (it has no p pathway), which is the cleanest of the three. 
+
+## B. The Time-MMD Data Columns 
+
+The Time-MMD benchmark ships per-domain CSV files containing several columns whose use across architectures is not documented in one place in the upstream literature. We reconstruct it here from the data loaders of each repository. 
+
+Columns shared by all architectures. date : times-tamp index. OT : the numeric target series (y). 
+
+prior history avg : a numeric column that stores, for each row, an LLM-derived numeric forecast of the target derived from the row’s own preceding history. Despite its name, this column is functionally close to a smoothed run-ning average of past target values; an LLM was prompted with the OT history and asked to emit a numeric prediction. The output correlates strongly with rolling-mean baselines but is not identical to them. We refer to this column as p
+
+throughout the paper. 
+
+MMTSFlib-specific columns. The MMTSFlib data files additionally contain text and feature columns that originate from the Time-MMD construction pipeline. Final Search 2 , Final Search 4 ,
+
+Final Search 6 : the dataset was built by retrieving relevant news articles or domain reports for each row’s date via web search; Final Search N concatenates N
+
+retrieved chunks. The reference setting of MMTSFlib reads Final Search 4 as its text column (controlled by 
+
+--text len 4 ). Final Output : a closed-source LLM (likely GPT-4) processed the search results and emitted a cleaned synthesis. MMTSFlib reads this column when the --use closedllm flag is on; we use the default off setting, which means the text input to the model is 
+
+Final Search 4 . his avg 1..7 , his std 1..7 :windowed averages and standard deviations of OT at lookbacks of 1 to 7 periods. These columns are present in the CSV but are not consumed by MMTSFlib under our evaluation setting ( features=’S’ , see below). 
+
+TaTS-specific columns. fact : the text column TaTS ac-tually uses, drawn from the same source documents as MMTSFlib’s Final Search 4 but preprocessed slightly differently. preds : an LLM-generated forward-looking prediction for the target rendered as natural-language prose (e.g. “the predicted value for next period is 2.34” ). This 6Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+column exists in the CSV but TaTS’s data loader does not read it: only fact is bound to the self.text attribute. The preds column was likely pre-generated for a differ-ent model variant or for analysis. We note that preds 
+
+would have provided a softer oracle-style condition (LLM-predicted future values, rather than ground truth) but is not part of our evaluation, since TaTS’s released code does not consume it. 
+
+Aurora data. AURORA reuses the TaTS CSV files. Its data loader reads fact as the text input and ignores all other text columns. AURORA does not consume 
+
+prior history avg .
+
+features=’S’ versus features=’M’. The data loaders in-herited from the upstream time-series-library support a 
+
+features flag with two relevant settings. Univariate (features=’S’ ), which we use throughout, reads only OT as the time-series input, with text handled on a sep-arate code path and prior history avg entering as the residual term in the fusion equations above. Multi-variate ( features=’M’ ) would attempt to read all non-date columns into the time-series input matrix. This set-ting crashes on the shipped CSVs across all three archi-tectures, because the inherited loader treats text columns (Final Search 4 , fact ) as numeric features and Stan-dardScaler raises a type error on the string contents. The upstream papers’ features=’M’ runs were per-formed against pre-processed numeric-only CSVs that are not shipped with the public benchmark. Switching to 
+
+features=’M’ would also introduce his avg 1..7 
+
+and his std 1..7 as backbone inputs, which would change the experiment in a non-trivial way. We retain 
+
+features=’S’ for cleanliness and consistency across all three models. 
+
+## C. Methodology 
+
+Repository preparation. We pin each upstream repository to a specific commit and apply a small set of documented, idempotent patches falling into five categories. (a) CSV-loading fixes that prevent silent conversion of empty text strings to NaN , which would otherwise corrupt the empty-text condition by replacing the empty string with a literal 
+
+"nan" or with sentinel text. (b) Pandas-version compat-ibility fixes. (c) Backbone registration in T ATS, which originally registered only iTransformer in its model registry; we register the seven additional backbones (Autoformer, Crossformer, DLinear, FEDformer, FiLM, Informer, Trans-former) already present in its source tree. (d) An A URORA 
+
+command-line flag for the unimodal ablation, since A U-
+
+> RORA
+
+’s released code does not expose one. (e) A T ATS 
+
+--fix text grad flag that restores gradient flow into the trainable text-projection MLP (see Appendix I for the full description). All T ATS results in this paper use this patch. 
+
+Perturbation generation. We produce one perturbed CSV per (condition, seed, domain). Row count, the date column, and the numeric target column are preserved exactly; a post-hoc validator confirms every perturbed file matches the original on all unchanged columns. Construction details for each condition appear in Appendix D. 
+
+Per-cell evaluation. A run is a single (model, backbone, condition, seed, domain, horizon) tuple. A URORA is eval-uated zero-shot: pretrained weights are loaded once and used for inference, with the seed controlling only the flow-matching head’s stochastic sampling (we average 100 sam-ples per cell, the value used in the released script). Per-domain sequence lengths follow A URORA ’s reference de-faults (e.g. L = 192 for Agriculture, L = 1056 for Energy). TATS and MM-TSF LIB are fine-tuned per cell on the per-turbed training split for five epochs with patience five (each repository’s own defaults), with univariate target features. The backbone, text encoder, and blend weight follow each model’s reference defaults; only the perturbed CSV varies between conditions. 
+
+Determinism. Each runner sets the PyTorch and NumPy seeds per cell, and pins GPU visibility per shard. We do not enforce strict deterministic algorithms because one MM-TSF LIB attention path is incompatible with that mode. Run-to-run reproducibility on a fixed seed is bit-exact for A U- 
+
+> RORA
+
+and within floating-point non-associativity (around 
+
+13 significant figures) for the trained methods. 
+
+Probes. After fitting, we reload each A URORA cell, attach forward and backward hooks at the distilled-token interface, and compute the three quantities defined in Appendix E. We verified that attaching the hooks does not perturb the forward graph: forward outputs match bit-exactly with and without the hooks. 
+
+## D. Perturbation Generation Details 
+
+Empty. The text column is set to the empty string for every row. 
+
+Constant. The text column is set to “Time series data point.” for every row, a non-empty token sequence with no row-specific content. 
+
+Shuffled. The text column is permuted within each domain via a permutation seeded by the run seed. All text fields belonging to a row are permuted with the same permutation, preserving cross-column alignment within the row. This is the only condition whose CSV content depends on the run seed. 7Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+Cross-domain. We use a fixed pairing: Agricul-ture ↔ Security, Climate ↔ Energy, Economy ↔ Health, So-cialGood ↔ Traffic; Environment is self-paired and falls back to within-domain shuffle. For each target row we use the paired domain’s row whose date is the latest available date not exceeding the target row’s date, with deterministic tie-breaking. This makes the condition seed-independent and avoids using information from the target row’s future. 
+
+Oracle. For each row in the train, validation, and test splits we substitute a templated string of the form “ Available facts are as follows: Step+1: The target will be y1. Step+2: The target will be y2.. . . ” using the row’s ground-truth future target values. The substitution is applied to the train and validation splits as well, so the fine-tuned methods see consistent oracle structure during training. 
+
+Column-zeroed conditions. The numeric column p is set to zero for every row; the text column varies (intact, empty, or constant). A URORA does not read p, so on A URORA 
+
+these conditions are equivalent to the corresponding text-only substitutions, and we use them as an internal control. 
+
+## E. Probe Definitions and Full Results 
+
+The three probes target the interface between A URORA ’s frozen BERT encoder and its trainable text distiller, where the model collapses the per-token features into the Lk = 10 
+
+distilled tokens that the temporal backbone reads via cross-attention. Each probe asks a different question. 
+
+Probe A: gradient norm at the distilled tokens. Given the distilled-token tensor ZT , we measure the root-mean-square loss-gradient flowing back through it, 
+
+bg =
+
+q 1 
+
+> BL kd
+
+P
+
+> b,k,j
+
+∇ZT L2 
+
+> b,k,j
+
+.
+
+This asks whether the trainable text path receives non-trivial gradient signal during training. A value of bg = 0 would mean the path was never optimised. 
+
+Probe B: normalised cross-attention entropy. For guider weights αt over the Lk = 10 distilled tokens, 
+
+bH = 1log Lk Eb,h,q 
+
+h
+
+− P
+
+> k
+
+(αt)bhqk log( αt)bhqk 
+
+i
+
+.
+
+bH = 1 corresponds to perfectly uniform attention and bH = 0 
+
+to a one-hot focus on a single token. This asks whether the guider discriminates between distilled tokens. 
+
+Probe C: prediction divergence under text ablation. For each cell we forecast twice from the same numeric input, once with the row’s text and once with the text branch ab-lated, averaging ten samples from A URORA ’s flow-matching head per setting: 
+
+bD = Eb ˆytext (b) − ˆynone (b) 22.
+
+This asks whether the text branch matters for the forward pass: bD ≪ MSE means the prediction is the same with or without it.                                                                                          
+
+> Table 5. Full probe results , mean ±s.d. over n= 27 probe cells (9 domains ×3 seeds at fixed H= 8 ). The text-only conditions all show non-zero bgand uniformly high bH, with negligible bD.
+> Condition bgbHbD
+> Original 0.152 ±0.240 0.975 ±0.009 0.041 ±0.037
+> Empty 0.074 ±0.103 0.975 ±0.009 0.040 ±0.041
+> Constant 0.156 ±0.228 0.976 ±0.009 0.044 ±0.035
+> Shuffled 0.155 ±0.400 0.975 ±0.009 0.035 ±0.035
+> Cross-domain 0.072 ±0.082 0.975 ±0.009 0.035 ±0.032
+> Oracle 0.133 ±0.187 0.976 ±0.009 0.058 ±0.084
+> Col. zeroed 0.265 ±0.673 0.975 ±0.009 0.028 ±0.018
+> Unimodal 0.080 ±0.153 0.975 ±0.009 0.035 ±0.024
+
+Reading Table 5. The first column ( bg) is non-zero every-where, ruling out a never-trained pathway. The second column ( bH) sits at 0.975 on every row including the ora-cle, showing that the guider’s attention is nearly uniform across its distilled tokens regardless of text content. The third column ( bD) is at most 0.058 , which is two orders of magnitude below the test-MSE scale of ∼ 8.6, showing that disabling the text branch barely changes the forecast. These three readings together describe a pathway that is trained but content-blind in the forward pass. 
+
+## F. Text-Side Diagnostics: Definitions and Full Results 
+
+We compute three diagnostics on each domain’s per-row text embeddings, separately for the GPT-2 and BERT encoders. 
+
+TTW (temporal text–target Wasserstein distance). In-troduced by Li et al. (2026), TTW measures alignment between text-embedding trajectories and the target series. Let et be the per-row text embedding and yt the tar-get at time t. Define the centred unit-norm embeddings 
+
+˜et = ( et − ¯e)/∥et − ¯e∥2 and the lag-similarity profile 
+
+Sim( k) = 1
+
+T − k 
+
+> T−k
+
+X
+
+> t=1
+
+˜e⊤ 
+
+> t
+
+˜et+k.
+
+Let Ay be the L1-normalised amplitude spectrum of ∆yt =
+
+yt+1 − yt, and Ae the L1-normalised amplitude spectrum of ∆Sim( k). Then 
+
+TTW = W1(Ay , A e),
+
+the 1-D Wasserstein distance between the two spectra on a common frequency grid. Lower TTW means the dominant 8Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+frequency content of the text-embedding trajectory matches the dominant frequency content of the target. The TaTS pa-per argues low TTW indicates text is suitable as a covariate for time-series fusion. 
+
+ETA (embedding temporal autocorrelation). Mean lag-1
+
+autocorrelation across embedding dimensions: 
+
+ETA = 1
+
+D
+
+> D
+
+X
+
+> d=1
+
+P
+
+> t
+
+(et,d − ¯ed)( et+1 ,d − ¯ed)
+
+P
+
+> t
+
+(et,d − ¯ed)2 .
+
+High ETA means embeddings evolve smoothly over time; low ETA means consecutive embeddings look like indepen-dent draws. 
+
+SDI (semantic diversity index). 
+
+SDI = 1 − 1
+
+T − 1 
+
+> T−1
+
+X
+
+> t=1
+
+cos  et, et+1 
+
+.
+
+High SDI indicates that consecutive rows are semantically distinct. Low SDI is a structural problem for any encoder that reads the text: if every row’s embedding is nearly iden-tical to its neighbours, no attention head can extract row-specific content from the text alone.                                                                  
+
+> Table 6. Per-domain diagnostics on the original text. Eight domains; Environment excluded as self-paired. Bold marks the domain with the highest SDI per encoder.
+> GPT-2 BERT Domain TTW ETA SDI TTW ETA SDI Agriculture 0.028 0.436 0.011 0.028 0.399 0.045 Climate 0.078 0.372 0.004 0.025 0.339 0.014 Economy 0.030 0.426 0.009 0.014 0.331 0.038 Energy 0.056 0.597 0.004 0.028 0.575 0.017 Health 0.022 0.534 0.005 0.028 0.483 0.020 Security 0.027 0.056 0.011 0.027 0.071 0.039 SocialGood 0.155 0.904 0.006 0.092 0.777 0.021 Traffic 0.054 0.058 0.013 0.058 0.107 0.050 Mean 0.056 0.423 0.008 0.037 0.385 0.031
+
+Reading Table 6. TTW is uniformly low across all domains, indicating aggregate alignment exists. SDI is also uniformly low: the highest GPT-2 SDI is 0.013 on Traffic, which means consecutive rows look nearly identical to the encoder. ETA shows wide variation: SocialGood and Energy text evolves smoothly (high ETA), while Security and Traffic look closer to independent draws (low ETA). Even the most distinctive domains do not reach the level of row-to-row contrast an attentive head would need. 
+
+Diagnostics under text perturbations. Our perturbations are designed to manipulate these three properties of the text. Table 7 measures TTW, ETA, and SDI on each perturbed text column, with all five substitutions producing dramat-ically different diagnostic signatures. The takeaway from comparing Table 7 to the main results is that despite order-of-magnitude swings in these diagnostics, downstream MSE moves by less than 0.5% in every case.                                                 
+
+> Table 7. Diagnostics under text perturbations, mean over 8do-mains. Empty/Constant collapse SDI to 0(every row identical) and push ETA toward 1. Shuffled inflates SDI an order of magnitude. Cross-domain text doubles TTW. Bold marks values that differ from Original by a factor ≥2.
+> GPT-2 BERT Condition TTW ETA SDI TTW ETA SDI Original 0.056 0.423 0.008 0.037 0.385 0.031 Empty 0.054 0.820 0.000 0.158 0.978 0.000
+> Constant 0.049 0.733 0.000 0.131 0.965 0.000
+> Shuffled 0.060 0.000 0.044 0.063 0.000 0.084
+> Cross-domain 0.112 0.455 0.008 0.108 0.418 0.029
+
+Reading Table 7. The four text-content perturbations move the three diagnostics in qualitatively different ways. Empty and Constant make every row identical, so SDI collapses to zero and ETA approaches one. Shuffled produces highly distinctive consecutive rows (SDI on BERT increases from 
+
+0.031 to 0.084 , an order-of-magnitude rise) but with no temporal structure (ETA falls to zero). Cross-domain text doubles TTW from 0.037 to 0.108 on BERT, breaking the alignment between text and target trajectories. Despite all of these large diagnostic swings, downstream MSE on every model and every backbone moves by less than 0.5% on the corresponding text-only conditions (Tables 8, 9, 10). On Time-MMD, low TTW does correspond to text being measurable co-aligned with the target, in line with Li et al. (2026), but neither TTW nor ETA nor SDI individually predicts whether the text is being used by the trained model. We do not refute the TTW criterion as a property of the text corpus; we observe that on this benchmark, none of the three diagnostics is a reliable proxy for whether a perturbation will move the model’s forecast. 
+
+## G. Full Results: Per-Backbone, Per-Domain, Per-Condition 
+
+This section gives the complete experiment grid for all three architectures. For T ATS and MM-TSF LIB (eight backbones each), we split the eight backbones into two tables of four each. A URORA has only one configuration. Each row group within a table fixes the backbone; rows within a group vary the condition; columns are the nine Time-MMD domains plus an aggregate average. The Orig. row gives absolute mean test MSE for the original-text baseline; subsequent rows give the percent change relative to that baseline within each domain. We use a single visual convention throughout. Bold marks deltas with |∆| ≥ 0.5% (a substantive movement at this benchmark’s noise floor). Grey font marks |∆| < 0.05% 
+
+9Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+(numerically indistinguishable from zero at our reporting precision). All other deltas are rendered in normal weight. The dominant pattern is visible at a glance: the rows for the five text-content perturbations (Empty, Const., Shuf., Cross, Oracle) sit in grey or near-grey across all backbones and all domains. The two structural-perturbation rows ( p=0 and Unimod.) are filled with bold deltas. Per-domain noise on small-baseline domains (e.g. Economy on A URORA , where Original MSE is 0.033 ) can produce isolated bold cells in text-only rows; these sit at one or two per backbone and reflect floating-point and sampling noise on a tiny base, not a real text effect. 
+
+Backbone-level summary. Across all eight backbones, ev-ery text-only ∆% on T ATS and MM-TSF LIB stays within 
+
+±0.6% of the original on the per-backbone average (the Avg. 
+
+column of each row). The p=0 row varies substantially with the backbone: from +4 .5% on Autoformer to +49 .9% on FiLM on T ATS, and from 0.0% on Autoformer to +3 .8% 
+
+on iTransformer on MM-TSF LIB . The unimodal-baseline row ranges from +1 .2% (iTransformer) to +15 .0% (Auto-former) on T ATS, and from +0 .3% (FEDformer) to +3 .8% 
+
+(Autoformer) on MM-TSF LIB . A multimodal lift quoted on a single backbone can therefore overstate or understate the column’s contribution by an order of magnitude. The text-only conditions, by contrast, are uniformly null across all backbones. 
+
+## H. Paired Bootstrap Confidence Intervals 
+
+All ∆% values reported in the main paper use the ratio-of-means estimator: we first compute MSE( c)/MSE( orig ) − 1
+
+over all matched cells, then apply paired bootstrap (re-sampling matched (condition, original) pairs jointly) with 
+
+B = 10 ,000 resamples and two-sided p-values. 
+
+Reading Table 11. Three patterns matter. First , the five text-only conditions (top block per model, p intact) all have CIs that include zero or essentially zero magnitudes within 
+
+0.001% on T ATS, well under 0.5% on MM-TSF LIB , and well under 0.1% on A URORA . This holds with n = 864 
+
+matched cell pairs on the trained methods, so the test has very high power; the small ∆% estimates we report are not Type II error. Second , the four cells of the lower block (any condition with p zeroed, plus Unimodal) are all significant at p < 0.001 on MM-TSF LIB and T ATS. The p-zeroed effect size is essentially the same whether the text is origi-nal ( +1 .52% on MM-TSF LIB , +20 .16% on T ATS), empty (+1 .62% / +20 .17% ), or constant ( +1 .63% / +20 .16% ): the contributions factorise. Third , on MM-TSF LIB the original-text p-zeroed CI [+1 .21 , +1 .85] overlaps the Uni-modal CI [+1 .50 , +2 .29] . The residual gap that the uni-modal baseline would attribute to text is not statistically dis-tinguishable from zero. On T ATS the p-zeroed CI exceeds the Unimodal CI ( [+16 .8, +24 .7] versus [+6 .4, +8 .8] ) be-cause zeroing p at w = 0 .5 leaves the backbone at half scale; the Unimodal row removes both signals together and restores full scale, so it is the cleaner amplitude-matched comparison. 
+
+Implementation. The bootstrap was computed via paired resampling of matched cells on keys (model, backbone, seed, domain, pred len), with the ratio-of-means estimator applied to each bootstrap resample. The implementation is in code/analyze results.py in the released reposi-tory. 
+
+## I. The TaTS Text-Projection Gradient Patch 
+
+While auditing T ATS’s training graph we identified an implementation detail in the released code that sev-ers the gradient signal into the text-projection MLP ψ.In exp/exp long term forecasting.py (the long-term forecasting trainer), the tensor that concatenates the projected text embedding with the numeric history is de-tached before being passed to the backbone:    
+
+> batch x =torch.cat([batch x, prompt emb], dim=-1).detach()
+
+A second .detach() appears on dec inp . With both calls active, gradients from the loss reach the back-bone but cannot flow back through the concatenation into 
+
+ψ. The training loop constructs a separate optimiser 
+
+model optim mlp for ψ’s parameters and steps it every iteration, but with no gradient signal to step on, the MLP remains at its random initialisation throughout fine-tuning. 
+
+Patch. We expose a CLI flag --fix text grad (de-fault off) that gates the two .detach() calls. With the flag on, gradients flow into ψ and its parameters update during training. The patch also requires changing three in-place x enc / = stdev operations to the out-of-place 
+
+x enc = x enc/ stdev in models/iTransformer.py ,
+
+models/FiLM.py , and models/PatchTST.py (the long-term forecast paths only), because the in-place di-vide breaks autograd once gradients must flow back through batch x . Forward values are bit-identical across the in-place and out-of-place forms; only the au-tograd graph topology changes. The full patch is in 
+
+code/apply repo patches.py (idempotent, with a 
+
+--revert option). Patches are surgical and documented inline; pre-existing JSON results remain bit-comparable when the flag is off. 
+
+All T ATS numbers in this paper use the patch. The head-line TaTS results (Tables 2, 3, 9, 11) were produced with 
+
+--fix text grad on. With ψ now trainable in practice rather than only in name, our text-content perturbations still 10 Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+Table 8. Full A URORA results. Mean MSE on the original-text baseline ( Orig. row); subsequent rows give ∆% MSE relative to that baseline. p=0 zeroes the numeric column p with text intact. Unimod. disables the text branch (A URORA ’s unimodal baseline). A URORA 
+
+does not consume p, so the p=0 row matches Original. Bold marks |∆| ≥ 0.5% ; grey marks |∆| < 0.05% .                                                                                           
+
+> Backbone Cond. Agri Clim Econ Ener Envi Heal Secu SocG Traf Avg.
+> AURORA
+> Orig. 0.275 0.865 0.033 0.255 0.276 1.55 72.7 0.836 0.161 8.55
+> Empty +0 .09 +0 .01 −3.47 +0 .36 −0.04 −0.10 +0 .03 −0.03 −0.20 +0 .02
+> Const. +0.64 +0 .03 +4.70 +0 .05 +0 .06 +0 .39 0.00 +1.05 +1.05 +0 .03
+> Shuf. +0 .01 +0 .01 +2.21 +0 .01 0.00 0.00 0.00 −0.08 +0 .20 0.00
+> Cross +0 .09 +0 .02 +0.78 +0 .02 0.00 −0.05 −0.01 +0 .32 −0.25 −0.01
+> Oracle +0 .04 +0 .02 +4.13 +0 .25 0.00 +0 .27 0.00 +0.93 +0.88 +0 .02
+> p=0 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+> Unimod. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+
+leave MSE unchanged within ±0.001% on T ATS across all eight backbones. The null does not hinge on the detach bug. Removing ψ’s gradient block was a necessary prerequisite for trusting any conclusion about T ATS’s text sensitivity, but the conclusion itself is preserved: even when the projection MLP can be trained, text content is not used in the forward pass. 
+
+## J. Aurora Pretraining and Contamination 
+
+AURORA is evaluated zero-shot on Time-MMD; its pre-training corpus is large and only partially documented, and we cannot rule out that Time-MMD-derived content was seen during pretraining. However, this does not explain our results. A URORA ’s predictions are essentially identical between the original-text baseline, the column-zeroed condi-tion, and the unimodal-baseline configuration: the forward pass does not branch on the text input regardless of what text is provided. Whether or not contamination occurred, the text pathway is functionally silent in the forward pass on this benchmark. 
+
+## K. Run Accounting 
+
+The full sweep covers 10 conditions on each (model, back-bone, domain, horizon, seed) tuple. A URORA contributes 1
+
+backbone × 9 domains × 4 horizons × 3 seeds = 108 runs per condition; T ATS and MM-TSF LIB contribute 8 back-bones × 108 = 864 runs each per condition. Wall-clock for the complete sweep is approximately 92 A10G-hours. Per-cell logs and provenance are released alongside the code. 11 Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+Table 9. Full T ATS results across eight backbones. Orig. row gives the mean test MSE on the original-text baseline; all rows below it report the percentage change in MSE relative to the Orig. row of that same backbone, within each domain. Bold marks |∆| ≥ 0.5% ; grey marks |∆| < 0.05% . Note: p=0 on T ATS carries the amplitude artifact described in the caption of Table 3. 
+
+Backbone Cond. Agri Clim Econ Ener Envi Heal Secu SocG Traf Avg. 
+
+AUTOFORMER 
+
+Orig. 0.131 0.987 0.039 0.407 0.315 1.53 107.3 1.15 0.187 12.45 
+
+Empty 0.00 +0 .02 0.00 +1.03 −0.26 +0 .08 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 −0.82 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 +0 .01 −0.07 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 +0 .02 0.00 +1.03 −1.24 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 +1.13 −0.20 −0.09 0.00 0.00 0.00 0.00 
+
+p=0 +553 +22 .0 +633 +17 .5 +83 .8 +22 .6 +2.75 −3.41 +131 +4.48 
+
+Unimod. −13 .9 +31 .5 +132 −11 .1 +33 .5 +33 .9 +14 .8 −7.14 +23 .3 +15 .0
+
+CROSSFORMER 
+
+Orig. 0.202 1.00 0.231 0.383 0.297 1.18 122.4 0.924 0.177 14.09 
+
+Empty 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+p=0 +199 +12 .2 +484 −19 .8 +52 .3 +20 .7 +3.71 −5.97 +45 .2 +5.15 
+
+Unimod. +109 +16 .7 +293 −19 .2 +53 .9 +17 .8 +3.10 −4.74 +41 .4 +4.09 
+
+DL INEAR 
+
+Orig. 0.154 0.959 0.042 0.466 0.322 1.55 106.9 1.15 0.209 12.42 
+
+Empty 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+p=0 +16273 +663 +192 +514 +54 .7 +82 .8 +7.65 +265 +4243 +49 .6
+
+Unimod. +39 .6 +45 .3 +236 −17 .8 +72 .5 +27 .7 +4.97 +1.80 +90 .5 +5.99 
+
+FED FORMER 
+
+Orig. 0.112 0.945 0.021 0.443 0.283 1.38 107.9 1.07 0.170 12.48 
+
+Empty 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 0.00 0.00 0.00 −0.10 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+p=0 +306 +19 .0 +6287 +26 .1 +31 .6 +9.00 +2.52 +4.87 +123 +4.57 
+
+Unimod. −12 .9 +35 .1 +183 −33 .2 +38 .0 +5.66 +7.62 −13 .6 +26 .8 +7.58 
+
+FILM Orig. 0.120 0.956 0.015 0.413 0.270 1.53 108.7 1.09 0.179 12.59 
+
+Empty 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+p=0 +21010 +670 +465 +703 +99 .8 +78 .3 +7.53 +294 +5069 +49 .9
+
+Unimod. −11 .1 +39 .9 +125 −10 .4 +19 .7 +30 .9 +9.42 −0.88 +49 .6 +9.88 
+
+INFORMER 
+
+Orig. 0.239 0.948 0.328 0.393 0.287 1.15 123.3 0.875 0.162 14.19 
+
+Empty −0.01 −0.02 +0 .03 +0 .15 −0.12 −0.31 −0.01 −0.02 +0 .01 −0.01 
+
+Const. +0 .05 +0 .04 +0 .01 +0 .12 +0 .16 +0 .03 0.00 +0 .02 +0 .02 0.00 
+
+Shuf. +0 .10 0.00 0.00 +0 .12 +0 .05 +0 .09 0.00 +0 .01 +0 .03 0.00 
+
+Cross +0 .04 −0.01 −0.03 +0 .08 +0 .26 +0 .09 0.00 +0 .03 −0.02 0.00 
+
+Oracle +0 .13 −0.02 +0 .02 +0 .17 +0.58 −0.16 0.00 −0.02 +0 .01 0.00 
+
+p=0 +321 +9.64 +243 −1.83 +52 .2 +8.61 +6.21 +0 .41 +44 .7 +7.54 
+
+Unimod. +124 +20 .3 +327 −1.77 +56 .2 +23 .9 +6.98 +1.18 +53 .1 +8.38 
+
+TRANSFORMER 
+
+Orig. 0.180 0.935 0.131 0.361 0.276 1.14 121.7 0.894 0.163 13.97 
+
+Empty 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+p=0 +251 +14 .9 +470 −20 .3 +42 .7 +7.12 +4.71 +3.05 +59 .6 +5.71 
+
+Unimod. +85 .0 +18 .4 +501 −14 .4 +39 .6 +16 .9 +8.14 −1.22 +51 .0 +8.91 
+
+> I
+
+TRANSFORMER 
+
+Orig. 0.094 0.996 0.010 0.302 0.260 1.30 115.5 1.07 0.195 13.31 
+
+Empty 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Const. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Shuf. 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Cross 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+Oracle 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 
+
+p=0 +23169 +60 .9 +210 +251 +10 .1 +52 .3 +13 .3 +348 +1597 +38 .4
+
+Unimod. −1.65 +21 .9 +60 .5 −11 .6 +6.91 +28 .5 +0.63 +9.75 +13 .0 +1.20 
+
+12 Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+Table 10. Full MM-TSF LIB results across eight backbones. Orig. row gives the mean test MSE on the original-text baseline; all rows below it report the percentage change in MSE relative to the Orig. row of that same backbone, within each domain. Bold marks 
+
+|∆| ≥ 0.5% ; grey marks |∆| < 0.05% .
+
+Backbone Cond. Agri Clim Econ Ener Envi Heal Secu SocG Traf Avg. 
+
+AUTOFORMER 
+
+Orig. 0.105 1.19 0.072 0.364 0.567 1.90 122.1 1.06 0.213 14.17 
+
+Empty +3.49 +0 .06 +0.63 −3.20 −0.08 −0.39 −0.29 −1.12 −2.60 −0.31 
+
+Const. +1.79 −0.30 +9.07 −0.01 −1.31 −1.29 +0.62 −1.69 −0.80 +0.56 
+
+Shuf. −2.08 +0.97 −0.80 +0 .46 −0.19 +1.68 −0.26 +2.33 −1.85 −0.20 
+
+Cross −2.90 +1.46 −12 .8 +2.76 −0.46 +0.88 −0.22 +1.22 −0.40 −0.18 
+
+Oracle +5.76 −0.02 −0.41 −0.41 −0.12 +0.85 −2.45 −0.88 −2.46 −2.34 p=0 +46 .8 +7.64 +70 .2 −4.26 +3.25 +5.50 −0.17 −2.73 −0.57 +0 .05 
+
+Unimod. +0 .49 +8.94 +5.71 −1.33 +5.84 +8.66 +3.68 −1.01 +3.99 +3.76 
+
+CROSSFORMER 
+
+Orig. 0.309 1.12 0.729 0.331 0.544 1.31 126.9 0.884 0.218 14.70 
+
+Empty −2.92 +0.51 −4.03 +0 .41 +2.28 +0 .13 +0 .02 −0.92 −0.61 0.00 
+
+Const. −2.95 +0.51 −4.08 +0 .41 +0.58 +0 .13 +0 .02 −0.92 −0.62 −0.01 
+
+Shuf. +1.30 −0.14 −0.98 0.00 +1.09 0.00 0.00 −0.02 0.00 0.00 
+
+Cross +1.32 −0.97 −0.94 +0.79 +0 .43 +0 .26 +0 .06 +0 .02 −0.26 +0 .06 
+
+Oracle +0.95 +0 .04 −3.94 +0 .29 +0.80 +1.65 +0 .21 −1.04 −2.50 +0 .19 
+
+p=0 +25 .4 +4.31 +31 .5 +2.62 +8.66 +4.78 +0.70 +2.24 +6.98 +1.06 
+
+Unimod. +12 .1 +4.04 +20 .4 +1.04 +8.08 +4.04 +0.77 +1.83 +8.26 +1.02 
+
+DL INEAR 
+
+Orig. 0.155 1.23 0.072 0.362 0.536 1.70 109.3 1.09 0.303 12.75 
+
+Empty −0.04 0.00 +0 .05 0.00 +0.96 0.00 0.00 +0 .01 −0.01 +0 .01 
+
+Const. −0.05 0.00 −0.51 0.00 +0.96 0.00 0.00 +0 .01 −0.03 0.00 
+
+Shuf. 0.00 +0 .01 −0.48 +0 .21 +0.95 0.00 0.00 +0 .01 −0.02 +0 .01 
+
+Cross −0.04 0.00 +0 .04 +0 .22 +0.96 +0 .01 0.00 0.00 −0.01 +0 .01 
+
+Oracle −0.03 +0 .01 +0 .02 +0 .22 +0.93 +0 .15 0.00 +0 .01 −0.05 +0 .01 
+
+p=0 +745 +20 .1 +6.94 +31 .0 −5.54 +9.58 +0.65 −1.85 +110 +2.33 
+
+Unimod. +38 .1 +13 .1 +95 .0 +0.96 +9.07 +4.08 +2.20 +6.94 +30 .0 +2.60 
+
+FED FORMER 
+
+Orig. 0.093 1.15 0.045 0.267 0.493 1.41 115.7 0.946 0.180 13.36 
+
+Empty +2.23 −0.83 +10 .8 +2.20 +0 .26 −0.43 +0.64 +0 .02 +0 .19 +0.61 
+
+Const. +2.21 −0.83 +10 .9 +2.19 +0 .25 −0.44 +0.65 +0 .03 +0 .19 +0.62 
+
+Shuf. −1.31 +0 .03 +8.09 0.00 +0 .14 +0 .01 −0.01 +1.11 +0 .01 0.00 
+
+Cross −3.35 −0.28 +0 .15 +2.92 −0.06 +0 .11 −0.12 +0.53 −0.32 −0.11 
+
+Oracle +1.27 −0.07 −1.41 −0.50 +0 .02 −0.36 +0.86 −0.59 −0.65 +0.82 p=0 +39 .4 +0.85 +136 +5.87 +3.73 +0 .43 −0.15 −1.36 +3.97 −0.03 
+
+Unimod. +3.16 +4.65 +34 .1 +1.83 +7.11 +3.23 +0 .13 0.00 +4.29 +0 .27 
+
+FILM Orig. 0.106 1.24 0.034 0.362 0.506 1.80 116.6 1.05 0.238 13.55 
+
+Empty +0 .32 −0.03 −0.05 +0 .44 −0.05 +0 .01 +0 .01 +0 .34 −0.03 +0 .01 
+
+Const. +0 .35 −0.03 +0 .02 0.00 −0.05 +0 .02 +0 .01 +0 .35 0.00 +0 .01 
+
+Shuf. +0 .02 −0.01 −0.05 +0 .01 +0 .02 +0 .01 +0 .01 +0 .35 +0 .02 +0 .01 
+
+Cross +0 .31 −0.04 −0.02 +0 .33 +0 .01 0.00 0.00 +0 .08 −0.01 +0 .01 
+
+Oracle +0 .01 −0.02 +0 .01 −0.01 −0.06 +0 .02 +0 .01 +0 .35 +0 .01 +0 .01 
+
+p=0 +1109 +21 .1 +0.87 +43 .9 +9.24 +6.69 +0.60 −0.27 +165 +2.34 
+
+Unimod. +1.24 +7.75 −6.83 −2.58 +6.42 +5.70 +3.34 +2.60 +5.31 +3.40 
+
+INFORMER 
+
+Orig. 0.446 1.12 0.987 0.398 0.479 1.40 129.7 0.840 0.189 15.06 
+
+Empty −0.53 +0 .11 +7.70 +0 .43 −1.38 +1.88 +0 .04 +0 .33 +1.52 +0 .11 
+
+Const. −0.39 −0.19 +7.99 +0 .33 −0.25 +0 .44 +0 .03 +0 .11 +1.89 +0 .09 
+
+Shuf. −2.51 0.00 +3.93 −0.19 −0.75 +0 .16 +0 .10 +0.72 +0 .30 +0 .12 
+
+Cross −5.28 −0.94 +3.62 −0.83 −0.86 −1.72 +0 .09 +0 .46 −0.14 +0 .06 
+
+Oracle +2.06 +1.10 +8.07 +0.73 −0.28 +0 .22 +0 .07 +0 .42 +1.84 +0 .15 
+
+p=0 +13 .3 +0 .11 +17 .4 −1.77 +2.00 +4.34 +1.13 +1.11 +7.28 +1.32 
+
+Unimod. +12 .8 +3.04 +22 .8 +1.18 +3.22 +2.75 +1.10 +0 .16 +6.57 +1.33 
+
+TRANSFORMER 
+
+Orig. 0.287 1.09 0.452 0.330 0.459 1.29 130.8 0.851 0.175 15.08 
+
+Empty −5.03 −1.41 +4.70 +4.18 +0 .29 +3.18 −0.06 −0.40 −1.05 −0.03 
+
+Const. −5.05 −1.40 +4.78 +4.17 +0 .29 +3.19 −0.05 −0.42 −1.00 −0.01 
+
+Shuf. −1.68 −1.05 +1.15 −0.01 −0.16 +0 .01 +0 .03 +1.48 +0 .03 +0 .03 
+
+Cross −0.10 −1.95 +2.44 −1.29 −0.29 +0.77 +0 .02 +1.10 −0.75 +0 .02 
+
+Oracle −0.27 −1.36 +0 .12 +0 .48 +0 .18 +1.25 +0 .07 −0.38 +0 .03 +0 .07 
+
+p=0 +14 .0 +0.80 +32 .6 −4.60 +4.05 +6.68 +1.23 +4.19 +5.22 +1.43 
+
+Unimod. +13 .1 +2.87 +18 .2 −3.84 +1.76 +6.23 +1.10 +3.57 +6.57 +1.25 
+
+> I
+
+TRANSFORMER 
+
+Orig. 0.091 1.14 0.018 0.274 0.417 1.63 117.1 1.19 0.210 13.56 
+
+Empty −0.30 −0.29 −0.59 +0 .16 −0.37 −1.06 +0 .06 −3.30 +0.62 +0 .01 
+
+Const. −0.25 −0.29 −0.69 −0.18 −0.36 −0.55 +0 .06 −2.95 +0 .14 +0 .02 
+
+Shuf. −0.17 −1.27 −0.49 −0.07 −0.36 +0 .01 −0.03 −1.36 −0.02 −0.05 
+
+Cross +0 .46 +0.58 +0 .25 −0.85 −0.36 −0.35 −0.07 −2.12 −0.16 −0.09 
+
+Oracle +0 .25 −1.08 +0 .35 −1.09 +0 .10 −0.39 −0.01 +3.72 +0 .32 +0 .01 
+
+p=0 +539 +3.39 +37 .5 +29 .7 +1.77 +10 .6 +2.90 +32 .8 +27 .1 +3.80 
+
+Unimod. +1.16 +5.67 −9.96 +1.62 +2.49 +5.95 +1.33 +3.17 +2.72 +1.45 
+
+13 Semantics or Structure? Auditing Text Sensitivity in Multimodal Time-Series Forecasting 
+
+Table 11. Full paired bootstrap CIs for all (model, condition) pairs. n is the number of matched (condition, original) cell pairs; 
+
+∆% is the ratio-of-means change; the 95% CI is the [2 .5% , 97 .5%] 
+
+percentile of the bootstrap distribution; p is the two-sided bootstrap 
+
+p-value. The first block under each model gives the four cells of the factorial in Table 3 that vary text with p intact. The second block gives the cells with p zeroed. Bold marks p < 0.001 .
+
+Model Condition n ∆% 95% CI p
+
+AURORA 
+
+Empty (col) 108 +0 .024 [+0 .005 , +0 .040] 0.019 
+
+Const (col) 108 +0 .030 [−0.027 , +0 .103] 0.296 
+
+Shuffled 108 +0 .004 [−0.001 , +0 .009] 0.110 
+
+Cross-domain 108 −0.006 [−0.031 , +0 .022] 0.657 
+
+Oracle 108 +0 .024 [−0.026 , +0 .085] 0.347 
+
+Empty (col=0) 108 +0 .024 [+0 .005 , +0 .040] 0.019 
+
+Const (col=0) 108 +0 .030 [−0.027 , +0 .103] 0.296 
+
+Col zeroed 108 0.000 [ 0.000 , 0.000] 1.000 
+
+Unimodal 108 0.000 [ 0.000 , 0.000] 1.000 
+
+MM-TSF LIB 
+
+Empty (col) 864 +0 .048 [−0.251 , +0 .349] 0.750 
+
+Const (col) 864 +0 .157 [−0.148 , +0 .467] 0.322 
+
+Shuffled 864 −0.010 [−0.083 , +0 .050] 0.847 
+
+Cross-domain 864 −0.027 [−0.202 , +0 .144] 0.731 
+
+Oracle 864 −0.142 [−0.508 , +0 .196] 0.449 
+
+Empty (col=0) 864 +1.624 [+1 .249 , +2 .021] < 0.001 
+
+Const (col=0) 864 +1.632 [+1 .254 , +2 .033] < 0.001 
+
+Col zeroed 864 +1.517 [+1 .212 , +1 .852] < 0.001 
+
+Unimodal 864 +1.868 [+1 .495 , +2 .297] < 0.001 
+
+TATS Empty (col) 864 −0.001 [−0.002 , +0 .001] 0.321 
+
+Const (col) 864 −0.000 [−0.001 , +0 .000] 0.511 
+
+Shuffled 864 −0.000 [−0.001 , +0 .001] 0.473 
+
+Cross-domain 864 +0 .000 [−0.001 , +0 .002] 0.822 
+
+Oracle 864 +0 .000 [−0.001 , +0 .002] 0.991 
+
+Empty (col=0) 864 +20 .165 [+16 .768 , +24 .720] < 0.001 
+
+Const (col=0) 864 +20 .164 [+16 .767 , +24 .720] < 0.001 
+
+Col zeroed 864 +20 .164 [+16 .767 , +24 .719] < 0.001 
+
+Unimodal 864 +7.552 [+6 .425 , +8 .760] < 0.001 
+
+14

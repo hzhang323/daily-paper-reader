@@ -1,0 +1,600 @@
+Title: Generalized Gibbs Ensemble Weighting for Forecast Combination
+
+URL Source: https://arxiv.org/pdf/2608.28116v1
+
+Published Time: Mon, 31 Aug 2026 00:45:37 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Generalized Gibbs Ensemble Weighting for Forecast Combination 
+
+Prasen R. Nuthanakaluva Independent Researcher Oxford, United Kingdom Nava K. Gaddam Department of Physics Utrecht University Utrecht, Netherlands Preprint 
+
+Abstract 
+
+Forecast combination is a reliable way to improve predictive performance when several forecasting models are available. Simple aggregation rules such as the mean, median, trimmed mean, inverse-loss weighting, and exponential weighting are often strong baselines, but their relative performance can vary across datasets, forecast horizons, deployment settings, and levels of disagreement among base forecasters. We develop Generalized Gibbs Ensemble Weighting (GGEW), a probabilistic framework that treats forecasting models as experts and assigns ensemble weights using a Gibbs-style exponential transformation of normalized predictive loss. The framework extends this basic weighting rule through numerical stabilization, diversity-aware score corrections, and online hyperparameter adaptation. GGEW produces a family of related methods, including Stable Gibbs weighting, Directional Gibbs-NCL, and Symmetric Gibbs-NCL. These variants share one core algorithm and differ only in the score used inside the exponential weighting rule. For sequential deployment, we adopt a UCB-style bandit mechanism, called online Local-UCB, to adapt the learning rate, diversity strength, and Gibbs variant without evaluating the full hyperparameter grid at every prediction step. We evaluate GGEW on official M4 competition forecast submissions and external rolling-origin deployment experiments using Monash Traffic Hourly, Electricity Hourly, and Solar Weekly datasets. Results suggest that Gibbs-style adaptive weighting is a useful and competitive tool across several benchmark settings, although its relative performance varies across datasets, forecast horizons, deployment protocols, and forecast disagreement groups. The contribution is not a universal dominance claim, but a framework and empirical study motivating further investigation of when adaptive Gibbs-style forecast combination is useful. 
+
+1 Introduction 
+
+Forecast combination is a central problem in machine learning and time series forecasting. A single forecasting model rarely captures every useful structure in a dataset. Different models may respond differently to trend, seasonality, intermittency, noise, structural breaks, and local scale changes. Combining forecasts can therefore reduce variance, improve robustness, and exploit complementary predictive behavior across models. Classical forecast-combination methods include equal-weight averaging, median aggregation, trimmed means, inverse-loss weighting, exponential weighting, and historical best-model selection. These methods are simple and often difficult to beat. However, they typically apply a fixed aggregation rule across all forecasting situations. This is restrictive because real forecasting environments differ substantially in the degree and structure of cross-model disagreement. 1arXiv:2608.28116v1 [cs.LG] 28 Aug 2026 In some cases, models agree closely and only small differences in historical predictive performance separate them. In other cases, model forecasts diverge strongly, and a few predictions may be extreme relative to the rest of the forecast pool. These situations should not necessarily be handled by the same aggregation rule. A robust median may be preferable when forecasts are highly dispersed, while adaptive probabilistic weighting may be useful when disagreement is moderate and structured. This paper proposes Generalized Gibbs Ensemble Weighting as a framework for adaptive forecast combination. The method formulates Gibbs-style exponential allocation as an online expert-weighting procedure for forecast aggregation. Predictive loss is treated as a score, lower scores receive higher probability mass, and the resulting weights form a convex ensemble. The main contributions are: 
+
+• A unified Gibbs-style probabilistic weighting formulation for forecast combination. 
+
+• A stable exponentiated-gradient update that preserves the probability simplex without projection. 
+
+• A diversity-aware extension that incorporates negative-correlation-style corrections into the weighting score. 
+
+• A symmetric diversity variant designed to reward useful forecast non-redundancy in a balanced way. 
+
+• An online Local-UCB procedure for adapting hyperparameter states during sequential forecasting. 
+
+• A regime-based empirical protocol that evaluates performance under low, medium, and high disagreement forecast regimes. The main empirical question is whether adaptive Gibbs-style weighting can improve forecast combination under different levels of cross-model disagreement and in sequential deployment settings. The paper deliberately avoids claiming that one method dominates universally. Instead, it studies how adaptive weighting behaves across datasets, horizons, and disagreement structures. 
+
+2 Related Work 
+
+2.1 Forecast Combination 
+
+Forecast combination has a long history in forecasting research [1]. Simple averages are strong because they reduce variance and avoid overfitting the combination rule. Median and trimmed-mean ensembles provide robustness against extreme or unstable forecasts. Performance-based weighting methods use historical losses to allocate more weight to models that have recently performed well. The proposed method belongs to the broad class of adaptive forecast-combination methods, but differs from standard inverse-loss weighting and simple exponential weighting by using a stabilized Gibbs-style score, an iterative simplex-preserving update, and optional diversity corrections. 
+
+2.2 Online Expert Aggregation 
+
+Online expert aggregation studies sequential prediction with multiple experts. Methods such as exponential weights, Hedge, multiplicative weights, and mirror descent update expert weights after observing losses [8, 2]. These methods motivate the use of exponentiated updates, since they naturally preserve non-negativity and sum-to-one constraints. GGEW uses this same optimization geometry. The update is performed in log-weight space and then normalized, which keeps weights on the simplex and avoids the instability of additive updates followed by ad hoc rescaling. 22.3 Diversity-Aware Ensembles and Negative Correlation Learning 
+
+Ensemble accuracy depends not only on the accuracy of each base model, but also on the dependence structure among model errors. Negative correlation learning encourages ensemble members to behave differently when diversity is useful [4]. In forecast combination, this suggests that the weighting score should not depend only on individual squared loss, but may also include a term measuring how a forecast differs from the ensemble consensus. This paper uses this idea to define Directional Gibbs-NCL and Symmetric Gibbs-NCL. These variants modify the loss score before applying the Gibbs-style exponential weighting rule. 
+
+2.4 Gibbs-Style Exponential Allocation in Machine Learning 
+
+The term Gibbs is used here in the standard machine-learning sense of exponential allocation over scores or losses. Given a set of scores, the Gibbs rule converts them into a probability distribution by exponentiating negative scores and normalizing. In this paper, the score is a stabilized predictive-loss quantity, optionally augmented by diversity terms. 
+
+3 Problem Formulation 
+
+Consider a forecasting problem with 𝑀 candidate forecasting models. At time 𝑡 , model 𝑚 produces prediction ˆ𝑦 𝑡 ,𝑚 . (1) The ensemble forecast is a convex combination: ˆ𝑦 𝑒𝑛𝑠 𝑡 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑤 𝑚 ˆ𝑦 𝑡 ,𝑚 , (2) where 
+
+𝑤 𝑚 ≥ 0,
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑤 𝑚 = 1. (3) Let b𝑌 ∈ R𝑇 ×𝑀 denote a historical forecast matrix, where ˆ 𝑦 𝑡 ,𝑚 is the prediction made by expert 𝑚 for historical observation 𝑡 . Let 𝑦 𝑡 denote the corresponding realized value. The task is to estimate ensemble weights from historical forecast errors and then apply those weights to future forecasts. 
+
+4 Generalized Gibbs Ensemble Weighting 
+
+4.1 Gibbs-Style Allocation Rule 
+
+Given model-specific scores 𝑆 𝑚 , the Gibbs-style allocation rule is 
+
+𝑤 𝑚 = exp (− 𝜂𝑆 𝑚 )
+
+Í𝑀 𝑗 =1 exp (− 𝜂𝑆 𝑗 ) , (4) where 𝜂 > 0 controls the concentration of the allocation. Larger 𝜂 gives sharper emphasis to lower-score models, while smaller 𝜂 produces smoother weights across the ensemble. 3Here, 𝑆 𝑚 denotes the aggregate score assigned to base expert 𝑚 using the historical information available before the current forecast is made. In the simplest case, 𝑆 𝑚 is the cumulative normalized predictive loss of expert 𝑚 over the available history. For the generalized variants, let 𝑣 ∈ { SG , DNCL , SNCL } index the variant type. Here SG denotes Stable Gibbs with no diversity correction, DNCL denotes directional Gibbs-NCL, and SNCL denotes symmetric Gibbs-NCL. The aggregate score is then obtained by summing the variant-specific score 𝐺 (𝑣 ) 
+
+> 𝑡 ,𝑚
+
+over the historical cases: 
+
+𝑆 (𝑣 ) 
+
+> 𝑚
+
+=
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝐺 (𝑣 )
+
+> 𝑡 ,𝑚
+
+. (5) Thus, lower values of 𝑆 𝑚 indicate historically better or more favorable experts under the chosen Gibbs variant, and these experts receive larger Gibbs weights. The normalization factor is 
+
+𝑍 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+exp (− 𝜂𝑆 𝑗 ), (6) so that 
+
+𝑤 𝑚 = exp (− 𝜂𝑆 𝑚 )
+
+𝑍 . (7) This guarantees 
+
+𝑤 𝑚 > 0,
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑤 𝑚 = 1. (8) The ensemble forecast is then ˆ𝑦 𝑒𝑛𝑠 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑤 𝑚 ˆ𝑦 𝑚 . (9) 
+
+4.2 Predictive Loss Score 
+
+For historical observation 𝑡 , define the quadratic predictive loss 
+
+𝐿 𝑡 ,𝑚 = 12 ( ˆ𝑦 𝑡 ,𝑚 − 𝑦 𝑡 )2. (10) Raw squared losses can be highly scale-dependent. Therefore, the loss is normalized within each historical row: ˜𝐿 𝑡 ,𝑚 = 𝐿 𝑡 ,𝑚 
+
+max 𝑗 |𝐿 𝑡 , 𝑗 | + 𝜀 , (11) where 𝜀 > 0 is a numerical stabilizer. Row-wise normalization prevents very large squared errors from dominating the exponential update and makes the algorithm more stable across heterogeneous time series. 
+
+4.3 Generalized Score 
+
+The generalized score used by the method is 
+
+𝐺 (𝑣 ) 
+
+> 𝑡 ,𝑚
+
+= ˜𝐿 𝑡 ,𝑚 + 𝜆𝐶 (𝑣 )
+
+> 𝑡 ,𝑚
+
+, (12) 4where 𝑣 denotes the variant type, 𝐶 (𝑣 ) 
+
+> 𝑡 ,𝑚
+
+is a variant-specific correction term, and 𝜆 ≥ 0 controls the strength of the correction. The three variants are: 
+
+𝐶 SG  
+
+> 𝑡 ,𝑚
+
+= 0, (13) 
+
+𝐶 DNCL  
+
+> 𝑡 ,𝑚
+
+= ¯ˆ𝑦 𝑡 − ˆ𝑦 𝑡 ,𝑚 , (14) 
+
+𝐶 SNCL  
+
+> 𝑡 ,𝑚
+
+= −( ˆ𝑦 𝑡 ,𝑚 − ¯ˆ𝑦 𝑡 )2, (15) where ¯ˆ𝑦 𝑡 = 1
+
+𝑀 
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+ˆ𝑦 𝑡 ,𝑚 . (16) The directional term is signed and can reward forecasts on one side of the ensemble mean. The symmetric term rewards non-redundancy through squared deviation from the ensemble mean. Since lower scores receive larger Gibbs allocation, the negative sign in the symmetric term lowers the score of forecasts that are distinct from the ensemble consensus. The resulting generalized Gibbs allocation is 
+
+𝑤 𝑚 ∝ exp −𝜂 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝐺 (𝑣 )
+
+> 𝑡 ,𝑚
+
+!
+
+. (17) This single equation covers Stable Gibbs, Directional Gibbs-NCL, and Symmetric Gibbs-NCL. 
+
+5 Weight Optimization and Gradient Structure 
+
+The algorithm maintains a persistent vector of ensemble weights 𝒘 on the simplex. The score matrix is used to update this vector iteratively. Define 
+
+𝐴 𝑡 ,𝑚 = exp (− 𝑤 𝑚 𝐺 𝑡 ,𝑚 ), (18) and 
+
+𝑆 𝑡 =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝐴 𝑡 , 𝑗 . (19) A natural log-normalized objective is 
+
+J ( 𝒘 ) =
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+log ©«
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+exp (− 𝑤 𝑗 𝐺 𝑡 , 𝑗 )ª®¬
+
+. (20) The implemented algorithm uses a leave-one-out relative gradient signal. Let 𝑔 𝑚 denote the relative gradient signal used to update the weight of expert 𝑚 :
+
+𝑔 𝑚 =
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝐺 𝑡 ,𝑚 (𝑆 𝑡 − 𝐴 𝑡 ,𝑚 )(𝑀 − 1)𝑆 𝑡 + 𝜀 . (21) This compares each model against the remaining ensemble mass rather than only its own normalized 5exponential allocation. It is a relative performance signal: a model receives a larger update when its score is high relative to the rest of the ensemble. Before updating the weights, the gradient is centered and clipped: 
+
+𝑔 𝑚 ← 𝑔 𝑚 − 1
+
+𝑀 
+
+> 𝑀
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑔 𝑗 , (22) and 
+
+𝑔 𝑚 ← min {𝑔 𝑐𝑙𝑖 𝑝 , max {− 𝑔 𝑐𝑙𝑖 𝑝 , 𝑔 𝑚 }} . (23) 
+
+6 Stable Exponentiated-Gradient Update 
+
+Let 𝑘 index the inner Gibbs optimization iteration. Each call to the Gibbs weighting routine runs 𝐾 such iterations; in the experiments 𝐾 = 30. The weights are updated in log space: log 𝑤 (𝑘 +1) 
+
+> 𝑚
+
+= log (𝑤 (𝑘 ) 
+
+> 𝑚
+
++ 𝜀 ) − 𝜂𝑔 𝑚 . (24) For numerical stability: 
+
+ℓ𝑚 ← ℓ𝑚 − max  
+
+> 𝑗
+
+ℓ𝑗 , (25) where ℓ𝑚 = log 𝑤 (𝑘 +1) 
+
+> 𝑚
+
+.The weights are then normalized: 
+
+𝑤 (𝑘 +1) 
+
+> 𝑚
+
+= exp (ℓ𝑚 )
+
+Í𝑀 𝑗 =1 exp (ℓ𝑗 ) . (26) Equivalently, 
+
+𝑤 (𝑘 +1) 
+
+> 𝑚
+
+∝ 𝑤 (𝑘 ) 
+
+> 𝑚
+
+exp (− 𝜂𝑔 𝑚 ). (27) This update guarantees 
+
+𝑤 (𝑘 +1) 
+
+> 𝑚
+
+> 0,
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑤 (𝑘 +1) 
+
+> 𝑚
+
+= 1. (28) A small weight floor can optionally be applied after normalization: 
+
+𝑤 𝑚 ← ( 1 − 𝑀𝛿 )𝑤 𝑚 + 𝛿, (29) followed by renormalization. 
+
+7 Algorithmic Recipe 
+
+This pseudocode is intentionally written as a single algorithm because Stable Gibbs, Directional Gibbs-NCL, and Symmetric Gibbs-NCL are not separate algorithms; they are variants of the same weighting mechanism with different score corrections. 6Algorithm 1 Generalized Gibbs Ensemble Weighting 
+
+Require: Historical forecasts b𝑌 , historical outcomes 𝒚 , future forecasts 𝐹 , variant 𝑣 , learning rate 𝜂 , correction strength 𝜆 , iterations 𝐾 , stabilizer 𝜀 , clipping threshold 𝑔 𝑐𝑙𝑖 𝑝 , optional weight floor 𝛿 
+
+Ensure: Ensemble forecast ˆ 𝒚 𝑒𝑛𝑠  
+
+> 1:
+
+Initialize 𝑤 𝑚 = 1/𝑀 for all models 𝑚  
+
+> 2:
+
+for 𝑘 = 1, . . . , 𝐾 do  
+
+> 3:
+
+Compute squared predictive loss 𝐿 𝑡 ,𝑚 = 12 ( ˆ𝑦 𝑡 ,𝑚 − 𝑦 𝑡 )2 
+
+> 4:
+
+Compute the variant correction 𝐶 (𝑣 ) 
+
+> 𝑡 ,𝑚
+> 5:
+
+Form generalized score 𝐺 (𝑣 ) 
+
+> 𝑡 ,𝑚
+
+= 𝐿 𝑡 ,𝑚 + 𝜆𝐶 (𝑣 ) 
+
+> 𝑡 ,𝑚
+> 6:
+
+Normalize each historical row by max 𝑚 |𝐺 (𝑣 ) 
+
+> 𝑡 ,𝑚
+
+| + 𝜀  
+
+> 7:
+
+Compute 𝐴 𝑡 ,𝑚 = exp (− 𝑤 𝑚 𝐺 (𝑣 )
+
+> 𝑡 ,𝑚
+
+) and 𝑆 𝑡 = Í 𝑗 𝐴 𝑡 , 𝑗  
+
+> 8:
+
+Compute leave-one-out gradient 
+
+𝑔 𝑚 =∑︁ 
+
+> 𝑡
+
+𝐺 (𝑣 ) 
+
+> 𝑡 ,𝑚
+
+(𝑆 𝑡 − 𝐴 𝑡 ,𝑚 )(𝑀 − 1)𝑆 𝑡 + 𝜀  
+
+> 9:
+
+Center and clip the gradient  
+
+> 10:
+
+Update weights using exponentiated-gradient normalization  
+
+> 11:
+
+Apply optional weight flooring and renormalize  
+
+> 12:
+
+end for  
+
+> 13:
+
+return ˆ𝒚 𝑒𝑛𝑠 = 𝐹 𝒘 
+
+8 Online Local-UCB Hyperparameter Adaptation 
+
+The Gibbs family contains hyperparameters that may be difficult to set globally. Let 
+
+𝑎 = (𝜂, 𝜆, 𝑣 ) (30) denote a parameter state. Rather than selecting one fixed state using test-set performance, the online version adapts the active state sequentially as new outcomes are observed. For each state 𝑎 , maintain an exponentially smoothed loss estimate: ¯ℓ𝑎 (𝑡 ) = 𝛽 ¯ℓ𝑎 (𝑡 − 1) + ( 1 − 𝛽 )ℓ𝑎 (𝑡 ), (31) where 𝛽 controls memory. Also maintain the number of times 𝑛 𝑎 (𝑡 ) that the state has been evaluated. A lower-confidence loss score is computed as 
+
+𝑈 𝑎 (𝑡 ) = ¯ℓ𝑎 (𝑡 ) − 𝑐 UCB √︄ log (𝑡 + 1)
+
+𝑛 𝑎 (𝑡 ) + 1 . (32) Here 𝑐 UCB is the exploration constant. For a fixed time 𝑡 , the values {𝑈 𝑎 (𝑡 ) : 𝑎 ∈ A} form a vector of uncertainty-adjusted loss scores over the candidate parameter states. Since the objective is to minimize loss, smaller values of 𝑈 𝑎 (𝑡 ) are preferred. The second term gives a temporary advantage to states that have been evaluated fewer times, encouraging exploration. The tolerance parameter controls how close another state’s uncertainty-adjusted score must be to the best 7score in order to be included in the local candidate set. Before updating the smoothed losses, candidate state losses are scaled by the median loss among the evaluated candidate states at time 𝑡 . This keeps the Local-UCB update numerically comparable across cases with different error scales. The next state is selected by 
+
+𝑎 𝑡 +1 = arg min 
+
+> 𝑎 ∈ C 𝑡
+
+𝑈 𝑎 (𝑡 ), (33) where C𝑡 is a local candidate set containing the current state, neighboring states, and any states close to the best uncertainty-adjusted score. 
+
+Algorithm 2 Online Local-UCB State Adaptation 
+
+Require: Sequential evaluation cases, parameter state space A, initial state 𝑎 1, memory 𝛽 , exploration constant 𝑐 UCB , tolerance 𝜏 , minimum and maximum candidate budgets 𝐾 𝑚𝑖𝑛 , 𝐾 𝑚𝑎𝑥 
+
+Ensure: Online ensemble forecasts and state history  
+
+> 1:
+
+Initialize smoothed losses and visit counts for all states  
+
+> 2:
+
+for each forecasting case 𝑡 do  
+
+> 3:
+
+Construct a local candidate set around the active state  
+
+> 4:
+
+Add additional states with promising uncertainty-adjusted loss scores  
+
+> 5:
+
+Set the candidate budget between 𝐾 𝑚𝑖𝑛 and 𝐾 𝑚𝑎𝑥 , using larger budgets early and smaller budgets later  
+
+> 6:
+
+Evaluate Generalized Gibbs Ensemble Weighting only for selected candidate states  
+
+> 7:
+
+Produce the forecast using the current active state  
+
+> 8:
+
+When the realized outcome is observed, compute candidate losses  
+
+> 9:
+
+Scale candidate losses by their median value  
+
+> 10:
+
+Update smoothed loss estimates and visit counts  
+
+> 11:
+
+Select the next active state using the Local-UCB rule  
+
+> 12:
+
+end for  
+
+> 13:
+
+return forecasts, selected states, losses, and diagnostics 
+
+9 Computational Complexity 
+
+Let 𝑀 be the number of base forecasting models, 𝑇 the number of historical observations, 𝐾 the number of Gibbs iterations, and |C 𝑡 | the number of candidate states evaluated online at time 𝑡 .The approximate cost per online forecasting case is 
+
+𝑂 (|C 𝑡 |𝐾𝑇 𝑀 ). (34) A full-grid online method would cost 
+
+𝑂 (|A| 𝐾𝑇 𝑀 ), (35) where |A| is the total number of parameter states. Since the Local-UCB method is designed so that 
+
+|C 𝑡 | ≪ |A| , (36) it is substantially cheaper than full-grid online adaptation while still allowing state changes when recent data support them. 810 Disagreement-Regime Stratification 
+
+Prior work has shown that diversity among forecasts is an important factor in forecast-combination performance [5]. Motivated by this, the empirical protocol stratifies series by relative cross-model forecast disagreement. For series 𝑖 , horizon ℎ, and model 𝑚 , let ˆ 𝑦 𝑖,ℎ,𝑚 denote the forecast. The cross-model variance at horizon ℎ
+
+is 
+
+𝑉 𝑖,ℎ = Var 𝑚 ( ˆ𝑦 𝑖,ℎ,𝑚 ). (37) Because raw variance is scale-dependent, define the relative variance 
+
+𝑅𝑉 𝑖,ℎ = Var 𝑚 ( ˆ𝑦 𝑖,ℎ,𝑚 )
+
+ | ¯𝑦 𝑖,ℎ | + 𝜀 2 , (38) where ¯𝑦 𝑖,ℎ = 1
+
+𝑀 
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+ˆ𝑦 𝑖,ℎ,𝑚 . (39) The series-level disagreement score is 
+
+𝑅𝑉 𝑖 = 1
+
+𝐻 
+
+> 𝐻
+
+∑︁ 
+
+> ℎ=1
+
+𝑅𝑉 𝑖,ℎ . (40) Series are then partitioned into high, medium, and low disagreement groups. 
+
+11 Experimental Evaluation 
+
+We evaluate Generalized Gibbs Ensemble Weighting in an online forecast-combination setting. Each method is treated as an online forecaster: ensemble weights are updated using only past observed cases, and Gibbs-family hyperparameters are adapted using the Local-UCB state-selection procedure. The empirical evaluation uses two types of data. The first is based on official M4 competition forecast submissions [6], where multiple independent submitted forecasts are available for each time series. The second uses external rolling-origin experiments on Monash Traffic Hourly, Electricity Hourly, and Solar Weekly datasets [7]. For the Monash datasets, ready-made multi-method forecast matrices were not available in the required forecast-matrix format, so we generated reproducible deterministic rolling baseline forecasts and then applied the ensemble methods to those forecasts. 
+
+11.1 Compared Methods       
+
+> Table 1: Compared forecast-combination methods. Category Methods Simple baselines mean, median, trimmed mean Performance-based baselines inverse-loss weighting, exponential weighting, best historical model Selection baseline top-3 average Proposed online methods Local-UCB Stable Gibbs, Local-UCB Stable Gibbs-NCL, Local-UCB Symmetric Gibbs
+
+9The comparison methods are included as standard practical baselines rather than as new contributions. Let ˆ 𝑦 ℎ,𝑚 denote the forecast from base expert 𝑚 at horizon ℎ, and let 𝐿 𝑚 denote the recent historical loss of expert 𝑚 computed from the available online history. The mean ensemble assigns equal weights to all base forecasts, while the median ensemble uses the horizon-wise median across experts. The trimmed mean removes the largest and smallest forecasts at each horizon before averaging the remaining forecasts. The inverse-loss ensemble uses weights 
+
+𝑤 𝑚 = (𝐿 𝑚 + 𝜖 )−1
+
+Í𝑀 𝑗 =1 (𝐿 𝑗 + 𝜖 )−1 , (41) where 𝜖 is a small numerical constant. The exponential-weighted ensemble uses 
+
+𝑤 𝑚 = exp (− 𝜌𝐿 𝑚 )
+
+Í𝑀 𝑗 =1 exp (− 𝜌𝐿 𝑗 ) , (42) which follows the standard expert-weighting principle of assigning more weight to lower-loss experts. The best-historical-model baseline selects the expert with the smallest recent historical loss, and the top-3 average takes the simple average of the three experts with the smallest recent historical losses. These baselines cover equal weighting, robust aggregation, loss-based weighting, exponential expert weighting, and historical expert selection. For the Local-UCB Gibbs-family methods, the candidate Gibbs states are selected online using fixed controller settings. Unless otherwise stated, we use 𝐾 min = 3, 𝑐 UCB = 0.5, 𝛽 = 0.9, tolerance 0 .05, and 30 inner Gibbs iterations. For Local-UCB Stable Gibbs, 𝐾 max = 4, reflecting the four learning-rate states without NCL correction. For Local-UCB Stable Gibbs-NCL and Local-UCB Symmetric Gibbs, 𝐾 max = 10, allowing a larger adaptive neighborhood over learning-rate and diversity-strength states. Candidate state losses are scaled by their median before updating the Local-UCB smoothed losses. The Gibbs numerical settings are fixed as gradient clipping threshold 𝑔 𝑐𝑙𝑖 𝑝 = 5, weight floor 𝛿 = 10 −4, and numerical stabilizer 𝜀 = 10 −12 .These controller and numerical settings are fixed across all experiments and are not tuned separately for each dataset. The candidate learning-rate values are 𝜂 ∈ { 0.01 , 0.05 , 0.1, 0.2}. For the NCL variants, the candidate diversity strengths are 𝜆 ∈ { 0.01 , 0.05 , 0.1, 0.5}. Stable Gibbs uses no NCL correction, Stable Gibbs-NCL uses directional NCL, and Symmetric Gibbs uses the symmetric diversity correction. 
+
+11.2 M4 Online Forecast-Matrix Experiments 
+
+For M4, we use all valid official numbered point-forecast submissions containing the relevant frequency, giving 41 valid submitted forecasting systems after excluding submissions without usable rows for the target frequency. Each submitted forecast column is treated as a base forecasting expert. Since a submission may internally use different model classes or series-specific rules across different time series, an M4 expert should be interpreted as a submitted forecasting system rather than a single fixed parametric model. The corresponding M4 test actuals are used to evaluate the ensemble forecasts after each online case. Series are stratified into high, medium, and low disagreement regimes using relative cross-model forecast variance. For each series and horizon, we compute the variance of forecasts across submitted systems and normalize it by squared forecast scale. The resulting horizon-level relative variances are averaged across the forecast horizon to obtain a single disagreement score per series. High disagreement series are selected from the top of this ranking, low disagreement series from the bottom, and medium disagreement series from the 10 middle. The online M4 stream is balanced across frequencies and regimes. For each frequency and disagreement regime, 4500 series are used, split into three independent blocks of 1500. Each block uses 500 warmup cases and 1000 evaluated cases. Therefore, each frequency/regime result is based on 3000 evaluated cases. For the M4 online stream experiments, Gibbs-family methods use a fixed historical memory budget of 𝑇 = 200 past observed cases when estimating ensemble weights. This is not treated as a tuned Gibbs hyperparameter; it is a computational memory budget used to make the online procedure scalable. The memory buffer is sampled only from previously observed cases, so no future information is used.  
+
+> Table 2: M4 online forecast-matrix benchmark design.
+
+Dataset Horizon Forecast pool Evaluated cases per regime M4 Yearly 6 years 41 submitted forecasting systems 3000 M4 Quarterly 8 quarters 41 submitted forecasting systems 3000 M4 Monthly 18 months 41 submitted forecasting systems 3000 
+
+11.3 Monash Rolling-Origin Deployment Experiments 
+
+The Monash experiments test the online ensemble methods in rolling deployment simulations. Unlike M4, these datasets do not provide official multi-method submission matrices in the required format. We therefore generate deterministic rolling baseline forecasts and evaluate the ensemble methods on top of those forecasts.                          
+
+> Table 3: Monash rolling-origin deployment design. Dataset Series used Initial history Deployment period Horizon Evaluated cases Base models Traffic Hourly 100 sensors 90 days 270 days 48 hours 13,000 8Electricity Hourly 100 clients 90 days 270 days 24 hours 26,500 8Solar Weekly 137 series 30 weeks rolling weekly 5 weeks 1,781 9
+
+For Traffic and Electricity, the deterministic base forecast pool contains last value, daily seasonal naive, weekly seasonal naive, recent 24-hour mean, recent 168-hour mean, 168-hour drift, daily profile, and weekly profile forecasts. These baselines are chosen because hourly traffic and electricity data contain strong daily and weekly structure. For Solar Weekly, nine deterministic rolling baselines are generated using the same principle: fast, reproducible forecasts that provide a diverse base pool without requiring expensive model refitting. For the Monash rolling-origin experiments, the historical window is defined locally within each series using the previous five rolling forecast windows after an initial five-window warmup. The Monash experiments should therefore be interpreted as external online deployment tests of the ensemble framework, not as comparisons against official Monash benchmark forecast submissions. 
+
+12 Results and Discussion 
+
+12.1 M4 Online Results 
+
+The M4 results are mixed but encouraging. Gibbs-family methods win several regimes: Symmetric Gibbs wins M4 Yearly medium, M4 Quarterly medium, and M4 Monthly high; Stable Gibbs-NCL wins M4 Quarterly low and M4 Monthly low. Stable Gibbs also appears in the top three in several regimes. However, robust and 11 Table 4: Deterministic rolling baseline forecast pool. 
+
+Base forecast Description last value repeats most recent value daily seasonal naive repeats value from 24 hours ago weekly seasonal naive repeats value from 168 hours ago 24-hour mean repeats recent 24-hour mean 168-hour mean repeats recent weekly mean 168-hour drift linear drift over recent week daily profile hour-of-day profile over recent 28 days weekly profile hour-of-week profile over recent 4 weeks                              
+
+> Table 5: Top three M4 online methods by frequency and disagreement regime. Dataset / Regime Rank 1 Rank 2 Rank 3 M4 Yearly High inverse-loss weighted median Local-UCB Stable Gibbs M4 Yearly Medium Local-UCB Symmetric Gibbs Local-UCB Stable Gibbs inverse-loss weighted M4 Yearly Low top-3 average inverse-loss weighted Local-UCB Stable Gibbs M4 Quarterly High median trimmed mean inverse-loss weighted M4 Quarterly Medium Local-UCB Symmetric Gibbs Local-UCB Stable Gibbs-NCL Local-UCB Stable Gibbs M4 Quarterly Low Local-UCB Stable Gibbs-NCL Local-UCB Symmetric Gibbs inverse-loss weighted M4 Monthly High Local-UCB Symmetric Gibbs top-3 average Local-UCB Stable Gibbs M4 Monthly Medium inverse-loss weighted exponential weighted trimmed mean M4 Monthly Low Local-UCB Stable Gibbs-NCL inverse-loss weighted Local-UCB Symmetric Gibbs
+
+performance-based baselines remain strongest in some cases. In particular, high disagreement M4 Quarterly favors the median and trimmed mean, while M4 Yearly low favors top-3 averaging and inverse-loss weighting. This supports a careful interpretation. The results do not show that GGEW universally replaces classical forecast-combination methods. They show that online Gibbs-style adaptation can be competitive and sometimes leading, especially when the forecast pool contains exploitable disagreement structure. 
+
+12.2 Monash Rolling-Origin Results 
+
+The rolling-origin experiments are the most realistic online deployment tests in this study. “Mean states evaluated” reports the average number of Local-UCB parameter states evaluated per forecasting case; it is not applicable to non-Gibbs baselines. On Traffic Hourly, Local-UCB Stable Gibbs-NCL obtains the lowest aggregate loss, with Local-UCB Stable Gibbs almost tied. On Electricity Hourly and Solar Weekly, Local-UCB Stable Gibbs achieves the lowest aggregate loss, followed by Local-UCB Symmetric Gibbs. Solar Weekly is a smaller robustness experiment, but it is notable that the online Gibbs-family methods occupy the leading ranks. 12 Table 6: Top Monash rolling-origin results.                                                                 
+
+> Dataset Rank Method Overall loss Mean states evaluated Traffic Hourly 1Local-UCB Stable Gibbs-NCL 421.1985 4.05 Traffic Hourly 2Local-UCB Stable Gibbs 421.2012 3.00 Traffic Hourly 3top-3 average 423.2206 –Traffic Hourly 4Local-UCB Symmetric Gibbs 423.2364 4.05 Traffic Hourly 5best historical model 445.3267 –Electricity Hourly 1Local-UCB Stable Gibbs 19,561,022,006 3.00 Electricity Hourly 2Local-UCB Symmetric Gibbs 19,595,345,221 4.02 Electricity Hourly 3inverse-loss weighted 19,629,569,576 –Electricity Hourly 4top-3 average 19,706,911,054 –Electricity Hourly 5Local-UCB Stable Gibbs-NCL 19,767,997,849 4.02 Solar Weekly 1Local-UCB Stable Gibbs 17,890,727,069 3.00 Solar Weekly 2Local-UCB Symmetric Gibbs 17,964,395,448 4.36 Solar Weekly 3Local-UCB Stable Gibbs-NCL 18,005,974,186 4.36 Solar Weekly 4top-3 average 18,219,076,776 –Solar Weekly 5inverse-loss weighted 18,821,706,681 –
+
+12.3 Overall Empirical Pattern 
+
+Across the main experiments, the empirical pattern is positive but not universal. Overall loss denotes the sum of squared forecast errors over all evaluated cases and forecast horizons. First, online Gibbs-family methods are frequently competitive and sometimes leading. They win several M4 regimes and achieve the best aggregate losses in Traffic Hourly, Electricity Hourly, and Solar Weekly. Second, classical baselines remain important. Median, trimmed mean, inverse-loss weighting, exponential weighting, and top-3 average are strong in several M4 settings. This confirms that the proposed method should be presented as an adaptive addition to the forecast-combination toolkit, not as a universal replacement for existing aggregation rules. Third, disagreement structure appears important. In some high disagreement settings, robust aggregation remains strongest. In other high disagreement settings, such as M4 Monthly high, symmetric Gibbs performs best. This means the paper should avoid a simple rule such as “high disagreement always favors robust methods.” A more careful statement is that forecast disagreement structure affects which aggregation rule works best, and the proposed framework provides a way to study and adapt to that structure. The main empirical conclusion is therefore: 
+
+Adaptive forecast combination should be evaluated together with the structure of the forecast pool, the online deployment protocol, and the disagreement among base forecasters. 
+
+13 Limitations 
+
+This work has several limitations. First, the proposed method requires a pool of base forecasts. Its performance depends on the quality, diversity, and stability of that forecast pool. If all base models are poor or if the forecast pool lacks useful diversity, adaptive weighting cannot recover information that is not present in the candidate forecasts. Second, the disagreement-regime stratification is empirical. Relative cross-model forecast variance is transparent and scale-adjusted, but it is not claimed to be the only possible measure of disagreement. Other measures, such as forecast entropy, pairwise correlation, rank disagreement, or residual covariance, may provide additional insight. 13 Third, the online Local-UCB adaptation currently operates over a discrete hyperparameter state space. This makes the method computationally practical and reproducible, but it does not solve continuous hyperparameter optimization. Continuous adaptation of the learning rate, diversity strength, or exploration parameter remains a useful extension. Fourth, the Monash Traffic, Electricity, and Solar experiments use deterministic rolling baseline forecasts generated from raw public datasets. These experiments are useful for testing online deployment behavior, but they are not directly comparable to M4 public submission-matrix experiments, where the forecast pool comes from external submitted forecasting systems. Finally, the framework focuses on point forecasts and squared-loss evaluation. Extensions to probabilistic forecasting, conformal calibration, quantile forecasting, and interval forecast combination remain important directions for future work. 
+
+14 Conclusion 
+
+This paper introduced Generalized Gibbs Ensemble Weighting, a probabilistic framework for adaptive forecast combination. The method converts normalized predictive-loss scores into ensemble weights using a Gibbs-style exponential allocation rule, stabilizes the optimization through exponentiated-gradient updates, and extends the score with diversity-aware corrections. The framework provides a single algorithmic recipe for Stable Gibbs, Directional Gibbs-NCL, and Symmetric Gibbs-NCL. It also supports online hyperparameter adaptation through Local-UCB state selection, which adapts the learning rate, diversity strength, and Gibbs variant without exhaustively evaluating the full hyperparameter grid at every prediction step. Empirical evaluation across M4, Traffic, Electricity, and Solar experiments suggests that Gibbs-style adaptive weighting is a useful and competitive forecast-combination tool. The results do not support a universal dominance claim. Instead, they show that the usefulness of adaptive Gibbs weighting depends on the dataset, forecast horizon, forecast pool, deployment protocol, and disagreement structure. The central contribution is therefore both methodological and empirical: GGEW provides a unified adaptive ensemble-weighting framework, and the experiments motivate a regime-aware view of forecast combination. Future work should study broader disagreement diagnostics, continuous online adaptation, probabilistic forecast extensions, and larger-scale deployment settings. 
+
+Author Contributions 
+
+P.R.N. conceived the forecasting framework, developed and implemented the algorithms, designed and executed the empirical evaluation, analyzed the results, and prepared the manuscript. N.K.G. contributed to discussions connecting the proposed framework to Gibbs-style mathematical formula-tions and provided feedback on the mathematical derivations. 
+
+References 
+
+[1] Bates, J. M. and Granger, C. W. J. (1969). The combination of forecasts. Operational Research Quarterly ,20(4), 451–468. 14 [2] Cesa-Bianchi, N. and Lugosi, G. (2006). Prediction, Learning, and Games . Cambridge University Press. [3] Lai, G., Chang, W.-C., Yang, Y., and Liu, H. (2017). Modeling long- and short-term temporal patterns with deep neural networks. arXiv preprint arXiv:1703.07015 .[4] Liu, Y. and Yao, X. (1999). Ensemble learning via negative correlation. Neural Networks , 12(10), 1399–1404. [5] Kang, Y., Cao, W., Petropoulos, F., and Li, F. (2022). Forecast with forecasts: Diversity matters. 
+
+European Journal of Operational Research , 301(1), 180–190. doi:10.1016/j.ejor.2021.10.024. [6] Makridakis, S., Spiliotis, E., and Assimakopoulos, V. (2020). The M4 Competition: 100,000 time series and 61 forecasting methods. International Journal of Forecasting , 36(1), 54–74. [7] Godahewa, R., Bergmeir, C., Webb, G. I., Hyndman, R. J., and Montero-Manso, P. (2021). Monash Time Series Forecasting Archive. Neural Information Processing Systems Track on Datasets and Benchmarks .[8] Vovk, V. (1990). Aggregating strategies. Proceedings of the Third Annual Workshop on Computational Learning Theory .15

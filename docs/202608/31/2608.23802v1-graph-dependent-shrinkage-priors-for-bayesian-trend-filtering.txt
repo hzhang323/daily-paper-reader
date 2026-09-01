@@ -1,0 +1,2490 @@
+Title: Graph-dependent shrinkage priors for Bayesian trend filtering
+
+URL Source: https://arxiv.org/pdf/2608.23802v1
+
+Published Time: Wed, 26 Aug 2026 00:19:19 GMT
+
+Number of Pages: 49
+
+Markdown Content:
+# Graph-dependent shrinkage priors for Bayesian trend filtering 
+
+Andrea Mascaretti amascare@sissa.it 
+
+Scuola Internazionale Superiore di Studi Avanzati (SISSA) Trieste, Italy 
+
+Daniel R. Kowal dan.kowal@cornell.edu 
+
+Department of Statistics and Data Science, Cornell University Ithaca, NY 14850, USA 
+
+Abstract 
+
+Many common data dependencies can be characterized by graphs: time series data are sequential (chain graph), images appear as pixels (lattice graph), areal data are defined by neighboring units (spatial adjacency graph), etc. Graph trend filtering seeks to smooth and predict such data. However, classical trend filtering only incorporates the graph for estima-tion of the trend, which limits its adaptivity, and is brittle in the presence of missing data. Further, it lacks uncertainty quantification and faces certain computing challenges. We ad-dress these limitations with a comprehensive Bayesian framework for (graph-) dependent data. Our approach leverages the graph at three critical junctures: 1) the trend, to enable smoothing, imputation, and prediction; 2) the local shrinkage, to enhance adaptivity and precision; and 3) the MCMC sampling algorithm, to deliver scalable posterior (predictive) inference via sparse and banded operations. For the proposed graph-dependent shrinkage priors, we study the local concentration and adaptivity properties and establish conditions for posterior propriety. Simulation studies demonstrate that, relative to state-of-the-art frequentist and Bayesian alternatives, this framework provides more accurate point esti-mates, more precise interval estimates, and highly competitive computing. We apply our methods for spatio-temporal modeling and forecasting of local area unemployment data for every county in the continental U.S. during the 2020 COVID-19 unemployment shock. 
+
+Keywords: Areal data; finite-difference operator; horseshoe prior; Markov chain Monte Carlo; time series. 
+
+1 Introduction 
+
+Dependent data are prevalent and diverse: prominent settings include time series data, image data, spatial data, and other cases where there is some natural ordering, grouping, or structure to the data. Despite the many differences among these cases, several unifying themes persist. Primary modeling tasks—prediction, imputation, (trend) estimation, and uncertainty quantification—rely critically on careful modeling of data dependencies. These dependencies may be relevant for multiple aspects of the data-generating process, includ-ing expectations, variances, priors, etc. This is especially important for Bayesian methods, which explicitly make distributional assumptions to obtain model-based (posterior) infer-ence. Additionally, dependent data models typically incur a greater computational cost than independent counterparts, and often require specialized algorithms for prediction and inference. Finally, many types of dependencies may be described by a graph, where ver-tices denote observations and edges denote potential data dependencies. Examples include  
+
+> ©2026 Andrea Mascaretti and Daniel R. Kowal. License: CC-BY 4.0, see https://creativecommons.org/licenses/by/4.0/ .arXiv:2608.23802v1 [stat.ME] 24 Aug 2026 Mascaretti and Kowal
+
+chain graphs to encode the sequential nature of time series data, lattice (or grid) graphs to represent adjacent pixels in image data, and spatial adjacency graphs to identify the neighboring units among areal (spatial) data. Consequently, models and algorithms that can be expressed in terms of graphs gain substantial generalizability across different types of dependent data. Within this broad context, a central task is trend filtering , which seeks to predict and smooth data observed over a graph. “Ordinary” trend filtering considers sequential (time se-ries) data and seeks to construct locally-adaptive trend estimates via sparse ℓ1-penalization of kth order differences (Kim et al., 2009; Tibshirani, 2014). That work sparked many extensions, including for unequally-spaced data (Madrid Padilla et al., 2020) and several Bayesian adaptions (Faulkner and Minin, 2018; Kowal et al., 2019; Heng et al., 2023; Kang and Kim, 2025). Wang et al. (2016) provided the critical generalizations for trend filtering on a graph. Specifically, Wang et al. (2016) designed graph difference operators to embed within an ℓ1-penalty, leveraging the induced sparsity patterns to gain smooth yet locally-adaptive trend estimates. It is this sparsity that distinguishes graph trend filtering from other approaches, such as Laplacian smoothing (Smola and Kondor, 2003) and Gaussian Markov Random Fields (Rue, 2001), which instead rely on ℓ2-penalties and Gaussian priors, respectively. Subsequent work included total variation denoising ( k = 0) with d-dimensional grid graphs (Sadhanala et al., 2017, 2024b), exponential families (Sadhanala et al., 2024a), and multivariate data and non-convex penalties (Varma et al., 2020). Graphs also appear in a variety of other statistical and machine learning tasks; see Khoshraftar and An (2024). These contributions clearly established the utility of (ordinary or graph) trend filtering and prioritized the theoretical guarantees for trend estimation. However, they focused exclu-sively on point estimation without accompanying uncertainty quantification. The Bayesian approaches are an exception, but only considered ordinary trend filtering for time series data and do not apply for general graph dependencies. Furthermore, nearly all previous approaches only incorporated the graph dependencies in the model for the trend, and often only for total variation denoising or the fused lasso ( k = 0). However, this regularization is controlled by a single tuning parameter that 1) is constant over graph, which limits adaptiv-ity, and 2) must be estimated such as through cross-validation, which adds to the already substantial computational costs for graph-dependent data. Lastly, these approaches did not address missing data. Even in the simpler case of unequally-spaced time series data, the Madrid Padilla et al. (2020) modification of ordinary trend filtering required a nearest-neighbors pre-processing step that redefined the graph and added a tuning parameter. Thus, the challenges of missing data for general graph dependencies are substantial. Motivated by these challenges, we propose a Bayesian framework for modeling graph-dependent data. Our approach leverages the graph dependencies at three junctures. First, we adapt the Wang et al. (2016) graph difference operators to define a prior (rather than penalty) for the trend, thus encouraging graph-based smoothness across connected ver-tices. Second, we introduce graph-dependent shrinkage priors to enable locally-adaptive regularization informed by the graph. These priors substantially improve trend estimation, especially for signals that exhibit both smoothness and abrupt changes over the graph, and provide more precise yet well-calibrated uncertainty quantification. And third, we de-velop a scalable MCMC algorithm that combines sparse and banded matrix operations with convenient parameter expansions to provide efficient posterior predictive inference and im-
+
+> 2
+
+Graph-Dependent Shrinkage Priors 
+
+putation. Notably, both the graph-dependent trend parameters and the graph-dependent shrinkage parameters are each sampled jointly and all without a loop. These methods are developed for general graphs, and thus apply across many different types of dependent data. 10 20 30 40 50 10  20  30  40  50  Truth              
+
+> 10 20 30 40 50 10  20  30  40  50  Observed Data
+> 10 20 30 40 50 10  20  30  40  50  Posterior Mean
+> 010 20 30 40 50 0.0  1.0  2.0
+> Fitted Values, Row 16
+
+Figure 1: Bayesian trend filtering with graph-dependent shrinkage for a 50 ×50 lattice. The true trend (top left) is corrupted by measurement error and 75% missingness to obtain the observed data (top right). The fitted trend from the proposed approach (bottom left) accurately recovers the truth. Inspecting one row of the lattice (dashed gray horizontal lines), the bottom right plot shows the true trend (dashed black), observed data (yellow x’s), fitted values (blue) and 95% pointwise intervals (light gray) and simultaneous bands (dark gray) for the proposed approach and frequentist trend filtering estimates (Wang et al., 2016) (red). To illustrate the challenges in this setting—and how our methods address them—we provide an example in Figure 1. These are simulated data on a lattice with a smooth, nonlinear trend (top left) corrupted by measurement error and 75% missingness (top right). Visually, it is difficult to identify much of a trend from the observed data; yet the proposed approach recovers it cleanly (bottom left) by borrowing information across neighboring pixels for both the trend and the shrinkage. Inspecting one row of the lattice (bottom right), our Bayesian approach accurately captures the trend, reliably imputes the missing data, and provides suitable uncertainty estimates. By contrast, the estimated trend from Wang et al. (2016) struggles due to the missing data and does not natively provide uncertainty quantification. Central to our modeling efforts is a new family of graph-dependent shrinkage priors (GDSP). We operate within the class of continuous, global-local shrinkage priors (Straw-derman, 1971; Griffin and Brown, 2005; Carvalho et al., 2010; Polson and Scott, 2011). Unlike sparsity-inducing (e.g., spike-and-slab) priors, which explicitly model variable inclu-sion yet face substantial computational burdens, continuous shrinkage priors are designed 
+
+3Mascaretti and Kowal 
+
+for aggressive shrinkage of noise, minimal shrinkage of signals, and scalable posterior com-puting. The novelty is that the GDSP local scale parameters are graph-dependent , so that neighboring parameters borrow shrinkage information across the graph. We study the local concentration and adaptivity properties of the GDSP for arbitrary graphs. Further, we construct global shrinkage priors that learn the overall level of smoothness over the graph and, even more critically, ensure posterior propriety of the GDSP—which is not guaranteed simply by assigning shrinkage priors to graph differences. Although shrinkage parameters are traditionally assigned iid priors, recent work has con-sidered the advantages of dependent priors in different contexts. For linear regression anal-ysis, Liu et al. (2014) and Chakraborty and Lozano (2019) introduced a “graph Laplacian prior” that generalized the Bayesian lasso to model the precision matrix among regression coefficients. Similarly, Griffin and Hoff (2024) introduced general priors that include both shrinkage and dependence among regression coefficients. However, these shrinkage priors were not designed for dependent data or for trend filtering, prediction, and imputation. Kalli and Griffin (2014) and Kowal et al. (2019) introduced dynamic shrinkage priors with time series models for shrinkage parameters. These methods are restricted to sequential data and do not apply for general graph dependencies. For completeness, we acknowledge the literature on horseshoe priors for Gaussian graph-ical models (Li et al., 2019; Lingjærde et al., 2023; Sagar et al., 2024). Despite the similari-ties in terminology, that context is quite different: their priority is to learn sparse precision matrices from multivariate Gaussian data, rather than to model data dependencies from a (known) graph. The remainder of the paper is organized as follows. In Section 2, we introduce our Bayesian model for graph trend filtering with graph-dependent shrinkage priors, including theoretical analysis of this prior. Section 3 details our Markov chain Monte Carlo (MCMC) sampling algorithm. Simulation studies are presented in Section 4. In Section 5, the methods are applied for space-time modeling and forecasting of local area (county-level) unemploy-ment data for 3,108 counties in the continental U.S. during spring 2020. We conclude in Section 6. The appendix includes proofs of all results, additional theory, computational details, and supporting empirical results for simulations and real data analysis. 
+
+2 Bayesian trend filtering with graph-dependent shrinkage 
+
+2.1 Trend filtering on a graph 
+
+Graphs are an effective and general tool to characterize dependencies among observations. Suppose we observe dependent data yi ∈ R for i = 1 , . . . , n . Dependencies may be modeled via graph G = ( V, E ) with vertices (or nodes) V = {1, . . . , n } corresponding to observations and edges E = {e1, . . . , e m} that list the potential dependencies among them. Prominent examples include: 1. Time series data: the chain graph connects sequential points, E = {(i − 1, i ), i =2, . . . , n }, with m = n − 1 edges; 2. Image data: the lattice graph connects neighboring pixels on a d1 × d2 grid (Figure 1) with n = d1d2 vertices and m = 2 n − d1 − d2 edges; 
+
+> 4Graph-Dependent Shrinkage Priors
+
+3. Areal data: spatial adjacency graphs connect neighboring areal units, such as U.S. counties (Section 5). These graphs also may be combined to account for multiple dependencies simultaneously, such as a time series of images (Section 4.5) or spatio-temporal areal data (Section 5). Independent observations are described by the empty graph E = ∅. Although seemingly trivial, this setting is worth revisiting because it clarifies how our dependent data models and priors generalize beyond the familiar independent versions. The goal of graph trend filtering is to extract a signal from noisy data observed over the graph: 
+
+yi = βi + ϵi, ϵi | σ2
+
+> ϵ
+> iid
+
+∼ N  0, σ 2
+
+> ϵ
+
+ , i ∈ V. (1) Broadly, we seek 1) point estimates and uncertainty quantification for the signal {βi}i∈V
+
+and 2) prediction and imputation for future or unobserved data, say {˜yi}i∈V . Central to each task is the graph dependence: connected observations ( i, j ) ∈ E are expected to be similar, e.g., with |βi − βj | small. This smoothness over the graph is critical in each of those goals—point estimation, uncertainty quantification, prediction, and imputation. Yet still, stark differences may arise even between connected observations. For instance, time series undergo change points, with consecutive observations that differ substantially; images change abruptly at object boundaries; and neighboring areal units may diverge due to structural differences such as local policies and demographics. Thus, our models, estimates, and uncertainties cannot oversmooth on the graph, but rather must be adaptive 
+
+to sharp changes between connected observations. In order to convert general graph dependencies into viable statistical models and esti-mators, we first define graph difference operators . Let δ : E → {− 1, 0, 1}n be the (oriented) incidence function, so that δ (e) = (0 , . . . , −1, 0, . . . , 1, . . . , 0) ⊤ for edge e = ( i, j ), where −1and 1 occur at the ith and jth entries, respectively. Then the kth order graph difference operators are defined recursively (Wang et al., 2016): ∆(k+1) =
+
+
+
+∆(1) = ( δ(e1), . . . , δ (em)) ⊤ k = 0 ,
+
+∆(k+1) =  ∆(1) ⊤ ∆(k) k is odd ,
+
+∆(k+1) = ∆ (1) ∆(k) k is even .
+
+(2) This family of operators can be alternatively formulated in terms of the graph Laplacian 
+
+L = D − A, where A is the adjacency matrix and D is the degree matrix. Specifically, ∆(2) = L is the graph Laplacian, ∆ (3) = ∆ (1) L is the gradient of the Laplacian, ∆ (4) = L2
+
+is the bi-Laplacian, etc. This is akin to computing derivatives of increasing order; when used as a penalty term, it encourages the estimated signal to follow a piecewise polynomial trend over the graph. To interpret these operators, consider the output from applying (2) to βββ = ( β1, . . . , β n)⊤:
+
+ωωω = ∆ (k+1) βββ. (3) Note that the dimension changes with k: ∆ (k+1) is m × n when k is even or zero and n × n
+
+when k is odd. Thus, k determines whether the output ωωω is indexed by edges ( k even or zero) or vertices ( k odd). For completeness, we define ∆ (0) = In for k = −1, which sets 
+
+> 5Mascaretti and Kowal
+
+ωωω = βββ to reproduce the independent case. In general, we assume that G is connected but provide exceptions for isolated nodes below. When k = 0, the first-order difference operator induces ωe = βi − βj for each edge e =(i, j ) ∈ E. By regularizing ∥ωωω∥ toward zero, we obtain a trend βββ that is locally constant over the graph G, so that connected observations share the same value. In frequentist estimation, 
+
+ℓ1-penalization of ωωω is known as total variation denoising or the fused lasso (Padilla et al., 2018; Padilla, 2024; Fan and Guan, 2018). Among Bayesian methods, shrinkage via a Gaussian prior on ωωω is often called a random walk prior (or local level model) (Rue and Held, 2005) for time series data or an intrinsic conditional autoregressive (ICAR) model for areal (spatial) data (Besag and Kooperberg, 1995). When k = 1, the operator (2) yields ωi = niβi − P 
+
+> j∼i
+
+βj , where ni is the number of neighbors for the ith node. Now, regularizing |ωi| toward zero pulls βi toward an average of its neighbors, which produces a locally linear trend over the graph. For illustration, consider a chain graph for time series data. When k = 0, ωe = βi −βi−1,so ωe = 0 implies that the signal inherits the value from the previous time point, βi = βi−1,and the trend is locally constant. When k = 1, ωi = ( βi+1 − βi) − (βi − βi−1), so ωi = 0 has two equivalent implications: 1) the change in trend is locally constant, i.e., the trend is locally linear, and 2) the trend βi = ( βi+1 − βi−1)/2 averages the immediate time points before and after. The pattern continues and applies for general graphs G, so that increasing 
+
+k leads to higher order polynomials akin to roughness penalties on the ( k + 1)th derivative. Based on the graph difference operators in (2), Wang et al. (2016) proposed to estimate the trend by solving ˆβˆβˆβλ = arg min 
+
+> βββ∈Rn
+
+12 ∥yyy − βββ∥22 + λ∥∆(k+1) βββ∥1 (4) where λ > 0 is a tuning parameter. By design, the ℓ1-penalty encourages sparsity in 
+
+ωωω = ∆ (k+1) βββ, which induces this generalized notion of (polynomial) smoothness over the graph for the estimated signal ˆβˆβˆβλ. Equally important are the non-sparse entries of ωωω, which admit local adaptivity in the trend estimate. Wang et al. (2016) designed algorithms to solve (4) depending on the choice of k, which are implemented in the R package genlasso 
+
+and used subsequently for comparisons (Section 4). The tuning parameter λ is typically selected using cross-validation or based on a pre-specified degrees of freedom. For our purposes, we use a subtle modification to the graph difference operator initially defined in Wang et al. (2016). Consider isolated vertices i∗ ∈ V with ni∗ = 0. Such components do not factor into (2), so the trend estimator in (4) satisfies ˆβλ,i ∗ = yi∗ . Yet for Bayesian inference, explicitly modeling each βi∗ remains important: we may still wish to apply a shrinkage prior for βi∗ and to infer the trend βββ jointly. Explicitly, (3) does not involve any isolated vertices, so building a model or prior from this output would neglect all such βi∗ . Instead, we may simply modify the graph G to include self-loops for isolated vertices. Equivalently, each graph difference operator in (2) expands to be block diagonal with an identity matrix, bdiag(∆ (k+1) , I n∗ ), with the n∗ isolated vertices ordered last for convenience. Now, the output (3) satisfies ωi∗ = βi∗ for any isolated vertex. This ensures that our dependent data models appropriately generalize the independent version in which all vertices are isolated. 
+
+> 6Graph-Dependent Shrinkage Priors
+
+2.2 Graph-dependent shrinkage priors 
+
+To translate the graph trend filtering problem into a Bayesian framework, the natural strat-egy is to adopt the likelihood implied by (1) and replace the ℓ1-penalty in (4) with a prior on ωωω = ∆ (k+1) βββ. The structure of this prior requires great care. First, the prior must encourage (near-) sparsity of ωωω in order to produce a smooth trend. At the same time, the prior must not overshrink the nonzero entries of ωωω, which would impede the model’s adap-tivity to abrupt changes in the signal. Equivalently, the prior must have sufficiently heavy tails. Many common priors do not satisfy these criteria, such as Normal-Inverse-Gamma priors and the Bayesian lasso (Park and Casella, 2008). Second, the computational burden is substantial: besides the sample size n, computational performance will be determined by the density of the graph and k, and specifically by the number and location of nonzero elements of ∆ (k+1) (see Section 3). Priors that incur a sizable computing cost for indepen-dent data, such as spike-and-slab priors, are unappealing here. Third, ωωω may be indexed by edges ( k even or zero) or vertices ( k odd). Either way, any local shrinkage parameters, like the trend itself, are oriented on the graph. Thus, we again leverage the graph in our model, now to borrow information among neighboring shrinkage parameters. Finally, graph differences supply relative and thus incomplete information, which may result in improper posteriors. We address each of these challenges below. Consider the general family of conditionally Gaussian, global-local shrinkage priors: 
+
+ωj | τ, λ j ind 
+
+∼ N  0, τ 2λ2
+
+> j
+
+ (5) 
+
+λλλ ∼ π(λλλ) (6) where j indexes edges ( k even or zero) or vertices ( k odd), λλλ = ( λ1, λ 2, . . . )⊤ are the local shrinkage parameters with a dimension that depends on k, and τ > 0 is a global shrinkage parameter. The conditionally Gaussian distribution in (5) enables scalable computing for the trend βββ (see Section 3). The choice of π(λλλ) determines the shrinkage behavior of the hierarchical prior (5)–(6). Such priors are typically iid: the horseshoe prior is λj ∼iid 
+
+C+(0 , 1) and the Bayesian lasso is λ2 
+
+> j
+
+∼iid Exp(1 /2). The Normal-Inverse-Gamma prior fixes λj = λ and uses an Inverse-Gamma prior on λ2. This is also a typical choice for ICAR models (usually with k = 1). These priors are all considered as competitors in Section 4. The main limitation of these shrinkage priors is that they ignore the graph information. However, building a graph-informed model for λλλ has several new challenges beyond the traditional graph trend filtering problem (e.g., (4)). First, the local shrinkage parameters are positive, λj > 0, unlike the trend βi ∈ R. Thus, incorporating graph dependencies cannot be done exactly as in (3). Second, π(λλλ) should preserve the appealing shrinkage properties of (conditionally) iid shrinkage priors such as the horseshoe (Carvalho et al., 2010). Without those, the graph-informed smoothness and local adaptivity for the trend from (1) and (3) would be lost. Finally, even if we can design such a prior that features both graph dependencies and desirable shrinkage properties, we must ensure that model-fitting with (1), (3), and (5)–(6) remains theoretically valid and computationally tractable. 
+
+> 7Mascaretti and Kowal
+
+We introduce a graph-dependent shrinkage prior (GDSP) to achieve these goals: 
+
+hj = log( τ 2λ2 
+
+> j
+
+) (7) ∆kh+1  
+
+> k
+
+hhh = ηηη, ηi iid 
+
+∼ Z(a, b, 0, 1) , a, b > 0 (8) 
+
+h0 = log( τ 2) ∼ N  μk, s 20
+
+, μ0 ∈ R, s 0 > 0 (9) where μk = μ0 + sks20/2. The GDSP hyperparameters are a, b, μ 0, s 0, while sk (and thus 
+
+μk) depends only on whether k is even or odd (see below). This prior has several features that require explanation: the log transformations, the shrinkage graph difference operator ∆kh+1  
+
+> k
+
+together with the global scale prior (9), and the (standard) Z-distribution in (8) with density pZ (z) = {B( a, b )}−1{exp ( z)}a{1 + exp ( z)}−(a+b) (Barndorff-Nielsen et al., 1982). First, the log transformations in (7) and (9) ensure positivity of the global ( τ ) and local ( λj ) shrinkage parameters. The log-variance parameters hj ∈ R are more amenable to the differences and local averaging induced by the graph difference operator in (8). These remain interpretable on the τ λ j -scale as multiplicative (rather than additive) effects. Second, the shrinkage graph difference operator ∆ kh+1  
+
+> k
+
+has its own order kh, but also depends on k from (3). When k is odd, λλλ is indexed by the vertices of G just like the trend, so we define ∆ kh+1  
+
+> k
+
+= ∆ kh+1 exactly as in (2). When k is even or zero, λλλ is indexed by edges so the same approach cannot apply. Then we construct the line graph of G, which connects any edges that share a common vertex in G. For instance, the line graph of the chain graph connects the edge ( i − 1, i ) with both its predecessor ( i − 2, i − 1) and its successor ( i, i + 1). With this new graph, we appropriately define the shrinkage graph difference operator via the initialization and recursions in (2), again up to order kh. In both cases, isolated vertices are treated exactly as for the trend (see the discussion at the end of Section 2.1). Third, a more subtle aspect of (8) is that it only supplies a prior on the differences of the log-variances, not their level (Lemma 1). Crucially, a prior of the form (7)–(8) is not guaranteed to be proper or ensure a proper posterior. The critical step is to parameterize and assign a prior to the level of the log-variances, which we represent as the global scale 
+
+h0 = log( τ 2). We first decompose the log-variances into a global (mean) component and an orthogonal component, 
+
+hj = h0 + h⊥ 
+
+> j
+
+,
+
+> m
+
+X
+
+> j=1
+
+h⊥ 
+
+> j
+
+= 0 (10) so that h0 = m−1 Pmj=1 hj by design. Noticing that ∆ kh+1  
+
+> k
+
+hhh = ∆kh+1  
+
+> k
+
+hhh⊥ and λj =exp( h⊥ 
+
+> j
+
+/2), it follows that (8) supplies a prior only for the local scales λλλ. The global scale aims to learn the global smoothness over the graph. However, the data inform sk
+
+fewer directions than ωωω has coordinates, where sk = 1 for k odd and sk = m − n + 1 for 
+
+k even (see the discussion after Lemma A.5). In the latter case, sk may be large and the global scale is pulled toward zero on account of these free parameters—thereby overshrink-ing across the whole graph. The proposed prior (9) counteracts this effect: the implied prior mean is E(τ 2) = exp {μ0 + ( sk + 1) s20/2}, where the offset sks20/2 corrects the location shift due to the free coordinates. Thus, the prior that acts on h0 is effectively N (μ0, s 20). The implied joint prior on hhh can be characterized explicitly (Lemma 1). Finally, the Z-distribution endows π(λλλ) with shrinkage behavior. In the special case without graph dependence ( kh = −1), the innovations in (8) become λ2 
+
+> j
+
+= exp( ηj ). The 
+
+> 8Graph-Dependent Shrinkage Priors
+
+Z-prior for ηj then induces an inverted-Beta prior for λ2 
+
+> j
+
+, which includes several important special cases outlined in Table 1 (Kowal et al., 2019). Namely, when kh = −1 and a = b =1/2, the prior (7)–(8) exactly reproduces the horseshoe prior (similarly for isolated vertices with any kh). More importantly, when kh ≥ 0, the same innovations act on the differences of the log-variances, and the GDSP generalizes the horseshoe and other shrinkage priors for dependent data settings. For instance, consider kh = 0: for an edge e = ( i, j ), the local shrinkage parameter λ2 
+
+> i
+
+= λ2 
+
+> j
+
+exp( ηij ) effectively takes the familiar (iid) shrinkage prior determined by exp( ηij ) (Table 1) and scales it based on neighboring shrinkage parameters. Table 1: The (standard) Z-distribution on the log-scale corresponds to several well-known shrinkage priors. Parameters Prior Reference 
+
+a = b = 12 Horseshoe Carvalho et al. (2010) 
+
+a = 12 , b = 1 Strawderman-Berger Strawderman (1971) 
+
+a = 1, b = 2 − c, c > 0 Normal-Exponential-Gamma Griffin and Brown (2005) 
+
+a = b → 0 (Improper) normal-Jeffreys Figueiredo (2003) When G is a chain graph, the GDSP (7)–(9) is related to the dynamic shrinkage prior (Kowal et al., 2019), which instead used a stationary autoregressive model in place of (8). The primary differences here are the use of ∆ kh+1  
+
+> k
+
+for general dependent data described by a graph, including the necessary accommodations for even vs. odd k in (3), the global scale prior (9), and isolated vertices, which were not addressed in previous work. This generalized prior also requires modifications to the MCMC sampling algorithm (see Section 3). 
+
+2.3 Theory for GDSP 
+
+To further justify the proposed GDSP, we detail the ways in which it combines graph information with desirable shrinkage behavior. Specifically, we study prior concentration, posterior adaptivity, and posterior propriety. Following previous work on shrinkage priors, we focus on the shrinkage coefficients κi = 1 /(1 + τ 2λ2 
+
+> i
+
+). To interpret this term, consider the likelihood (1) and the prior (5). For simplicity, fix σϵ = τ = 1 and take k = −1in (3) to neglect any graph smoothing for the trend. Then the estimated trend is E(βi |
+
+yyy) = {1 − E(κi | yyy)}yi. The shrinkage coefficients satisfy κi ∈ (0 , 1) almost surely, but the endpoints are meaningful: κi ≈ 0 implies no shrinkage while κi ≈ 1 implies aggressive shrinkage to zero. For reference, the horseshoe prior uses κi ∼iid Beta(1 /2, 1/2) to place substantial prior mass near both endpoints. For the GDSP, we are similarly interested in the behavior of κi, but also in how its distribution is informed by its neighbors {κj }j∼i. We focus on non-isolated vertices of the shrinkage graph: G itself when k is odd, and the line graph of G when k is even or zero. We write ni to denote the number of neighbors of vertex i, either a node ( k odd) or an edge ( k
+
+even or zero), and require that ni ≥ 1. For isolated vertices, the prior implies κi ∼ Beta( b, a )as for iid shrinkage priors. We specify kh = 0 here, which illustrates the graph-informed shrinkage behavior and is the default we use in the applications. Generalizations for higher-order differences ( kh = 1) are in Appendix B. Initially, we fix τ = 1, as is standard. 
+
+> 9Mascaretti and Kowal
+
+We first derive the conditional prior density of the GDSP, using a = b for convenience and in anticipation of the horseshoe GDSP with a = b = 1 /2. All proofs are in Appendix A. 
+
+Theorem 1 (Conditional Prior Density) For the GDSP with kh = 0 and a = b, the conditional prior density of κi given the neighboring values on the shrinkage graph {κj }j∼i
+
+is 
+
+π(κi | { κj }j∼i) ∝ {κi(1 − κi)}an i−1
+
+Q
+
+> j∼i
+
+κi(1 − κj ) + (1 − κi)κj 2a . (11) The conditional prior (11) induces local coherence in shrinkage behavior through the neigh-boring factors. Each term in the denominator, κi(1 − κj ) + (1 − κi)κj is near zero when κi
+
+and κj lie near the same extreme, and near one when they lie near opposite extremes. When the neighbors unanimously do not apply shrinkage ( κj ≈ 0 for all j ∼ i), the conditional prior concentrates near zero; when they all apply shrinkage ( κj ≈ 1 for all j ∼ i), it concen-trates near one. The GDSP propagates shrinkage decisions across the graph, encouraging spatially adaptive patterns to distinguish signal and noise. More concretely, we show how the shrinkage behavior under the prior reacts to the shrinkage effects among the neighbors, and specifically for the horseshoe GDSP with a =
+
+b = 1 /2. First, we consider the case when the neighbors are unanimous in non-shrinkage, i.e., adapting for signals. 
+
+Theorem 2 (Prior Concentration: Neighbors Unshrunk) For the horseshoe GDSP with kh = 0 , a = b = 1 /2, the conditional prior distribution satisfies 
+
+P(κi < ε | { κj }j∼i) → 1 as κ∗ → 0
+
+for any ε > 0, where κ∗ = max j∼i{κj }.
+
+Similar behavior occurs when the neighbors are unanimous in aggressive shrinkage, i.e., smoothness. 
+
+Theorem 3 (Prior Concentration: Neighbors Shrunk) For the horseshoe GDSP with 
+
+kh = 0 , a = b = 1 /2, the conditional prior distribution satisfies 
+
+P(κi > 1 − ε | { κj }j∼i) → 1 as κ∗ → 1
+
+for any ε > 0, where κ∗ = min j∼i κj .
+
+Whether the neighbors unanimously favor non-shrinkage or shrinkage, the conditional prior for κi under the horseshoe GDSP collects mass in the corresponding region. Next, we investigate the properties of the conditional posterior distribution of κi. For simplicity, we omit graph dependence in the trend ( k = −1) so that ωi = βi and fix σϵ = 1. 
+
+Theorem 4 (Posterior Shrinkage Adaptation) Consider the horseshoe GDSP with a =
+
+b = 1 /2, kh = 0 , k = −1, and σϵ = 1 . The conditional posterior of κi satisfies: 
+
+(i) Neighborhood-driven shrinkage: for any ε > 0 and any M > 0,
+
+P(κi > 1 − ε | yyy, {κj }j∼i) → 1 as κ∗ → 1
+
+uniformly for yyy ∈ Y M = {yyy ∈ Rn : |yi| ≤ M }, where κ∗ = min j∼i κj .
+
+> 10 Graph-Dependent Shrinkage Priors
+
+(ii) Signal preservation: If κj ∈ (0 , 1) for all j ∼ i, then for any ε > 0,
+
+P(κi < ε | yyy, {κj }j∼i) → 1 as |yi| → ∞ .
+
+Theorem 4 shows the bidirectional adaptivity of the horseshoe GDSP. First, (i) shows that if the neighbors unanimously recommend aggressive shrinkage, then the conditional posterior for κi follows suit. Thus, the trend βββ will exhibit local smoothness. Alternatively, in (ii), we find that as long as the neighboring shrinkage behavior is moderated, the horseshoe GDSP will remove shrinkage for strong signals. Thus, the trend βββ will exhibit local adaptivity. By comparison, higher-order difference operator ( kh = 1) link each local shrinkage pa-rameter to its neighbors via Q
+
+> j∼i
+
+(1 − κj )/κ j = Q 
+
+> j∼i
+
+λ2 
+
+> j
+
+rather than κ∗ or κ∗ (see Ap-pendix B). In general, larger kh encourages more smoothing over the shrinkage graph, but the neighbors similarly inform prior concentration and posterior adaptation as for kh = 0. Finally, we establish posterior properiety under the GDSP. This result is nontrivial: shrinkage priors combine substantial mass near zero with heavy tails, while graph-difference operators only inform relative (not absolute) behavior. Thus, simply combining them is not sufficient. Perhaps surprisingly, the delicate term is the global scale τ : without specifying its prior carefully, the induced joint posterior may not be proper or the estimated trend may oversmooth. Anticipating the central role of τ , we first provide additional clarity on the joint prior for hhh under the graph-differencing in (8) and the global scale in (9). 
+
+Lemma 1 (Joint prior on the log-variance) Suppose G is connected with n ≥ 2 ver-tices, k ≥ 0, and kh ≥ 0. Let g(hhh) = Q 
+
+> i
+
+pZ
+
+(∆ kh+1  
+
+> k
+
+hhh)i , the product running over the rows of ∆kh+1  
+
+> k
+
+, denote the prior density kernel induced by (8) . Then (i) g(hhh + c 111m) = g(hhh) for every c ∈ R; (ii) the joint prior is π(hhh) ∝ g(hhh)ϕ h0; μk, s 20
+
+, where ϕ(· ; μ, s 2) is the N (μ, s 2)
+
+density and h0 = m−1111⊤
+
+> m
+
+hhh; and (iii) π(hhh) is proper. 
+
+Lemma 1 first shows that the graph-differencing in (8) is uninformative about the level of hhh.It then describes how the global scale prior (9) and the decomposition (10) combine to induce a proper prior for hhh using independent global and (graph-informed) local components. We give the posterior propriety result using an Inverse-Gamma prior on the error vari-ance: 
+
+σ2 
+
+> ϵ
+
+∼ Inverse-Gamma( aσ, b σ), aσ, b σ > 0. (12) No conditions are needed beyond connectedness of the graph. 
+
+Theorem 5 (Posterior Propriety) Suppose G = ( V, E ) is connected with n ≥ 2 vertices and yyy is fully observed. Under the likelihood (1) , the conditionally Gaussian prior (5) –(6) ,the GDSP prior (7) –(9) , and the prior (12) , the joint posterior distribution of (βββ, λ λλ, τ 2, σ 2 
+
+> ϵ
+
+)
+
+is proper for every k ≥ 0 and every kh ≥ 0.
+
+The result rests on properties of both global and local components. The global scale prior (9) has all negative moments finite, which controls the growth of the marginal likelihood near total shrinkage for every k and kh (Lemma A.5). For the local shrinkage, the Z-innovations have exponential tails, so the prior on hhh⊥ is proper for every kh ≥ 0 (Lemma A.6). Together these results bound the posterior integral for any connected graph, any k ≥ 0, and any 
+
+kh ≥ 0. The excluded values k = −1 and kh = −1 are proper trivially, since no graph is involved and every prior is proper. 
+
+> 11 Mascaretti and Kowal
+
+3 Posterior sampling via Markov Chain Monte Carlo 
+
+We design a Gibbs sampling algorithm that exploits several critical features of the model. First, we use sparse and banded matrix operations—reflecting the graph’s inherent structure— to jointly sample the trend parameters βββ (all without a loop). Second, we leverage two data augmentations and a Sherman-Morrison update to apply sparse and banded matrix oper-ations for sampling the log-variances hhh. All global parameters are sampled using standard steps. Finally, prediction and imputation sampling is straightforward using (conditionally) independent Gaussian draws. Perhaps surprising, the resulting algorithm achieves com-petitive or superior time performance relative to frequentist alternatives (Section 4), while providing full posterior and predictive inference and principled imputation of missing data. We make a few simplifying assumptions for clarity. Initially, we assume no missing data; the case of missing data adds an imputation step (Section 3.3) within the Gibbs sampler. We focus on the horseshoe GDSP ( a = b = 1 /2), but extensions to the other choices in Table 1 are available. Finally, we present all displays for the edge-indexed case, in which 
+
+ωωω, λλλ, and hhh have common dimension m = |E|; for odd k, these vectors are vertex-indexed and the dimension is n = |V | instead. Given an initialization (see Appendix C), the Gibbs sampler cycles repeatedly through full conditionals for the trend βββ (Section 3.1), the log-variance hhh (Section 3.2), the obser-vation error variance [ σ2 
+
+> ϵ
+
+| yyy, −] ∼ Inverse-Gamma  aσ + n/ 2, b σ + Pni=1 (yi − βi)2/2, and, if missing data are present, imputation (Section 3.3). 
+
+3.1 Sampling the trend 
+
+Under the likelihood (1) and the (conditional) prior implied by (3) and (5), the full condi-tional posterior distribution for the trend is [ βββ | yyy, −] ∼ N n(Q−1 
+
+> β
+
+ℓℓℓβ , Q −1 
+
+> β
+
+), where 
+
+Qβ = σ−2 
+
+> ϵ
+
+In + τ −2(∆ (k+1) )⊤Λ−1∆(k+1) , (13) Λ = diag( λ21, . . . , λ 2
+
+> m
+
+), and ℓℓℓβ = σ−2 
+
+> ϵ
+
+yyy. This full conditional distribution is general, regard-less of the continuous shrinkage induced by π(λλλ) in (6). Notably, Qβ is the critical term for computational costs in sampling βββ. There are two key features in our approach. First, the sparsity of Qβ is determined by the graph structure. The term σ−2 
+
+> ϵ
+
+In only im-pacts the diagonal and Λ −1 is available without any numerical matrix inversion. Therefore, the sparsity pattern of Qβ is governed exclusively by the product (∆ (k+1) )⊤Λ−1∆(k+1) ,which encodes the conditional dependencies among the nodes. For instance, consider a chain graph with k = 1, akin to second-order differencing. Then Qβ is a banded matrix with non-zero elements appearing only on the main diagonal and the first two off-diagonals above and below it. This structural sparsity extends naturally to more complex topologies. Continuing with k = 1, ∆ (2) = D − A is the graph Laplacian, where D is the (diagonal) degree matrix and A is the (sparse) adjacency matrix. For a lattice, each node has at most four neighbors, so ∆ (2) contains at most five non-zero entries per row. Consequently, the key term (∆ (k+1) )⊤Λ−1∆(k+1) only has non-zero entries for node pairs that are either directly adjacent or share a common neighbor. This is a small fraction: out of the n2 total entries in Qβ , only about 13 n are non-zero. Thus, Qβ is highly sparse with density O (1 /n ). Second, we do not ever explicitly form Q−1 
+
+> β
+
+, despite its apparently central role in [βββ | yyy, −]. Instead, we sample βββ jointly, all without a loop, using efficient matrix decompo-
+
+> 12 Graph-Dependent Shrinkage Priors
+
+sitions and forward-/back-solve operations. These exploit the sparse or banded structure of Qβ . The first step is to compute the Cholesky decomposition Qβ = Lβ L⊤ 
+
+> β
+
+, where Lβ is a lower-triangular matrix. Although this decomposition must be re-computed at each MCMC iteration— Qβ depends on parameters ( σϵ, τ 2, and λλλ) that will be updated—its sparsity pat-tern will remain the same, which can be exploited for time- and memory-efficient computing. Next, we solve Lβaaaβ = ℓℓℓβ for aaaβ followed by L⊤ 
+
+> β
+
+βββ = aaaβ + eeeβ for βββ, where eeeβ ∼ N n (0 00, I n). Similar approaches have appeared previously for specific graphs in spatial and time series contexts (Rue, 2001; Kastner and Fr¨ uhwirth-Schnatter, 2014; Kowal et al., 2019). 
+
+3.2 Sampling the log-variances 
+
+Because the shrinkage parameters also share graph dependencies, we seek to adapt the strategy from Section 3.1: a joint draw, all without a loop, that leverages the sparsity of the graph. However, there are three obstacles for the GDSP shrinkage parameters that do not occur for the trend. First, the scales are positive. This is easily addressed by sampling on the log scale hj = log( τ 2λ2 
+
+> j
+
+), which removes the constraint. Second, neither the conditional model for hhh implied by (5) nor the innovations of (8) are Gaussian. We identify data augmentations customized to each case to induce conditionally Gaussian distributions. And finally, the GDSP not only consists of the graph differences in (8), but also the global scale (9) with the decomposition from (10), neither of which is present for the trend βββ.We first consider the contributions from (5). From (5) and (7), ωj | hj ∼ N (0 , exp( hj )) independently. Then conditional on βββ, ωωω = ∆ (k+1) βββ is given and we may express hhh on the additive scale with pseudo-data ˜ωj = log( ω2 
+
+> j
+
++ c0) = hj + ej , ej iid 
+
+∼ log χ21, (14) where c0 ≥ 0 is a numerical guard, taken to be zero unless some ω2 
+
+> j
+
+underflows. To han-dle the non-Gaussian errors, we incorporate a popular strategy from Bayesian stochastic volatility models that approximates the log χ21 distribution as a discrete mixture of Gaus-sians. Specifically, we use the ten-component Gaussian mixture from Omori et al. (2007), with fixed and known weights q1:10 , means m1:10 and variances v21:10 . Let zj ∈ { 1, . . . , 10 }
+
+be mixture indicators so that ej | zj ∼ N (mzj , v 2 
+
+> zj
+
+). This approximation requires sampling the mixture indicators from their full conditionals, which follow the discrete distribution Pr( zj = ℓ | ˜ωj , h j ) ∝ qℓ ϕ(˜ ωj − hj ; mℓ, v 2 
+
+> ℓ
+
+), ℓ = 1 , . . . , 10 . (15) Then, conditional on zj , the contribution from (5) is a Gaussian location model, ˜ ωj | hj , z j ∼N (hj + mzj , v 2 
+
+> zj
+
+). Second, consider the GDSP innovations in (8). We augment each ηi with an auxiliary variate ξi with joint density proportional to exp {(a − b)ηi/2 − ξiη2 
+
+> i
+
+/2} pa+b(ξi), where pa+b
+
+is the P´ olya-Gamma PG( a + b, 0) density. This joint recovers the Z(a, b, 0, 1) marginal for 
+
+ηi and yields the Gaussian conditional ηi | ξi ∼ N  ξ−1 
+
+> i
+
+(a − b)/2, ξ −1
+
+> i
+
+, with mean zero in the horseshoe case a = b = 1 /2 used here (Theorem 4 of Kowal et al., 2019, as corrected in Kowal et al., 2025). This parameter expansion requires a draw from the full conditional of ξi, which is conditionally conjugate, ξi | ηi ∼ PG( a + b, η i), and readily sampled using Polson et al. (2013) implemented in BayesLogit::rpg . Now, conditional on ξξξ, the GDSP innovations in (8) are Gaussian. 
+
+> 13 Mascaretti and Kowal
+
+With these augmentations, we have ˜ ωωω | hhh, z zz ∼ N m(hhh + μμμz , Σv) for ˜ ωωω = (˜ ω1, . . . , ˜ωm)⊤,
+
+μμμz = ( mz1 , . . . , m zm )⊤, Σ v = diag( v2 
+
+> zj
+
+) and Σ ξ = diag( ξ−1 
+
+> i
+
+), while (8) now contributes exp {− 12 hhh⊤(∆ kh+1  
+
+> k
+
+)⊤Σ−1 
+
+> ξ
+
+∆kh+1  
+
+> k
+
+hhh}. It remains to consider the global scale h0 in (9) and the decomposition (10). To facilitate efficient computing, consider first the full conditional precision without incorporating h0: Qh = Σ −1 
+
+> v
+
++ ∆kh+1 
+
+> k
+
+⊤Σ−1 
+
+> ξ
+
+∆kh+1  
+
+> k
+
+, which shares a similar sparsity structure as for the trend precision in (13). The full conditional distribution for 
+
+hhh, now accounting for the contributions from h0 in (9), is Nm
+
+ (Q⋆h)−1ℓℓℓ⋆h, (Q⋆h)−1, with 
+
+Q⋆h = Qh + ( s20m2)−1111m111⊤ 
+
+> m
+
+and ℓℓℓ⋆h = Σ −1
+
+> v
+
+ ˜ωωω − μμμz
+
+ + μk/(s20m)1 11m (Lemma C.1). Finally, we sample hhh in two steps. This is essential because the global scale disrupts the sparsity of the full conditional precision: Qh inherits sparsity from ∆ kh+1  
+
+> k
+
+, but Q⋆h does not. First, we apply a Cholesky decomposition to the sparse matrix Qh, followed by forward-/back-solve operations with a sampling step like for the trend (Section 3.1). Then, to correct for Q⋆h, we apply a Sherman-Morrison update that recycles the Cholesky decomposition of 
+
+Qh to provide the necessary rank-one update. The explicit steps and verification of the sampling algorithm are in Appendix C. Upon jointly sampling hhh, we compute the global and local scales directly: τ 2 = exp( h0) with h0 = m−1111⊤
+
+> m
+
+hhh and λ2 
+
+> j
+
+= exp( hj −h0) = exp( h⊥ 
+
+> j
+
+). 
+
+3.3 Imputation and prediction 
+
+Suppose we do not observe data for vertices I ⊂ { 1, . . . , n }. Imputation or prediction is straightforward and fast: the unobserved data have full conditional distribution [˜ yi | yyy, −] indep 
+
+∼ N (βi, σ 2 
+
+> ϵ
+
+), i ∈ I . (16) Sampling (16) is easy, efficient, and parallelizable across all unobserved data. This impu-tation step is appended to the previous Gibbs sampling steps. The samplers for βββ, hhh, and 
+
+σ2 
+
+> ϵ
+
+proceed exactly as in the complete data case, now using the imputed data yyy = ( yyy−I , ˜y˜y˜yI )updated at each MCMC iteration. 
+
+4 Simulations 
+
+We conduct a series of simulation studies to compare among frequentist and Bayesian ap-proaches for graph trend filtering. We evaluate 1) trend estimation, which is the primary goal for frequentist methods; 2) trend uncertainty quantification, especially to compare dif-ferent shrinkage priors; and 3) computational efficiency. We consider both complete datasets and datasets with missing values. 
+
+4.1 Simulation design: lattice data 
+
+We generate dependent (image) data on a d1 × d2 lattice subject to measurement error and missingness. The true trends βββ are displayed in Figures 1 and 2; see Appendix D (Table D.1) for the explicit forms. These trends include: bg (short for bivariate Gaussian kernel), which is smooth yet nonlinear; blocks and blocks+ , which are piecewise constant and discontinuous but with different patterns; and lin , which is linear. The lattices have 
+
+d1 = d2 = 50, so n = 2500 vertices and m = 4900 edges. Given a trend βββ, each simulated dataset is generated from (1). We set σϵ = sd( βββ)/RSNR, where sd( βββ) is the sample standard 
+
+> 14 Graph-Dependent Shrinkage Priors
+
+deviation of βββ and RSNR = 3 is a pre-specified root-signal-to-noise ratio. We repeat this process for each trend to create 100 synthetic datasets. Here, we report results under substantial missingness with 50% of vertices uniformly at random removed (see Appendix D for the complete data case). Subsequently, we extend this simulation design for a time series of images (Section 4.5). We performed all simulations on two Nvidia DGX clusters running Ubuntu Linux in Singularity containers. blocks blocks+ lin 
+
+Figure 2: True βββ on a 50 × 50 lattice for blocks , blocks+ and lin ; see Figure 1 for bg .
+
+4.2 Competing methods 
+
+We compare the proposed approach against Bayesian and frequentist alternatives for graph trend filtering. All Bayesian methods use the likelihood (1), the same graph difference operator (2) with k = 1 (see Appendix D for k ∈ { 0, 1, 2} comparisons), the graph-informed prior on the trend given by (3) and (5)–(6), and the error-variance prior (12) with aσ = bσ =0.01. Differences only occur in the prior on the shrinkage parameters, π(λλλ). “NIG” adopts a Normal-Inverse-Gamma prior with λ2 
+
+> j
+
+= λ2 ∼ Inverse-Gamma(0 .01 , 0.01) and τ = 1. NIG resembles (second order) ICAR models and incorporates graph information for modeling the trend, but without aggressive shrinkage or sparsity. “BL” is the Bayesian lasso (Park and Casella, 2008) and “HS” is the horseshoe prior (Carvalho et al., 2010). HS does not use any graph information for π(λλλ) and thus is a special case of the GDSP with kh = −1. “GDSP” refers to the proposed horseshoe GDSP ( a = b = 1 /2). We use kh = 0 for first-order differences for the local (log) shrinkage and μ0 = 0 , s 0 = 1 so h0 ∼ N  1/2, 1 for the global (log) shrinkage. The MCMC implementations of these Bayesian models share many of the same Gibbs sampling steps, including for the trend (Section 3.1), the error variance, and prediction/imputation (Section 3.3). We run each MCMC algorithm for N + Nburn = 15000 iterations, where the initial Nburn = 7500 simulations are discarded as a burn-in. Finally, we include the frequentist graph trend filtering estimator (4), and specifically the fused lasso variant ( k = 0) recommended by Wang et al. (2016). As a favor to this method, we select λ via an oracle: namely, we use λ for which the estimated trend ˆβˆβˆβλ has the smallest root mean squared error (RMSE) for estimating the true trend βββ. This strategy is not feasible in practice, but represents a best case scenario for frequentist graph trend filtering. It also circumvents any computationally intensive methods to select λ, such as 
+
+> 15 Mascaretti and Kowal
+
+cross-validation. We fit this model using the genlasso package in R and thus denote it by “GL”. Since GL does not automatically handle missingness, we impute missing data using the sample mean among observed vertices. Appendix D includes a simulation study without missingness, so the GL performance there does not depend on the imputation method. 
+
+4.3 Evaluating model accuracy and uncertainty quantification 
+
+We assess the performance of each method by considering both point estimates and intervals for the true trend βi, evaluated on a set S ⊆ V : the held-out vertices when data are missing, and all vertices in the complete case. For point estimation, we compute the RMSE RMSE = 
+
+s 1
+
+|S|
+
+X
+
+> i∈S
+
+  ˆβi − βi
+
+2
+
+where ˆβi is the posterior mean E(βi | yyy) for Bayesian methods or (4) for GL. Given an interval estimate ( ˆℓi, ˆui) for the trend, we compute both the mean credible interval widths and the empirical coverages: MCIW = 1
+
+|S|
+
+X
+
+> i∈S
+
+(ˆ ui − ˆℓi), ECP = 1
+
+|S|
+
+X
+
+> i∈S
+
+1{ˆℓi ≤ βi ≤ ˆui}
+
+We use 95% posterior (equal-tailed) credible intervals. Intervals that are calibrated (ECP ≥
+
+0.95) and precise (small MCIW) are preferred. GL does not produce interval estimates and thus is excluded from this metric. We report the RMSEs, MCIWs, and ECPs in Figure 3 for the case with 50% missingness. First, the Bayesian estimators significantly outperform the frequentist estimator, despite the latter’s oracle selection of its tuning parameter. This is partly due to the inability of GL to handle missing data. Second, the Bayesian models are mostly well-calibrated, with coverages that typically achieve the nominal level. Thus, Bayesian models for graph trend filtering can offer reliable inference for the trend, whereas the frequentist GL does not provide interval estimates. Third, the choice of shrinkage prior is highly impactful for both estimation and inference, and the differences are sharpest for the most challenging, non-smooth trends. For blocks and blocks+ , the horseshoe GDSP is the most accurate by a wide margin (e.g., median RMSE 0 .074 versus 0 .087–0 .104 for the Bayesian competitors on blocks ), and it is the only prior whose intervals stay near the nominal level at blocks+ (ECP 94 .8%), while the competitors undercover (ECP ≤ 91%). The narrower intervals from HS or NIG in that case simply reflect this undercoverage. For the smooth trends ( lin and bg ), the Bayesian estimates offer similar accuracy while HS has slightly narrower calibrated intervals. Perhaps surprisingly, the aggressive shrinkage of the horseshoe alone does not deliver accuracy on the non-smooth trends: HS has the worst point estimation among the Bayesian priors on 
+
+bg , blocks , and blocks+ . Thus, both the aggressive shrinkage and the graph-dependent shrinkage of the horseshoe GDSP are essential where trend filtering is hardest. For completeness, we also compute WAIC (Watanabe, 2010) to compare k ∈ { 0, 1, 2}
+
+(Appendix D). The trends for k = 2 are much smoother but less adaptive than for k = 0; we find that k = 1 provides a good balance. 
+
+> 16
+
+Graph-Dependent Shrinkage Priors GDSP HS NIG BL 0.06 0.08 0.10 0.12 
+
+blocks: RMSE GDSP HS NIG BL 0.20 0.25 0.30 0.35 
+
+blocks: MCIW (ECP%) 
+
+# 98% 94% 93% 95% GDSP HS NIG BL 0.16 0.17 0.18 0.19 0.20 0.21 
+
+blocks+: RMSE GDSP HS NIG BL 0.58 0.62 0.66 
+
+blocks+: MCIW (ECP%) 
+
+# 95% 90% 89% 91% GDSP HS NIG BL 0.014 0.018 0.022 0.026 
+
+lin: RMSE GDSP HS NIG BL 0.08 0.10 0.12 
+
+lin: MCIW (ECP%) 
+
+# 99% 98% 99% 99% GDSP HS NIG BL 0.035 0.040 0.045 0.050 
+
+bg: RMSE GDSP HS NIG BL 0.19 0.21 0.23 0.25 
+
+bg: MCIW (ECP%) 
+
+# 99% 98% 99% 99% 
+
+Figure 3: RMSEs and MCIWs with ECPs (blue annotations) for the four trends with 50% missingness, computed over the held-out vertices; each panel title reports the trend and the metric. GL performs poorly and is omitted (median RMSEs 0.189 for blocks , 0.350 for blocks+ , 0.172 for lin , and 0.316 for bg ). The proposed horseshoe GDSP is the most accurate for the non-smooth trends and the only one whose intervals stay near the nominal level at blocks+ ; for the smooth trends the Bayesian priors perform comparably. 
+
+4.4 Evaluating MCMC efficiency and computational scalability 
+
+A natural concern is whether these Bayesian graph trend filtering models are computa-tionally viable. In particular, the GDSP introduces another layer of dependencies and our MCMC algorithm requires multiple data augmentations that are not present for iid 
+
+17 Mascaretti and Kowal 
+
+shrinkage priors. Here, we evaluate the computational performance of each method. As a benchmark, we include the frequentist estimator GL from Wang et al. (2016), but this computing time does not include any data-driven selection method for the tuning parameter 
+
+λ, such as cross-validation. Instead, we record the time necessary to compute the solution path from the fully regularized solution ( λ large) to fully dense estimator ( λ ≈ 0), noting that the complexity of the path grows with n, m , and the topology of the graph. For the MCMC algorithms, we consider both computing time (i.e., wall-clock time) and MCMC efficiency. The latter is measured by the effective sample size Neff (βi) from N
+
+MCMC draws of each node i ∈ V . We compute average relative efficiency ,¯Neff 
+
+N = 1
+
+n
+
+X
+
+> i∈V
+
+Neff (βi)
+
+N .
+
+Values that approach one achieve (iid) Monte Carlo efficiency, while values near zero indicate substantial autocorrelations in the MCMC chain. Next, we estimate the (wall-clock) time to 1000 effective samples , which jointly considers computing time and MCMC efficiency: ¯s1000 = 1
+
+n
+
+X
+
+> i∈V
+
+
+
+sNburn + sN
+
+1000 
+
+Neff (βi)
+
+
+
+,
+
+where sNburn and sN are the (wall-clock) time needed to complete the burn-in and MCMC draws, respectively. By design, ¯ s1000 enables comparisons among MCMC algorithms that are fast yet MCMC-inefficient with those that may be slow but achieve greater MCMC efficiency. The total of 1000 effective samples is a reasonable target for algorithm completion, and thus comparable to the frequentist GL estimator. We report the computational comparisons in Appendix D.1.2 for the simulations and in Section 5 for the real data. Briefly, we note that 1) Bayesian graph trend filtering models are often more efficient than frequentist GL estimation, 2) the more aggressive shrinkage priors (HS, GDSP) sacrifice some MCMC efficiency relative to simpler (NIG) alternatives, and 3) the horseshoe GDSP, which includes more (shrinkage) parameters and strong dependencies among them, typically sacrifices some MCMC efficiency relative to its Bayesian competitors, but remains computationally viable. 
+
+4.5 Simulation design: time series of images 
+
+A primary advantage of (Bayesian or frequentist) graph trend filtering models is that they are readily applicable for a broad variety of dependent data scenarios. Once the graph is defined, our competing (GL, BL, NIG, HS) and proposed (GDSP) models and algorithms apply immediately without any further customization. Here, we showcase this feature while investigating how each method performs under more complex dependencies. We extend the simulation design from Section 4.1 to consider a time series of images, 
+
+βββt ∈ Rn, t = 1 , . . . , T . The baseline trend b0 ∈ Rn is one of the four static lattice trends 
+
+bg , blocks , blocks+ , lin from Section 4.1; each choice yields a separate simulation study. The time series is initialized at the baseline ( βββ1 = b0) and then evolves as a combination of autoregressive and spatial-diffusion dynamics: 
+
+βββt = ρ β ββt−1 − κ ∆(2) βββt−1 + (1 − ρ) bt + νt, t = 2 , . . . , T, (17) 
+
+> 18 Graph-Dependent Shrinkage Priors
+
+where ρ ∈ [0 , 1] is the temporal autocorrelation coefficient, κ > 0 controls the strength of spatial diffusion, ∆ (2) is the graph Laplacian of the lattice, νt ∼iid N (0, σ 2AR I) is the process noise, and bt = b0{1 + α(t − 1) /(T − 1) } is a time-varying target trend that drifts linearly away from the baseline, from b1 = b0 at t = 1 to bT = (1 + α)b0 at t = T . The AR(1) term ρβ ββt−1 introduces temporal persistence: each image is a damped version of the previous one. The diffusion term −κ∆(2) βββt−1 introduces spatial smoothing: the ith entry of ∆(2) βββt−1 is niβi,t −1 − P 
+
+> j∼i
+
+βj,t −1, with Dii the spatial degree of vertex i, so subtracting it pulls βi,t toward its local (spatial) average. This is the discrete analogue of the continuous heat equation ∂tu = κ∇2u, which smooths a surface by redistributing values toward their spatial surroundings. Observed data yyyt are then generated from (1) as in Section 4.1. Both the trend and the observed data are visualized in Figure 4. 
+
+Figure 4: Spatio-temporal evolution of a square lattice ( d1 = d2 = 40) under (17) with the blocks initial trend. Each node evolves via AR(1) temporal dynamics and heat-diffusion spatial smoothing for T = 4. We consider square lattices with d1 = d2 = 40 over T = 4 timesteps. The spatio-temporal graph is constructed by connecting spatial neighbors on the lattice at each time and linking each (lattice) node at time t to its counterpart at time t + 1. This yields 
+
+d1d2T = 6400 nodes and 17280 edges in total. It fully determines the graph difference operator (2) shared among all competing methods. We set ρ = 0 .4, κ = 0 .03, α = 0 .6, 
+
+σAR = 0 .03, and RSNR = 3, matching the lattice design of Section 4.1. We hold out the entire final time slice ( t = T ) during training, so that the trend at t = T is fully forecast using only the preceding time points. All Bayesian methods use Nburn = 7500, N = 10000, and otherwise the same specifications as in Section 4.2. For GL, we impute the entries of the held-out final time slice with the grand mean of the observed entries and fit the fused lasso ( genlasso::fusedlasso , k = 0) on the full spatio-temporal graph. We again select λ
+
+> 19 Mascaretti and Kowal
+
+by oracle: the value of λ that minimizes RMSE against the (held-out) true trend at t = T .The fitted values at t = T are then taken as the GL forecast. Figure 5 summarizes the forecast RMSEs and MCIW/ECP at t = T across 100 simulated datasets for blocks and lin trends (see Appendix D for additional trends). The results extend the patterns observed in the (time-invariant) lattice case (Section 4.3): the proposed horseshoe GDSP delivers accurate point forecasts and precise yet well-calibrated uncertainty quantification for the trend. For blocks , the horseshoe GDSP attains the lowest forecast RMSE by a clear margin and is competitive with NIG and BL for the smoothing lin trend. In both cases, the horseshoe GDSP intervals are much narrower yet still achieve the nominal coverage. Notably, the gains over the horseshoe prior remain substantial for both estimation and inference, which again emphasizes the benefits of graph-dependent shrinkage. GDSP HS NIG BL GL 0.10 0.15 0.20 0.25 0.30 
+
+blocks: RMSE (forecast)    
+
+> GDSP HS NIG BL 0.35 0.45 0.55 0.65
+
+blocks: MCIW (ECP%) 
+
+# 95% 97% 97% 98% GDSP HS NIG BL GL 0.10 0.15 0.20 0.25 0.30 0.35 
+
+lin: RMSE (forecast)   
+
+> GDSP HS NIG BL 0.50 0.55 0.60
+
+lin: MCIW (ECP%) 
+
+# 97% 98% 100% 100% 
+
+Figure 5: Forecast RMSEs (left) and MCIWs (right) with ECPs (blue annotations) at t = T
+
+for the blocks (top) and lin (bottom) spatio-temporal trends ( d1 = d2 = 40, T =4, RSNR = 3). In both cases, the horseshoe GDSP delivers highly competitive point forecasts and the narrowest (calibrated) forecast intervals. 
+
+5 Modeling and Forecasting U.S. County-Level Unemployment 
+
+The U.S. Bureau of Labor Statistics publishes local area (county-level) unemployment data each month. Unemployment is a key macroeconomic indicator: together with inflation, it forms the basis of the Phillips curve, a central relationship in monetary policy. County unemployment data, rather than aggregated national or state data, preserves the spatial heterogeneity driven by local labor markets, policies, and demographics. We focus on county-level unemployment during April through July 2020, which spans the complete arc of the sharp COVID-19 unemployment shock: the April surge, the May-June trough and turnaround, and the July continuation of the recovery. The unemployment trends during 
+
+> 20 Graph-Dependent Shrinkage Priors
+
+this period exhibit substantial spatial and temporal heterogeneity. Our goal is to apply several graph trend filtering models and evaluate their (spatial) imputation, (temporal) forecasting, and computational efficiency. We define our spatio-temporal graph on the county- and time-indexed nodes as follows. First, the spatial graph operates on the 3108 counties in the continental U.S. (excluding Alaska and Hawaii) and connects counties that share a physical border. The average degree is 5.94 (standard deviation 1.31). The most connected county is San Juan County, UT (degree 14), while several counties, including island counties such as Nantucket County, MA, have degree 1. The spatial graph is sparse: the edge density is 0.00191, compared to 0.00125 for a square lattice with the same number of nodes. The spatio-temporal graph is constructed by stacking the spatial graphs for April through July 2020 with temporal edges that connect each county in month t to the same county in month t + 1. The resulting spatio-temporal graph has n = 12432 nodes. Using this spatio-temporal graph, we apply several graph trend filtering models for the log-unemployment rates. We construct two out-of-sample tasks. First, an imputation task: we hold out 25% of the 9324 county-months from April to June 2020, selected uniformly at random and identically for every method. Each model must reconstruct the held-out values from the remaining observations. These targets typically have observed neighbors in space and in time, so this task isolates each method’s ability to borrow information across the graph. Second, we forecast the entire July 2020 surface. Here, we observe the complete spatio-temporal data of the first COVID-19 wave (April to July) and must extrapolate the recovery. Both tasks are extremely challenging due to the spatial heterogeneity (see Figure 6), the rapid temporal changes, and the short time series for training ( T = 3). We use the same competing methods from Section 4.2. Bayesian imputations and fore-casts are generated as in Section 3.3. We run the MCMC for N = 50000 iterations after discarding the initial Nburn = 20000 iterations as a burn-in, storing every 10th draw (5000 saved samples). Trace plots are reported in Appendix E. For GL, which provides no native imputation, we first fill the held-out training county-months with each county’s mean over its observed months, fit the fused lasso on the spatio-temporal graph spanning April-June, and select λ along the solution path by oracle. For the imputation task, the oracle is the value of λ that minimizes the RMSE on the held-out set of county-months. For the predic-tion task, the oracle minimizes the RMSE on the held-out July data. No data-driven choice of λ could do better on either task. The training graph contains no July nodes, so GL also requires an explicit forecasting rule: with the piecewise-constant trend implied by k = 0, each county’s July forecast is its estimated June value. To visualize these tasks, we present county-level maps in Figure 6 for imputation and forecasting. The GDSP accurately recovers the spatial patterns, including both broad regional gradients and finer county-level variation. The GDSP forecasts must rely primarily on temporal connections, which produces a smoother map. A complementary county-profile view, with all 3108 counties ordered by FIPS code and the GDSP intervals for every month of the window, is reported in the appendix (Figure E.2). We evaluate each method on the two held-out sets (Table 2). Since these are observable data, we report mean prediction interval widths (MPIW) computed similarly as for the trend in Section 4.3. On the imputation task, the horseshoe GDSP attains the lowest imputation RMSE and improves on the frequentist GL by 20%, even though the GL tuning parameter 
+
+> 21 Mascaretti and Kowal Observed data (log scale) 789 held−out counties in grey
+
+Unemployment June 2020 Log−unemployment   
+
+> 123Data (log scale)
+
+Unemployment July 2020 Held−out RMSE (log scale): 0.197 GDSP Imputation, June 2020 RMSE (log scale): 0.231 GDSP Forecast, July 2020 
+
+Figure 6: County-level maps of U.S. log-unemployment to illustrate the imputation (left) and forecasting (right) tasks. Observed data (top) is presented for both tasks, along with the point predictions and forecasts of the proposed GDSP (bottom). is selected by oracle using the held-out data. The GDSP intervals are also the narrowest of all methods, with empirical coverage at the nominal level (95 .5%). On the forecasting task, several Bayesian competitors (NIG, BL, GDSP) perform similarly for point forecasts and outperform the remaining methods (GL, HS). Here, NIG offers the best interval forecasts, which suggests that aggressive shrinkage is not necessary for temporal neighbors on this graph. This is reflected in Figure 6 (bottom right), where the GDSP forecast is spatially smooth. Still, each Bayesian method attains the nominal coverage. Yet again, the horseshoe GDSP offers massive improvements over the HS for both point prediction and uncertainty quantification, thus emphasizing the importance of graph-dependent shrinkage. Finally, the Bayesian methods are computationally competitive with GL: the horseshoe GDSP sampler runs in about 1 .4 times the wall-clock time of GL’s full solution path (3 .2against 2 .3 hours), where the latter does not include the time to select the GL tuning parameter. Even so, NIG and HS are faster than the GL path. These Bayesian methods                             
+
+> 22 Graph-Dependent Shrinkage Priors
+> Imputation Forecast RMSE MPIW (ECP) RMSE MPIW (ECP) GDSP 0.199 (±0.004) 0.827 (95.5%) 0.231 ( ±0.005) 1.251 (98.5%) BL 0.201 ( ±0.004) 0.835 (95.2%) 0.226 ( ±0.005) 1.233 (98.0%) NIG 0.203 ( ±0.004) 0.850 (95.4%) 0.223 (±0.005) 1.176 (97.9%) HS 0.231 ( ±0.007) 0.975 (96.1%) 0.291 ( ±0.008) 1.316 (96.6%) GL (oracle) 0.248 ( ±0.005) —0.242 ( ±0.005) —
+
+Table 2: RMSEs, MPIW, and ECP for imputation of 2331 held-out county-months (left) and RMSEs, MPIW, and ECP for forecasting 3108 counties in July 2020 (right). RMSE brackets report ±1 standard error under resampling of the held-out entries. GL is tuned by oracle for each task and does not produce interval estimates. Bolded entries are the smallest RMSE and MPIW values (subject to ECP ≥ 95%). provide full posterior and predictive inference with no further tuning parameters to select. Appendix E the county-level profile of the fits and intervals across all 3108 counties and the MCMC diagnostics (trace plots and effective sample sizes). 
+
+6 Conclusions 
+
+We introduced a Bayesian modeling and computational framework for trend filtering on a graph, thus providing a general approach for smoothing, inference, imputation, and pre-diction with dependent data. Our approach leveraged the graph at three junctures: 1) the trend, for smoothing and imputation; 2) the local shrinkage, for greater adaptivity and more precise inference; and 3) the MCMC algorithm, to design more efficient sampling steps. The proposed graph-dependent shrinkage prior (GDSP) extended well-established continuous shrinkage priors to dependent data settings via graph difference operations on the log-shrinkage parameters. We showed how the GDSP maintains the appealing shrinkage properties of its iid counterparts, but critically incorporates the graph to borrow shrinkage information across connected nodes. Like popular (iid) global-local shrinkage priors, the GDSP retains a global scale parameter, which we used both to infer the global smoothness across the graph and to ensure posterior propriety. For both the graph-dependent trend and the graph-dependent shrinkage parameters, we developed MCMC sampling steps that exploited sparse and banded matrix operations to facilitate scalable posterior inference. Empirically, the horseshoe GDSP outperformed frequentist and Bayesian alternatives across simulated lattice data, spatio-temporal image sequences, and county-level U.S. un-employment imputation and forecasting. The gains were most pronounced for challenging trends, including non-smooth signals and real, local area unemployment data, where the interplay between graph-informed smoothness and adaptive shrinkage is most critical. The horseshoe GDSP offered superior point and interval estimates in nearly all cases, often with substantial improvements over the iid horseshoe, thus emphasizing the importance of graph-dependent shrinkage. On the U.S. unemployment dataset with 9324 observed county-month nodes, the fully Bayesian graph trend filtering methods were computationally competitive 
+
+> 23 Mascaretti and Kowal
+
+with the frequentist point estimator, even without including the cost of selecting the fre-quentist tuning parameter. There are several directions for future work. Although (1) assumes Gaussian errors, it is straightforward to extend Bayesian graph trend filtering models for non-Gaussian data, including binomial, negative-binomial, and mixtures of Gaussians. Data augmentation sam-pling algorithms exist for each of these cases, which would preserve the main sampling steps from our approach (Section 3). Alternatively, given node-specific covariates xi, one might modify (1) for graph-dependent regression, such as yi = x⊤ 
+
+> i
+
+βi + ϵi, as a generalization of spatially-varying coefficient or time-varying parameter regression models. Finally, it is pos-sible to incorporate node- or edge-level covariates into the trend or the shrinkage prior, lending further adaptability to these critical graph-informed quantities. 
+
+Acknowledgments and Disclosure of Funding 
+
+Kowal gratefully acknowledges funding from the National Science Foundation under award number SES-2435310. 
+
+References 
+
+O. Barndorff-Nielsen, J. Kent, and M. Sørensen. Normal Variance-Mean Mixtures and z Distributions. International Statistical Review / Revue Internationale de Statistique , 50 (2):145–159, 1982. ISSN 0306-7734. doi: 10.2307/1402598. URL https://www.jstor. org/stable/1402598 .J. Besag and C. Kooperberg. On conditional and intrinsic autoregressions. Biometrika ,82(4):733–746, 1995. ISSN 0006-3444, 1464-3510. doi: 10.1093/biomet/82. 4.733. URL https://academic.oup.com/biomet/article-lookup/doi/10.1093/ biomet/82.4.733 .C. M. Carvalho, N. G. Polson, and J. G. Scott. The horseshoe estimator for sparse signals. 
+
+Biometrika , 97(2):465–480, June 2010. ISSN 0006-3444. doi: 10.1093/biomet/asq017. URL https://doi.org/10.1093/biomet/asq017 .S. Chakraborty and A. C. Lozano. A graph Laplacian prior for Bayesian variable selection and grouping. Computational Statistics & Data Analysis , 136:72–91, Aug. 2019. ISSN 01679473. doi: 10.1016/j.csda.2019.01.003. URL https://linkinghub.elsevier.com/ retrieve/pii/S0167947319300040 .Z. Fan and L. Guan. Approximate $\ell {0}$-penalized estimation of piecewise-constant signals on graphs. The Annals of Statistics , 46(6B), Dec. 2018. ISSN 0090-5364. doi: 10.1214/17-AOS1656. URL https://projecteuclid. org/journals/annals-of-statistics/volume-46/issue-6B/Approximate-ell_ 0-penalized-estimation-of-piecewise-constant-signals-on-graphs/10.1214/ 17-AOS1656.full .J. R. Faulkner and V. N. Minin. Locally Adaptive Smoothing with Markov Random Fields and Shrinkage Priors. Bayesian Analysis , 13(1), 
+
+> 24 Graph-Dependent Shrinkage Priors
+
+Mar. 2018. ISSN 1936-0975. doi: 10.1214/17-BA1050. URL https: //projecteuclid.org/journals/bayesian-analysis/volume-13/issue-1/ Locally-Adaptive-Smoothing-with-Markov-Random-Fields-and-Shrinkage-Priors/ 10.1214/17-BA1050.full .M. Figueiredo. Adaptive sparseness for supervised learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 25(9):1150–1159, Sept. 2003. ISSN 0162-8828. doi: 10. 1109/TPAMI.2003.1227989. URL http://ieeexplore.ieee.org/document/1227989/ .M. Griffin and P. D. Hoff. Structured Shrinkage Priors. Journal of Computational and Graphical Statistics , 33(1):1–14, Jan. 2024. ISSN 1061-8600. doi: 10.1080/10618600. 2023.2233577. URL https://doi.org/10.1080/10618600.2023.2233577 . eprint: https://doi.org/10.1080/10618600.2023.2233577. J. E. Griffin and P. J. Brown. Alternative prior distributions for variable selection with very many more variables than observations. Technical report, 2005. Q. Heng, H. Zhou, and E. C. Chi. Bayesian Trend Filtering via Proximal Markov Chain Monte Carlo. Journal of Computational and Graphical Statis-tics , 32(3):938–949, July 2023. ISSN 1061-8600. doi: 10.1080/10618600. 2023.2170089. URL https://doi.org/10.1080/10618600.2023.2170089 . eprint: https://doi.org/10.1080/10618600.2023.2170089. M. Kalli and J. E. Griffin. Time-varying sparsity in dynamic regression models. Journal of Econometrics , 178(2):779–793, Feb. 2014. ISSN 03044076. doi: 10.1016/j.jeconom.2013. 10.012. URL https://linkinghub.elsevier.com/retrieve/pii/S0304407613002273 .S. G. Kang and Y. Kim. Objective Bayesian trend filtering via adaptive piecewise polyno-mial regression. Journal of Applied Statistics , pages 1–27, Feb. 2025. ISSN 0266-4763, 1360-0532. doi: 10.1080/02664763.2025.2461186. URL https://www.tandfonline.com/ doi/full/10.1080/02664763.2025.2461186 .G. Kastner and S. Fr¨ uhwirth-Schnatter. Ancillarity-Sufficiency Interweaving Strategy (ASIS) for Boosting MCMC Estimation of Stochastic Volatility Models. Computational Statistics & Data Analysis , 76:408–423, Aug. 2014. ISSN 01679473. doi: 10.1016/j.csda. 2013.01.002. URL http://arxiv.org/abs/1706.05280 . arXiv:1706.05280 [econ, stat]. S. Khoshraftar and A. An. A Survey on Graph Representation Learning Methods. ACM Transactions on Intelligent Systems and Technology , 15(1):1–55, Feb. 2024. ISSN 2157-6904, 2157-6912. doi: 10.1145/3633518. URL https://dl.acm.org/doi/10.1145/ 3633518 .S.-J. Kim, K. Koh, S. Boyd, and D. Gorinevsky. {$\ell 1 $} Trend Filtering. SIAM Review ,51(2):339–360, May 2009. ISSN 0036-1445, 1095-7200. doi: 10.1137/070690274. URL 
+
+http://epubs.siam.org/doi/10.1137/070690274 .D. R. Kowal, D. S. Matteson, and D. Ruppert. Dynamic shrinkage pro-cesses. Journal of the Royal Statistical Society: Series B (Statistical Method-ology) , 81(4):781–804, 2019. ISSN 1467-9868. doi: 10.1111/rssb.12325. 
+
+> 25 Mascaretti and Kowal
+
+URL https://onlinelibrary.wiley.com/doi/abs/10.1111/rssb.12325 . eprint: https://onlinelibrary.wiley.com/doi/pdf/10.1111/rssb.12325. D. R. Kowal, D. S. Matteson, and D. Ruppert. Correction to: Dynamic Shrinkage Processes. 
+
+Journal of the Royal Statistical Society Series B: Statistical Methodology , 87(1):287–288, Feb. 2025. ISSN 1369-7412, 1467-9868. doi: 10.1093/jrsssb/qkae102. URL https:// academic.oup.com/jrsssb/article/87/1/287/7889338 .Y. Li, B. A. Craig, and A. Bhadra. The Graphical Horseshoe Estimator for Inverse Covariance Matrices. Journal of Computational and Graphical Statis-tics , 28(3):747–757, July 2019. ISSN 1061-8600. doi: 10.1080/10618600. 2019.1575744. URL https://doi.org/10.1080/10618600.2019.1575744 . eprint: https://doi.org/10.1080/10618600.2019.1575744. C. Lingjærde, B. P. Fairfax, S. Richardson, and H. Ruffieux. Scalable Multiple Network Inference with the Joint Graphical Horseshoe, Apr. 2023. URL http://arxiv.org/abs/ 2206.11820 . arXiv:2206.11820 [stat]. F. Liu, S. Chakraborty, F. Li, Y. Liu, and A. C. Lozano. Bayesian Regularization via Graph Laplacian. Bayesian Analysis , 9(2), June 2014. ISSN 1936-0975. doi: 10.1214/14-BA860. URL https://projecteuclid.org/journals/bayesian-analysis/volume-9/ issue-2/Bayesian-Regularization-via-Graph-Laplacian/10.1214/14-BA860. full .O. H. Madrid Padilla, J. Sharpnack, Y. Chen, and D. M. Witten. Adaptive nonparametric regression with the K-nearest neighbour fused lasso. Biometrika , 107(2):293–310, June 2020. ISSN 0006-3444. doi: 10.1093/biomet/asz071. URL https://doi.org/10.1093/ biomet/asz071 .Y. Omori, S. Chib, N. Shephard, and J. Nakajima. Stochastic volatility with leverage: Fast and efficient likelihood inference. Journal of Econometrics , 140(2):425–449, Oct. 2007. ISSN 03044076. doi: 10.1016/j.jeconom.2006.07.008. URL https://linkinghub. elsevier.com/retrieve/pii/S0304407606001436 .O. H. M. Padilla. Variance estimation in graphs with the fused lasso. Journal of Machine Learning Research , 25(250):1–45, 2024. URL http://jmlr.org/papers/v25/23-1061. html .O. H. M. Padilla, J. Sharpnack, J. G. Scott, and R. J. Tibshirani. The DFS Fused Lasso: Linear-Time Denoising over General Graphs. Journal of Machine Learning Research , 18 (176):1–36, 2018. ISSN 1533-7928. URL http://jmlr.org/papers/v18/16-532.html .T. Park and G. Casella. The Bayesian Lasso. Journal of the American Statistical Association , 103(482):681–686, June 2008. ISSN 0162-1459, 1537-274X. doi: 10. 1198/016214508000000337. URL https://www.tandfonline.com/doi/full/10.1198/ 016214508000000337 .N. G. Polson and J. G. Scott. Shrink Globally, Act Locally: Sparse Bayesian Regu-larization and Prediction*. In J. M. Bernardo, M. J. Bayarri, J. O. Berger, A. P. 
+
+> 26 Graph-Dependent Shrinkage Priors
+
+Dawid, D. Heckerman, A. F. M. Smith, and M. West, editors, Bayesian Statistics 9 ,pages 501–538. Oxford University Press, Oct. 2011. ISBN 978-0-19-969458-7. doi: 10.1093/acprof:oso/9780199694587.003.0017. URL https://academic.oup.com/book/ 1879/chapter/141655378 .N. G. Polson, J. G. Scott, and J. Windle. Bayesian Inference for Logistic Models Us-ing P´ olya–Gamma Latent Variables. Journal of the American Statistical Association ,108(504):1339–1349, Dec. 2013. ISSN 0162-1459, 1537-274X. doi: 10.1080/01621459. 2013.829001. URL http://www.tandfonline.com/doi/abs/10.1080/01621459.2013. 829001 .H. Rue. Fast Sampling of Gaussian Markov Random Fields. Journal of the Royal Statistical Society Series B: Statistical Methodology , 63(2):325–338, July 2001. ISSN 1369-7412, 1467-9868. doi: 10.1111/1467-9868.00288. URL https://academic.oup.com/jrsssb/ article/63/2/325/7083347 .H. Rue and L. Held. Gaussian Markov Random Fields . Chapman and Hall/CRC, 0 edition, Feb. 2005. ISBN 978-0-203-49202-4. doi: 10.1201/9780203492024. URL https://www. taylorfrancis.com/books/9780203492024 .V. Sadhanala, Y.-X. Wang, J. L. Sharpnack, and R. J. Tibshirani. Higher-Order Total Variation Classes on Grids: Minimax Theory and Trend Filtering Methods. In I. Guyon, U. V. Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, edi-tors, Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/paper_files/paper/2017/file/ 3e60e09c222f206c725385f53d7e567c-Paper.pdf .V. Sadhanala, R. Bassett, J. Sharpnack, and D. J. McDonald. Exponential fam-ily trend filtering on lattices. Electronic Journal of Statistics , 18(1), Jan. 2024a. ISSN 1935-7524. doi: 10.1214/24-EJS2241. URL https://projecteuclid. org/journals/electronic-journal-of-statistics/volume-18/issue-1/ Exponential-family-trend-filtering-on-lattices/10.1214/24-EJS2241.full .V. Sadhanala, Y.-X. Wang, A. J. Hu, and R. J. Tibshirani. Multivariate trend filtering for lattice data. The Annals of Statistics , 52(5), Oct. 2024b. ISSN 0090-5364. doi: 10.1214/ 24-AOS2440. URL https://projecteuclid.org/journals/annals-of-statistics/ volume-52/issue-5/Multivariate-trend-filtering-for-lattice-data/10.1214/ 24-AOS2440.full .K. Sagar, S. Banerjee, J. Datta, and A. Bhadra. Precision matrix estimation under the horseshoe-like prior–penalty dual. Electronic Journal of Statistics , 18(1):1–46, Jan. 2024. ISSN 1935-7524, 1935-7524. doi: 10.1214/23-EJS2196. URL https://projecteuclid. org/journals/electronic-journal-of-statistics/volume-18/issue-1/ Precision-matrix-estimation-under-the-horseshoe-like-priorpenalty-dual/ 10.1214/23-EJS2196.full .A. J. Smola and R. Kondor. Kernels and Regularization on Graphs. In G. Goos, J. Hart-manis, J. Van Leeuwen, B. Sch¨ olkopf, and M. K. Warmuth, editors, Learning Theory and 
+
+> 27 Mascaretti and Kowal
+
+Kernel Machines , volume 2777, pages 144–158. Springer Berlin Heidelberg, Berlin, Heidel-berg, 2003. ISBN 978-3-540-40720-1 978-3-540-45167-9. doi: 10.1007/978-3-540-45167-9 12. URL http://link.springer.com/10.1007/978-3-540-45167-9_12 . Series Title: Lecture Notes in Computer Science. W. E. Strawderman. Proper Bayes Minimax Estimators of the Multivariate Normal Mean. The Annals of Mathematical Statistics , 42(1):385–388, Feb. 1971. ISSN 0003-4851. doi: 10.1214/aoms/1177693528. URL http://projecteuclid.org/euclid.aoms/ 1177693528 .R. J. Tibshirani. Adaptive piecewise polynomial estimation via trend filtering. The Annals of Statistics , 42(1), Feb. 2014. ISSN 0090-5364. doi: 10.1214/13-AOS1189. URL https://projecteuclid.org/journals/annals-of-statistics/volume-42/ issue-1/Adaptive-piecewise-polynomial-estimation-via-trend-filtering/10. 1214/13-AOS1189.full .R. Varma, H. Lee, J. Kovacevic, and Y. Chi. Vector-Valued Graph Trend Filtering With Non-Convex Penalties. IEEE Transactions on Signal and Information Processing over Networks , 6:48–62, 2020. ISSN 2373-776X, 2373-7778. doi: 10.1109/TSIPN.2019.2957717. URL https://ieeexplore.ieee.org/document/8926407/ .Y.-X. Wang, J. Sharpnack, A. J. Smola, and R. J. Tibshirani. Trend Filtering on Graphs. 
+
+Journal of Machine Learning Research , 17(105):1–41, 2016. ISSN 1533-7928. URL http: //jmlr.org/papers/v17/15-147.html .S. Watanabe. Asymptotic Equivalence of Bayes Cross Validation and Widely Applicable Information Criterion in Singular Learning Theory. Journal of Machine Learning Re-search , 11(116):3571–3594, 2010. ISSN 1533-7928. URL http://jmlr.org/papers/v11/ watanabe10a.html .
+
+> 28 Graph-Dependent Shrinkage Priors
+
+Appendix A. Mathematical details and proofs of theorems 
+
+We first prove Theorems 1–4 on the prior concentration and posterior adaptivity properties, and then prove Theorem 5 on posterior propriety result. The modifications for kh = 1 results, collected in Theorem B.1, are deferred to Appendix B and hold under the same standing conventions with kh = 1 in place of kh = 0. Throughout, the vector hhh is edge-indexed for k even or zero, with length m = |E|, and vertex-indexed for k odd, with length 
+
+n. The proofs are general: we use the notation m for the length of hhh with the understanding that m = n should be substituted for when k is odd. 
+
+Proofs of Theorems 1–4 
+
+For kh = 0 the innovations are the first differences across the edges of the shrinkage graph, so each hi enters the prior only through comparisons with its neighbors; as in Section 2.2, vertex i is non-isolated ( ni ≥ 1). Throughout Theorems 1–4, all conditionals are those of the graph-dependent component, the difference relation (8) alone, and the global scale is fixed at τ 2 = 1, as stated in Section 2.2, so that hi = log λ2 
+
+> i
+
+and κi = 1 /(1 + ehi ) ∈ (0 , 1), i.e. ehi = (1 − κi)/κ i.
+
+Proof [Theorem 1] Recall that (8) is read as the product density over the independent edge innovations. Since a = b, the Z(a, a, 0, 1) density pZ (z) = {B(a, a )}−1eaz (1 + ez )−2a is symmetric. Every edge at i can be written as hi − hj , giving π(hi | hhh−i) ∝ Q 
+
+> j∼i
+
+pZ (hi − hj ). Substituting ehi = (1 − κi)/κ i and ehj = (1 − κj )/κ j ,
+
+ea(hi−hj ) = (1 − κi)a κaj
+
+κai (1 − κj )a , 1 + ehi−hj = κi(1 − κj ) + (1 − κi)κj
+
+κi(1 − κj ) ,
+
+so each factor pZ (hi − hj ) is proportional to {κi(1 − κi)}a {κj (1 − κj )}aκi(1 − κj ) + (1 −
+
+κi)κj −2a, symmetric in i and j as it must be. Multiplying over j ∼ i, discarding factors free of κi, and applying the Jacobian |dhi/dκi| = {κi(1 − κi)}−1 yields (11). 
+
+Lemma A.1 (Drift bound) Let f be a probability density on R and r > 0. If (log f )′ ≥ r
+
+on (−∞ , t ], then R t−M 
+
+> −∞
+
+f (x) d x ≤ e−rM for every M ≥ 0. Symmetrically, if (log f )′ ≤ − r
+
+on [ t, ∞), then R ∞ 
+
+> t+M
+
+f (x) d x ≤ e−rM .
+
+Proof [Lemma A.1] The substitution x = u − M gives R t−M 
+
+> −∞
+
+f (x) d x = R t 
+
+> −∞
+
+f (u − M ) d u;since the whole segment from u − M to u lies in ( −∞ , t ], log f (u − M ) ≤ log f (u) − rM , so the integral is at most e−rM R t 
+
+> −∞
+
+f (u) d u ≤ e−rM . The second claim is the mirror image. 
+
+Proof [Theorems 2–3] Both statements follow the same two steps: the conditional log-density has derivative bounded away from zero on the relevant half-line, and Lemma A.1 converts that drift into an exponential tail bound, which we then read off on the κ scale. For ε ≥ 1 both statements are trivial, since κi ∈ (0 , 1); we therefore take ε < 1. The function log pZ (z) = az − (a + b) log(1 + ez ) − log B(a, b ) is strictly concave with derivative 
+
+> 29
+
+Mascaretti and Kowal 
+
+a − (a + b)σ(z), σ(z) = ez /(1 + ez ), so π(hi | · ) is log-concave with ddhi
+
+log π(hi | · ) = X
+
+> j∼i
+
+a − (a + b) σ(hi − hj ) .
+
+Let hmin = min j∼i hj and fix c0 with σ(−c0) = a/ {2( a + b)} (possible since a, b > 0). For 
+
+hi ≤ hmin − c0 every summand is at least a/ 2, so the log-density increases at rate at least 
+
+r = nia/ 2 on ( −∞ , h min − c0]. Lemma A.1 then gives, for hmin ≥ c0 + t (so that the lemma applies with M ≥ 0; the bound is vacuous otherwise), P(hi ≤ hmin − c0 − M | · ) ≤ e−niaM/ 2.Now κ∗ = max j∼i κj → 0 means hmin → ∞ , and for fixed ε, with tε = log {(1 − ε)/ε },
+
+P(κi ≥ ε | · ) = P(hi ≤ tε | · ) ≤ exp −nia (hmin − c0 − tε)/2 → 0.
+
+The second statement is symmetric: choosing c1 with σ(c1) = (2 a + b)/{2( a + b)}, the log-density decreases at rate at least nib/ 2 on [ hmax + c1, ∞) with hmax = max j∼i hj . Then 
+
+κ∗ → 1 means hmax → −∞ , so by the second claim of Lemma A.1, P(κi ≤ 1 − ε | · ) → 0. 
+
+Proof of Theorem 4 
+
+The two parts of Theorem 4 share an unnormalized conditional posterior whose tail near 
+
+κ = 1 is controlled via Lemma A.2. Throughout, we take ε ≤ 1/2 without loss: the events are monotone in ε, so larger ε follow at once. 
+
+Lemma A.2 (Divergence near κ = 1 , product form) Write κ∗ = min j∼i κj . For ev-ery ε ∈ (0 , 1/2] ,
+
+Z 11−ε
+
+{κ(1 − κ)}ni/2−1
+
+Q
+
+> j∼i
+
+κ(1 − κj ) + (1 − κ)κj
+
+dκ ≥ Fε,n i (1 − κ∗),
+
+where Fε,n i (δ) → +∞ as δ ↓ 0, so the integral diverges whenever κ∗ → 1.
+
+Proof [Lemma A.2] Substitute t = 1 − κ and write δ = 1 − κ∗. On t ∈ (0 , ε ] we have 
+
+κ ≥ 1/2, so κni/2−1 ≥ cni = min {1, 2−(ni/2−1) } > 0, while each factor of the denominator satisfies κ(1 − κj ) + t κ j ≤ (1 − κj ) + t ≤ δ + t. Hence the integral is bounded below by 
+
+Fε,n i (δ) = cni
+
+R ε 
+
+> 0
+
+tni/2−1/(δ + t)ni dt, whose integrand increases monotonically as δ ↓ 0 to 
+
+cni t−ni/2−1, non-integrable at 0 (since ni/2 + 1 > 1 for ni ≥ 1); by Monotone Convergence 
+
+Fε,n i (δ) → +∞.
+
+Proof [Theorem 4] Both parts concern the conditional posterior of κi given yyy and the neighboring values {κj }j∼i. With k = −1 we have ωi = βi, so, for σϵ = τ = 1, integrating the trend out of the likelihood (1) against the prior (5) gives the marginal likelihood yi |
+
+λi ∼ N (0 , 1 + λ2 
+
+> i
+
+). Since 1 + λ2 
+
+> i
+
+= κ−1 
+
+> i
+
+, this contributes the factor κ1/2 
+
+> i
+
+exp( −κiy2 
+
+> i
+
+/2), which depends on yyy only through yi. Multiplying by the conditional prior (11) at a = b = 1 /2, the conditional posterior of κi is proportional to 
+
+gy(κi) = exp( −κiy2 
+
+> i
+
+/2) κ(ni−1) /2 
+
+> i
+
+(1 − κi)ni/2−1
+
+Q
+
+> j∼i
+
+κi(1 − κj ) + (1 − κi)κj
+
+.
+
+30 Graph-Dependent Shrinkage Priors 
+
+Proof of (i). We bound the ratio R 1−ε 
+
+> 0
+
+gy dκi
+
+ R 11−ε gy dκi uniformly for yyy ∈ Y M (recall 
+
+YM = {yyy ∈ Rn : |yi| ≤ M } from Theorem 4); since κ∗ → 1, we may assume κ∗ ≥ 1/2. On (0 , 1 − ε], exp( −κiy2 
+
+> i
+
+/2) ≤ 1 and each denominator factor satisfies κi(1 − κj ) + (1 − κi)κj ≥
+
+(1 − κi)κj ≥ ε κ ∗ ≥ ε/ 2, so 
+
+Z 1−ε
+
+> 0
+
+gy dκi ≤
+
+ 2
+
+ε
+
+ni
+
+Z 10
+
+κ(ni−1) /2(1 − κ)ni/2−1 dκ =: C1 < ∞,
+
+free of yi and of {κj }. On [1 − ε, 1], exp( −κiy2 
+
+> i
+
+/2) ≥ e−M 2/2 and κ(ni−1) /2 
+
+> i
+
+= κ1/2 
+
+> i
+
+κni/2−1 
+
+> i
+
+≥
+
+2−1/2κni/2−1 
+
+> i
+
+, so R 11−ε gy dκi is bounded below by 2 −1/2e−M 2/2 Fε,n i (1 − κ∗) by Lemma A.2. The ratio is therefore at most 2 1/2eM 2/2 C1/F ε,n i (1 − κ∗) → 0 as κ∗ → 1, uniformly for 
+
+yyy ∈ Y M and over all neighbor configurations sharing κ∗.
+
+Proof of (ii). Fix the neighboring values {κj }j∼i and let |yi| → ∞. On [ ε, 1], exp( −κiy2 
+
+> i
+
+/2) ≤ e−εy 2  
+
+> i/2
+
+and each denominator factor satisfies κi(1 − κj ) + (1 − κi)κj ≥
+
+ε(1 − κj ) > 0, so R 1 
+
+> ε
+
+gy dκi ≤ C2 e−εy 2  
+
+> i/2
+
+with C2 = C2({κj }, ε ) < ∞. On (0 , ε ], each de-nominator factor is at most κi + κj ≤ 2 and (1 − κi)ni/2−1 ≥ min {1, (1 − ε)ni/2−1} > 0, so, substituting u = κiy2 
+
+> i
+
+, for |yi| ≥ 1
+
+Z ε
+
+> 0
+
+gy dκi ≥ c |yi|−(ni+1) 
+
+Z εy 2
+
+> i
+> 0
+
+e−u/ 2 u(ni−1) /2 du ≥ c′ |yi|−(ni+1) 
+
+for constants c, c ′ > 0 free of yi. The ratio R 1 
+
+> ε
+
+gy/ R ε 
+
+> 0
+
+gy ≤ C3 |yi|ni+1 e−εy 2  
+
+> i/2
+
+→ 0, which is (ii): the mass on [ ε, 1] decays exponentially in y2 
+
+> i
+
+while the mass on (0 , ε ] decays only polynomially. 
+
+Proof of Theorem 5 
+
+The proof rests on four lemmas, each with a single, separable role. Lemma A.3 fixes the null space of the graph-difference operators. Lemma A.4 integrates βββ out of the likelihood-times-prior product and produces an upper bound on the marginal that is uniform in σ2
+
+> ϵ
+
+and in the local components. Lemma A.5 integrates that bound over the global scale, using only that the log-normal prior on τ 2 has finite negative moments. Lemma A.6 establishes that the local prior on hhh⊥ is proper. Throughout this proof we write m = |E| for the number of edges. The argument is presented for k even or zero, where the shrinkage vector hhh has length m; when k is odd, hhh
+
+is indexed instead by the n vertices, and one substitutes n for m throughout. 
+
+Lemma A.3 (Null space of graph-difference operators) If G = ( V, E ) is connected, then ker(∆ (k+1) ) = span {111n} for all k ≥ 0.
+
+Proof [Lemma A.3] Induction on k; the two parities are handled separately because ∆(k+1) factors as ∆ (1) ∆(k) for k even and as (∆ (1) )⊤∆(k) for k odd. For k = 0, ∆ (1) =(δ(e1), . . . , δ (em)) ⊤ is the oriented incidence matrix and ker(∆ (1) ) = span {111n} because G is connected. Suppose ker(∆ (k)) = span {111n} for some k ≥ 1. 
+
+31 Mascaretti and Kowal 
+
+k even. Then ∆ (k+1) = ∆ (1) ∆(k) with ∆ (k) = Lk/ 2 a power of the graph Laplacian 
+
+L = (∆ (1) )⊤∆(1) . Since L is symmetric and L111n = 0, also Lk/ 2111n = 0, hence 1 11n ∈
+
+ker( Lk/ 2) = im( Lk/ 2)⊥, i.e. im(∆ (k)) ⊥ 111n. Trivially span {111n} ⊆ ker(∆ (k+1) ). Conversely, ∆(1) (∆ (k)v) = 0 implies ∆ (k)v ∈ ker(∆ (1) ) = span {111n}, say ∆ (k)v = t111n. Taking inner product with 1 11n and using im(∆ (k)) ⊥ 111n yields tn = 0, hence ∆ (k)v = 0, and the inductive hypothesis gives v ∈ span {111n}.
+
+k odd. Then ∆ (k+1) = (∆ (1) )⊤∆(k). Trivially 1 11n ∈ ker(∆ (k+1) ), since ∆ (k)111n = 0
+
+by the inductive hypothesis. Conversely, let v ∈ ker(∆ (k+1) ) and set w = ∆ (k)v. Then (∆ (1) )⊤w = ∆ (k+1) v = 0, so w ∈ ker((∆ (1) )⊤). Since k is odd, ∆ (k) = ∆ (1) L(k−1) /2 factors through ∆ (1) , so w ∈ im(∆ (1) ). By the fundamental theorem of linear algebra these two subspaces are orthogonal, so w = 0, i.e. ∆ (k)v = 0, and the inductive hypothesis gives 
+
+v ∈ span {111n}.
+
+Lemma A.4 (Trend marginal: upper bound) Let ∆(k+1) with k ≥ 0 and rank(∆ (k+1) ) = 
+
+n − 1, let Λ = diag( λ21, . . . , λ 2
+
+> m
+
+) with all λj > 0, τ 2 > 0, and let σ2 
+
+> ϵ
+
+> 0. Then 
+
+M (Λ , τ 2, σ 2 
+
+> ϵ
+
+) = 
+
+Z
+
+> Rn
+
+p(yyy | βββ, σ 2 
+
+> ϵ
+
+) p(∆ (k+1) βββ | Λ, τ 2) d βββ
+
+admits the closed form 
+
+M (Λ , τ 2, σ 2 
+
+> ϵ
+
+) = C (σ2 
+
+> ϵ
+
+)−(n−1) /2 |Qα|−1/2 τ −mmY
+
+> j=1
+
+λ−1 
+
+> j
+
+eR(yyy,σ 2  
+
+> ϵ,τ 2,Λ)
+
+, (A.1) 
+
+where C = (2 π)−m/ 2 is a positive constant; Qα = σ−2 
+
+> ϵ
+
+In−1 + τ −2 V ⊤∆(k+1) ⊤Λ−1∆(k+1) V is a positive definite matrix for any V ∈ Rn×(n−1) whose columns form an orthonormal basis of (ker  ∆(k+1) )⊥; and R(yyy, σ 2 
+
+> ϵ
+
+, τ 2, Λ) ≤ 0 is the exponent that remains after integrating out βββ, given explicitly in the proof. In particular, if Qmj=1 λj = 1 , then for every τ 2 > 0 and σ2 
+
+> ϵ
+
+> 0,
+
+M (Λ , τ 2, σ 2 
+
+> ϵ
+
+) ≤ Cτ −m. (A.2) The bound (A.2) is what Step 1 of the Theorem 5 proof needs. Note that Qmj=1 λj = 1 holds by construction under (10). 
+
+Proof [Lemma A.4] We split βββ along ker(∆ (k+1) ) and its orthogonal complement, integrate the two directions separately, and bound the resulting quadratic form via Qα ≽ σ−2 
+
+> ϵ
+
+In−1.Since rank(∆ (k+1) ) = n − 1 and 1 11n ∈ ker(∆ (k+1) ) always, ker  ∆(k+1)  = span {111n}; for connected G this is Lemma A.3. Let U = n−1/2111n and V as above, so [ U, V ] is orthogonal. Decompose βββ = U γ + V α αα. Then ∆ (k+1) βββ = ∆ (k+1) V α αα and ∥yyy −βββ∥22 = ( U ⊤yyy − γ)2 + ∥V ⊤yyy −
+
+ααα∥22. The prior is p(∆ (k+1) βββ | Λ, τ 2) ∝ τ −m Q 
+
+> j
+
+λ−1 
+
+> j
+
+exp( −ααα⊤Pαααα/ 2), where the matrix 
+
+Pα = τ −2 V ⊤∆(k+1) ⊤Λ−1∆(k+1) V is positive definite. To see why, note that ∆ (k+1) V must have full column rank: the columns of V span ker(∆ (k+1) )⊥ by definition, and ∆ (k+1) βββ
+
+depends only on ααα.
+
+32 Graph-Dependent Shrinkage Priors 
+
+The γ-integral contributes (2 πσ 2 
+
+> ϵ
+
+)1/2; completing the square in ααα and integrating yields (A.1) with 
+
+R(yyy, σ 2 
+
+> ϵ
+
+, τ 2, Λ) = (V ⊤yyy)⊤Q−1 
+
+> α
+
+(V ⊤yyy)2σ4
+
+> ϵ
+
+− ∥V ⊤yyy∥22
+
+2σ2
+
+> ϵ
+
+.
+
+Since Qα ≽ σ−2 
+
+> ϵ
+
+In−1, we have Q−1 
+
+> α
+
+≼ σ2 
+
+> ϵ
+
+In−1 (so R ≤ 0) and |Qα|−1/2 ≤ (σ2 
+
+> ϵ
+
+)(n−1) /2. Sub-stituting into (A.1) gives (A.2). 
+
+Lemma A.5 (Global shrinkage marginal) Let τ 2 = eh0 with h0 ∼ N (μk, s 20) for some 
+
+μk ∈ R and s20 > 0, as in (9) , and let M (Λ , τ 2, σ 2 
+
+> ϵ
+
+) be the trend marginal of Lemma A.4 with the geometric mean of {λj } equal to 1. Then, for every p > 0,
+
+E τ −p = Ee−(p/ 2) h0 = exp 
+
+
+
+− p 
+
+> 2
+
+μk + p2 
+
+> 8
+
+s20
+
+
+
+< +∞, (A.3) 
+
+and consequently the global shrinkage marginal is finite, 
+
+Z ∞
+
+> 0
+
+M  Λ, τ 2, σ 2
+
+> ϵ
+
+ p(τ 2) d τ 2 ≤ C E τ −m < +∞,
+
+for every k ≥ 0 and kh ≥ 0, with no condition on the graph. 
+
+Proof [Lemma A.5] The identity (A.3) is the moment generating function of h0 ∼ N (μk, s 20)evaluated at −p/ 2, finite for every p. The bound follows by integrating (A.2) of Lemma A.4 against the prior density p(τ 2). The exact growth rate of M as τ 2 → 0+ explains the mean offset in (9), although the proof of Theorem 5 does not require it. As τ 2 → 0+,
+
+Qα = σ−2 
+
+> ϵ
+
+In−1 + τ −2V ⊤∆(k+1) ⊤Λ−1∆(k+1) V ∼ τ −2V ⊤∆(k+1) ⊤Λ−1∆(k+1) V ≻ 0,
+
+so |Qα|−1/2 ∼ τ n−1|V ⊤∆(k+1) ⊤Λ−1∆(k+1) V |−1/2, while eR(yyy,σ 2   
+
+> ϵ,τ 2,Λ)
+
+→ e−∥ V ⊤yyy∥2/(2 σ2  
+
+> ϵ)
+
+> 0as Q−1 
+
+> α
+
+→ 0. Substituting into (A.1) and absorbing all factors constant in τ 2 into C′ > 0gives, for fixed ( yyy, Λ, σ 2 
+
+> ϵ
+
+), 
+
+M  Λ, τ 2, σ 2
+
+> ϵ
+
+ = C′ τ −(m−n+1)  1 + o(1) , τ 2 → 0+. (A.4) The exponent m − n + 1 = m − (n − 1) counts the shrinkage coordinates left uninformed by the trend: ∆ (k+1) has rank n − 1, so for k even or zero it equals the dimension of the cycle space of G (zero on trees), and for k odd it equals one after substituting n for m. On the log scale, (A.4) is the linear tilt exp {− (m − n + 1) h0/2}, and the mean offset in (9) cancels it exactly: 
+
+e−(m−n+1) h0/2 e−{h0−μ0−(m−n+1) s20/2}2/(2 s20) ∝ e−(h0−μ0)2/(2 s20), (A.5) up to a constant free of h0. Hence near total shrinkage the level prior acts like the centered Gaussian N (μ0, s 20): the growth of the marginal likelihood creates no spurious mode at 
+
+τ 2 = 0. 
+
+33 Mascaretti and Kowal 
+
+Lemma A.6 (Properness of the local prior) Let ∆kh+1  
+
+> k
+
+∈ Rr×m with kh ≥ 0 be the shrinkage operator, whose null space is span {111m}: this follows from Lemma A.3 applied to the shrinkage graph, which is connected whenever G is: for k odd it is G itself, and for k
+
+even or zero it is the line graph of G, connected for any connected G with at least one edge. If m = 1 the hyperplane 111⊥ 
+
+> m
+
+= {0} is a single point and the conclusion is trivial; assume 
+
+m ≥ 2, so that ∆kh+1  
+
+> k
+
+has a nonzero singular value. Let σ+min > 0 denote its smallest nonzero singular value. Then, for any a, b > 0, the local prior 
+
+π(hhh⊥) ∝
+
+> r
+
+Y
+
+> i=1
+
+pZ
+
+(∆ kh+1  
+
+> k
+
+hhh⊥)i , hhh⊥ ∈ 111⊥
+
+> m
+
+,
+
+with pZ (z) = {B( a, b )}−1eaz (1 + ez )−(a+b) the Z(a, b, 0, 1) density, is proper on the hyper-plane 111⊥
+
+> m
+
+.
+
+Proof [Lemma A.6] The Z-density has exponential tails: for z ≥ 0, using (1 + ez )−(a+b) ≤
+
+e−(a+b)z gives pZ (z) ≤ { B( a, b )}−1e−bz , while for z < 0, using (1 + ez )−(a+b) ≤ 1 gives 
+
+pZ (z) ≤ { B( a, b )}−1eaz ; hence pZ (z) ≤ { B( a, b )}−1e− min( a,b )|z| for all z. Writing ηηη =∆kh+1  
+
+> k
+
+hhh⊥,
+
+> r
+
+Y
+
+> i=1
+
+pZ (ηi) ≤ { B( a, b )}−re− min( a,b ) ∥ηηη∥1
+
+≤ { B( a, b )}−re− min( a,b ) ∥ηηη∥2
+
+≤ { B( a, b )}−re− min( a,b ) σ+min ∥hhh⊥∥2 ,
+
+using ∥ · ∥ 1 ≥ ∥ · ∥ 2 and, on 1 11⊥
+
+> m
+
+, ∥∆kh+1  
+
+> k
+
+hhh⊥∥2 ≥ σ+min ∥hhh⊥∥2. The final bound is integrable over the ( m − 1)-dimensional hyperplane 1 11⊥
+
+> m
+
+.The argument covers every kh ≥ 0 uniformly, in particular the case kh = 0, where r
+
+exceeds m − 1 whenever the shrinkage graph contains cycles and no bijective change of variables to the innovations exists. 
+
+Proof [Theorem 5] We evaluate the properness of the joint posterior by checking the inte-grability of: 
+
+Z
+
+p(yyy | βββ, σ 2 
+
+> ϵ
+
+) p(∆ (k+1) βββ | Λ, τ 2) π(hhh⊥) π(τ 2) π(σ2 
+
+> ϵ
+
+) d βββ dτ 2 dhhh⊥ dσ2 
+
+> ϵ
+
+, (A.6) where Λ = diag( eh⊥ 
+
+> j
+
+) represents the local components, with hhh⊥ ranging over the zero-sum subspace 1 11⊤
+
+> m
+
+hhh⊥ = 0 of the change of coordinates (10) (so the geometric mean of the eh⊥
+
+> j
+
+is 1 by construction): hj = h0 + h⊥ 
+
+> j
+
+with τ 2 = eh0 , so λ2 
+
+> j
+
+= eh⊥ 
+
+> j
+
+and this Λ is exactly the Λ = diag( λ21, . . . , λ 2
+
+> m
+
+) of Lemma A.4, with the zero-sum coordinate supplying the geometric-mean-one normalization that (A.2) requires. Here π(τ 2) is the log-normal density induced by (9), and π(σ2 
+
+> ϵ
+
+) is the Inverse-Gamma prior. We proceed sequentially in three steps; the integrand is nonnegative, so the sequential order is justified (Tonelli). 
+
+Step 1 ( βββ and τ 2). We integrate out βββ via Lemma A.4 to yield the trend marginal 
+
+M (Λ , τ 2, σ 2 
+
+> ϵ
+
+). Since the geometric mean of the local components is fixed equal to one on 
+
+34 Graph-Dependent Shrinkage Priors 
+
+111⊥
+
+> m
+
+, the uniform bound (A.2) applies: M ≤ C τ −m, uniformly in σ2 
+
+> ϵ
+
+> 0 and hhh⊥ ∈ 111⊥
+
+> m
+
+.Integrating over the global scale with Lemma A.5, 
+
+Z ∞
+
+> 0
+
+M (Λ , τ 2, σ 2 
+
+> ϵ
+
+) π(τ 2) d τ 2 ≤ C E τ −m = C1 < +∞,
+
+with C1 free of both σ2 
+
+> ϵ
+
+and hhh⊥.
+
+Step 2 ( hhh⊥). The bound of Step 1 is constant in hhh⊥, and the local prior π(hhh⊥) is proper on 1 11⊥ 
+
+> m
+
+for every kh ≥ 0 by Lemma A.6. Hence the integral over hhh⊥ remains bounded by C1.
+
+Step 3 ( σ2 
+
+> ϵ
+
+). The Inverse-Gamma prior (12) is proper for any aσ, b σ > 0, so integrating the constant bound of Step 2 leaves (A.6) bounded by C1. The joint marginal is finite, confirming that the posterior is proper. 
+
+Appendix B. Higher-order difference operators for shrinkage ( kh = 1 )
+
+We now extend the GDSP prior and posterior analysis (Section 2.3) from kh = 0 to kh = 1. When kh = 0, the full conditionals only require comparisons with immediate neighbors (Theorem 1). For kh ≥ 1, the shrinkage graph differences couple each hi to vertices beyond its immediate neighbors. The following result collects the kh = 1 analogues of Theorems 1–4. 
+
+Theorem B.1 (Higher-order shrinkage operators) Let kh = 1 and write ζi = Q
+
+> j∼i
+
+(1 −
+
+κj )/κ j = Q 
+
+> j∼i
+
+λ2 
+
+> j
+
+.
+
+(i) For any a, b > 0,
+
+πi(κi | { κj }j∼i) = ni
+
+B(a, b )
+
+ζbi κbn i−1 
+
+> i
+
+(1 − κi)an i−1
+
+ζiκni 
+
+> i
+
++ (1 − κi)ni a+b . (B.1) 
+
+(ii) For the horseshoe GDSP ( a = b = 1 /2) and any ε > 0, Pi(κi < ε | { κj }j∼i) → 1 as 
+
+ζi → ∞ , and Pi(κi > 1 − ε | { κj }j∼i) → 1 as ζi → 0.
+
+(iii) Theorem 4 holds: for part (i) replace κ∗ → 1 with ζi → 0, and for part (ii) replace 
+
+κj ∈ (0 , 1) for all j ∼ i with ζi ∈ (0 , ∞).
+
+The neighbors now inform κi only through the single aggregate ζi. Unanimity among the neighbors is therefore sufficient but not necessary: a single extreme neighbor can dominate the product ζi when the remaining neighbors are bounded away from the opposite extreme. In this sense, kh = 1 propagates shrinkage through an aggregate of the neighborhood, whereas kh = 0 weighs each neighbor separately. The three parts are proved separately below: the density (B.1) first; the concentration limits (ii) after the auxiliary Lemma B.1; and the posterior adaptation (iii) after Lemma B.2. 
+
+Proof [Theorem B.1(i)] Because kh = 1, the shrinkage operator in (8) is ∆ 2 
+
+> k
+
+= L, the Laplacian of the shrinkage graph, so the prior on hhh = (log λ21, . . . , log λ2
+
+> m
+
+)⊤ (m = |E| for k
+
+even or zero; substitute n for m when k is odd) is specified through the graph Laplacian, 
+
+Lh hh = ηηη with ηi ∼iid Z(a, b, 0, 1). For a non-isolated vertex i, this is nihi − P 
+
+> j∼i
+
+hj = ηi,
+
+> 35
+
+Mascaretti and Kowal 
+
+equivalently hi = μi + ηi/n i with μi = n−1
+
+> i
+
+P 
+
+> j∼i
+
+hj . The Z-distribution is a location-scale family, so 
+
+hi | { hj }j∼i ∼ Z(a, b, μ i, 1/n i),
+
+with density f (hi) = ( ni/B (a, b )) · eaw /(1 + ew)a+b, where w = ni(hi − μi) = nihi − P 
+
+> j∼i
+
+hj .Reparametrize via κi = 1 /(1 + ehi ), so that hi = log {(1 − κi)/κ i} and |dhi/dκi| =
+
+{κi(1 − κi)}−1. Substituting, 
+
+w = ni log 1 − κi
+
+κi
+
+− X
+
+> j∼i
+
+log 1 − κj
+
+κj
+
+= log (1 − κi)ni
+
+ζi κni
+
+> i
+
+, ζi = Y
+
+> j∼i
+
+1 − κj
+
+κj
+
+.
+
+The change of variables and the algebraic identity eaw /(1+ ew)a+b = (1 −κi)an i (ζiκni 
+
+> i
+
+)b/{ζiκni 
+
+> i
+
++(1 − κi)ni }a+b then yield 
+
+πi(κi | { κj }j∼i) = ni
+
+B(a, b ) · ζbi κbn i−1 
+
+> i
+
+(1 − κi)an i−1
+
+{ζiκni 
+
+> i
+
++ (1 − κi)ni }a+b ,
+
+which is (B.1). The two concentration limits of Theorem B.1(ii) share a common analytical core, isolated in Lemma B.1. In what follows, g(κ; ζ) denotes the kernel of the horseshoe ( a = b = 1 /2) conditional prior (B.1): 
+
+g(κ; ζ) = {κ(1 − κ)}ni/2−1
+
+ζ κ ni + (1 − κ)ni , κ ∈ (0 , 1) , (B.2) so that πi(κi | { κj }j∼i) = ( ni/π )√ζi g(κi; ζi). 
+
+Lemma B.1 (Tail bounds for g) Let g be as in (B.2) , the horseshoe ( a = b = 1 /2)kernel. For every ζ > 0 and ε ∈ (0 , 1) ,
+
+(a) pζ
+
+Z 1
+
+> ε
+
+g(κ; ζ) d κ ≤ Cg
+
+√ζ ε ni ,
+
+(b) pζ
+
+Z 1−ε
+
+> 0
+
+g(κ; ζ) d κ ≤ Cg
+
+√ζεni ,where Cg = B( ni/2, n i/2) < ∞.
+
+The two bounds are stated in the form their consumers need: each left-hand side equals (π/n i) Pi(κi ∈ I) for the relevant tail interval I, so the concentration claims of Theo-rem B.1(ii) reduce to taking limits in ζ.
+
+Proof [Lemma B.1] On κ ∈ [ε, 1), the denominator of g satisfies ζκ ni + (1 − κ)ni ≥ ζε ni , so 
+
+Z 1
+
+> ε
+
+g(κ; ζ) d κ ≤ 1
+
+ζε ni
+
+Z 10
+
+{κ(1 − κ)}ni/2−1 dκ = Cg
+
+ζε ni .
+
+Multiplying by √ζ gives (a). Part (b) is analogous: on κ ∈ (0 , 1 − ε], ζκ ni + (1 − κ)ni ≥
+
+(1 − κ)ni ≥ εni .
+
+36 Graph-Dependent Shrinkage Priors 
+
+Proof [Theorem B.1(ii), ζi → ∞ ] The claim is trivial for ε ≥ 1, so take ε < 1. As ζi → ∞ ,Lemma B.1(a) gives 
+
+Pi(κi ≥ ε | { κj }j∼i) = ni
+
+π
+
+pζi
+
+Z 1
+
+> ε
+
+g(κ; ζi) d κ ≤ niCg
+
+π√ζi εni → 0.
+
+Proof [Theorem B.1(ii), ζi → 0] The claim is trivial for ε ≥ 1, so take ε < 1. As ζi → 0, Lemma B.1(b) gives 
+
+Pi(κi ≤ 1 − ε | { κj }j∼i) = ni
+
+π
+
+pζi
+
+Z 1−ε
+
+> 0
+
+g(κ; ζi) d κ ≤ niCg
+
+√ζi
+
+π ε ni → 0.
+
+We now turn to the posterior adaptation claimed in Theorem B.1(iii), whose tail near 
+
+κ = 1 is controlled by the following analogue of Lemma A.2. As there, we take ε ≤ 1/2without loss, by monotonicity of the events in ε.
+
+Lemma B.2 (Divergence near κ = 1 , aggregate form) For every ε ∈ (0 , 1/2] ,
+
+Z 11−ε
+
+κ(ni−1) /2 (1 − κ)ni/2−1
+
+ζ κ ni + (1 − κ)ni dκ → +∞ as ζ → 0+.
+
+Proof [Lemma B.2] Substituting t = 1 − κ and using (1 − t)(ni−1) /2 ≥ 2−(ni−1) /2 on 
+
+t ∈ (0 , ε ], the integrand is bounded below by 2 −(ni−1) /2 tni/2−1/{ζ(1 − t)ni + tni }, which increases monotonically as ζ ↓ 0 to 2 −(ni−1) /2 t−ni/2−1. The limit is non-integrable at 0 (since ni/2 + 1 > 1 when ni ≥ 1); the conclusion follows by Monotone Convergence. 
+
+Proof [Theorem B.1(iii)] With k = −1 and σϵ = 1, the marginal likelihood is yi | λi ∼N (0 , 1 + λ2 
+
+> i
+
+). Since 1 + λ2 
+
+> i
+
+= κ−1 
+
+> i
+
+, the likelihood contributes κ1/2 
+
+> i
+
+exp( −κiy2 
+
+> i
+
+/2) to the tilted density πi(κi | yi, {κj }j∼i) ∝ κ1/2 
+
+> i
+
+exp( −κiy2 
+
+> i
+
+/2) πi(κi | { κj }j∼i), the kh = 1 analogue of the conditional posterior used in Theorem 4, which depends on yyy only through yi and is proportional to (we reuse the name gy from the kh = 0 proof; here the denominator is the aggregate form) 
+
+gy(κi) = κ1/2 
+
+> i
+
+exp( −κiy2 
+
+> i
+
+/2) g(κi; ζi) = exp( −κiy2 
+
+> i
+
+/2) κ(ni−1) /2 
+
+> i
+
+(1 − κi)ni/2−1
+
+ζi κni 
+
+> i
+
++ (1 − κi)ni .
+
+Proof of (i). As ζi → 0, we bound the ratio R 1−ε 
+
+> 0
+
+gy dκi/ R 11−ε gy dκi uniformly for 
+
+yyy ∈ Y M . On (0 , 1 − ε], exp( −κiy2 
+
+> i
+
+/2) ≤ 1 and the denominator of g(κi; ζi) is at least εni , so, using κ(ni−1) /2 
+
+> i
+
+≤ κni/2−1 
+
+> i
+
+, R 1−ε 
+
+> 0
+
+gy dκi ≤ Cg/ε ni , a finite constant independent of ζi and yi,with Cg = B( ni/2, n i/2) as in Lemma B.1. On [1 −ε, 1], exp( −κiy2 
+
+> i
+
+/2) ≥ e−M 2/2 =: cM > 0, 
+
+37 Mascaretti and Kowal 
+
+so R 11−ε gy dκi is bounded below by cM times the integral in Lemma B.2, which diverges to +∞ as ζi → 0. The ratio thus tends to 0 uniformly for yyy ∈ Y M .
+
+Proof of (ii). Fix ζi ∈ (0 , ∞) and let |yi| → ∞ . On [ ε, 1], exp( −κiy2 
+
+> i
+
+/2) ≤ e−εy 2 
+
+> i/2
+
+and the denominator of g is at least ζiεni , so, using κ(ni−1) /2 
+
+> i
+
+≤ κni/2−1 
+
+> i
+
+, R 1 
+
+> ε
+
+gy dκi ≤{Cg/(ζiεni )} e−εy 2  
+
+> i/2
+
+with Cg = B( ni/2, n i/2). On (0 , δ ] with δ = min( ε, 1/2), the sub-stitution u = κiy2 
+
+> i
+
+/2, together with (1 − κi)ni/2−1 ≥ cni = min {1, 2−(ni/2−1) } and ζiκni 
+
+> i
+
++(1 − κi)ni ≤ ζi + 1, gives 
+
+Z δ
+
+> 0
+
+gy dκi ≥ cni
+
+ζi + 1 
+
+ 2
+
+y2
+
+> i
+
+(ni+1) /2 Z δy 2 
+
+> i/20
+
+u(ni−1) /2e−u du, 
+
+whose right-hand side is bounded below by c′ |yi|−(ni+1) for |yi| ≥ 1, with c′ > 0 free of yi.The mass on [ ε, 1] decays exponentially while the mass on (0 , ε ] decays only polynomially, so the ratio tends to 0. 
+
+Appendix C. MCMC sampling algorithm and computational details 
+
+We now show the steps of the Gibbs sampler for the joint posterior density of ( βββ, h hh, σ 2 
+
+> ϵ
+
+), which also implicitly determines λλλ and τ . The posterior is proportional to 
+
+> n
+
+Y
+
+> i=1
+
+ϕ yi; βi, σ 2
+
+> ϵ
+
+ × Y
+
+> j
+
+ϕ ωj ; 0 , e hj  × π(hhh) × π(σ2 
+
+> ϵ
+
+), (C.1) where ωωω = ∆ (k+1) βββ, π(hhh) is in Lemma 1, and π(σ2 
+
+> ϵ
+
+) is the Inverse-Gamma prior (12). With missing data, yyy collects the observed and currently imputed values. Throughout this section we fix a = b = 1 /2 for the horseshoe GDSP, but modifications are available for general a, b > 0. We initialize the Gibbs sampler as follows: βββ(0) is the graph-weighted average of yyy
+
+(plus Gaussian noise to randomize the initialization), σ(0)  
+
+> ϵ
+
+is the sample standard deviation, and h(0)  
+
+> i
+
+= log {(ω(0)  
+
+> i
+
+)2 + c}, i.e. the initial prior variance exp( h(0)  
+
+> i
+
+) is ( ω(0)  
+
+> i
+
+)2 + c, where 
+
+ω(0) = ∆ (k+1) βββ(0) and c = 10 −4 is a small offset we add for numerical stability. Each iteration of the Gibbs sampler then cycles through the following steps. 1. Draw [ βββ | − ] ∼ N n(Q−1 
+
+> β
+
+ℓℓℓβ , Q −1 
+
+> β
+
+), with Qβ and ℓℓℓβ in (13): compute the sparse Cholesky decomposition Qβ = Lβ L⊤ 
+
+> β
+
+, solve Lβaaaβ = ℓℓℓβ for aaaβ , and solve L⊤ 
+
+> β
+
+βββ = aaaβ +eeeβ
+
+for βββ, with eeeβ ∼ N n (0 00, I n) (Section 3.1). The sparsity pattern of Qβ is fixed across it-erations; when Qβ is banded with bandwidth bQ, the Cholesky decomposition requires 
+
+O(nb 2
+
+> Q
+
+) FLOPS and O(nb Q) memory. 2. Draw [ hhh | − ] in four sub-steps: (a) Set ωωω = ∆ (k+1) βββ and ˜ ωj = log( ω2 
+
+> j
+
++ c0) as in (14). (b) Sample the augmentations for (5) and (8): draw the mixture indicators zj from (15) and draw [ ξi | − ] ∼ PG(1 , η i) independently via BayesLogit::rpg , where 
+
+ηηη = ∆ kh+1  
+
+> k
+
+hhh uses the current value of hhh.
+
+38 Graph-Dependent Shrinkage Priors 
+
+(c) Draw [ hhh | − ] ∼ N m
+
+ (Q⋆h)−1ℓℓℓ⋆h, (Q⋆h)−1 as defined in Lemma C.1. First, compute the sparse Cholesky decomposition Qh = LhL⊤ 
+
+> h
+
+and draw xxx0 ∼ N m(Q−1 
+
+> h
+
+ℓℓℓ⋆h, Q −1 
+
+> h
+
+)using two triangular solves as in step 1. Next, apply the Sherman-Morrison cor-rection: (i) solve Lhccc = uuu and L⊤ 
+
+> h
+
+ggg = ccc, so that ggg = Q−1 
+
+> h
+
+uuu with uuu = ( s0 m)−1111m,(ii) draw r0 ∼ N (0 , 1), and (iii) set 
+
+hhh = xxx0 − ggg uuu⊤xxx0 + r0
+
+1 + uuu⊤ggg . (C.2) By design, this algorithm leverages the sparsity of Qh (inherited from ∆ kh+1  
+
+> k
+
+)for both the initial draw of xxx0 and subsequent correction, which reuses Lh. The actual precision Q⋆h = Qh + uuuu uu⊤ is dense and never formed. (d) Set h0 = m−1111⊤
+
+> m
+
+hhh, τ 2 = exp( h0), and λ2 
+
+> j
+
+= exp( hj − h0) for j = 1 , . . . , m 
+
+(Lemma 1). 3. Draw [ σ2 
+
+> ϵ
+
+| yyy, −] ∼ Inverse-Gamma  aσ + n/ 2, b σ + Pni=1 (yi − βi)2/2.4. With missing data, draw [˜ yi | − ] ∼ N (βi, σ 2 
+
+> ϵ
+
+) independently for i ∈ I as in (16), and set yyy = ( yyy−I , ˜y˜y˜yI ). To complete the discussion of the sampler, we derive the full conditional distribution of 
+
+hhh, justify the sampling step 2(c), and then present the proof of Lemma 1, which clarifies how hhh encodes both the global and local shrinkage parameters. 
+
+Lemma C.1 (Full conditional of hhh) Let Qh = Σ −1 
+
+> v
+
++  ∆kh+1 
+
+> k
+
+⊤Σ−1 
+
+> ξ
+
+∆kh+1  
+
+> k
+
+, Q⋆h = Qh +(s20m2)−1111m111⊤
+
+> m
+
+, and ℓℓℓ⋆h = Σ −1
+
+> v
+
+ ˜ωωω − μμμz
+
+ + μk/(s20m)1 11m. The full conditional distribution of the log-variance is [hhh | − ] ∼ N m
+
+ (Q⋆h)−1ℓℓℓ⋆h, (Q⋆h)−1.
+
+Proof [Lemma C.1] Conditional on ( ωωω, z zz, ξ ξξ), the full conditional density of hhh is propor-tional to the product of three Gaussian factors: the pseudo-data model, exp {− 12 (˜ ωωω − μμμz −
+
+hhh)⊤Σ−1 
+
+> v
+
+(˜ ωωω − μμμz − hhh)}; the conditional difference prior, exp {− 12 hhh⊤(∆ kh+1  
+
+> k
+
+)⊤Σ−1 
+
+> ξ
+
+∆kh+1  
+
+> k
+
+hhh};and the level prior, exp {− (h0 − μk)2/(2 s20)} with h0 = m−1111⊤
+
+> m
+
+hhh. Expanding the square in the level factor, 
+
+− (h0 − μk)2
+
+2s20
+
+= − 12 hhh⊤ 1
+
+s20m2 111m111⊤
+
+> m
+
+
+
+hhh + μk
+
+s20m 111⊤
+
+> m
+
+hhh + const ,
+
+so the three quadratic forms and the two linear terms collect into − 12 hhh⊤Q⋆hhhh + hhh⊤ℓℓℓ⋆h. The full conditional is Nm
+
+ (Q⋆h)−1ℓℓℓ⋆h, (Q⋆h)−1.
+
+Proof [Sampling step 2(c)] We verify that the draw (C.2) of step 2(c) is exact. First, we draw xxx0 ∼ N m
+
+ Q−1 
+
+> h
+
+ℓℓℓ⋆h, Q −1
+
+> h
+
+. Next, form ggg = Q−1 
+
+> h
+
+uuu, with uuu = ( s0m)−1111m and c = 1 + uuu⊤ggg.Notice that Q⋆h = Qh + uuuu uu⊤. By the Sherman-Morrison identity, ( Q⋆h)−1 = Q−1 
+
+> h
+
+− gggg gg⊤/c .Applying this to uuu together with uuu⊤ggg = c − 1, we have ( Q⋆h)−1uuu = ggg/c . Next, independently draw r0 ∼ N (0 , 1) and return (C.2), which we rearrange into 
+
+hhh = Ax xx0 − (r0/c )ggg, A = Im − gggu uu⊤/c. 
+
+39 Mascaretti and Kowal 
+
+Thus, hhh is an affine function of independent Gaussians, so we only need to match its first two moments to those of the full conditional. For the mean, E(r0) = 0 and AQ −1 
+
+> h
+
+=
+
+Q−1 
+
+> h
+
+− gggg gg⊤/c = ( Q⋆h)−1, so 
+
+E (hhh | − ) = AQ −1 
+
+> h
+
+ℓℓℓ⋆h = ( Q⋆h)−1ℓℓℓ⋆h.
+
+For the covariance, r0 and xxx0 contribute independently. Noting that AQ −1 
+
+> h
+
+A⊤ = ( Q⋆h)−1A⊤ =(Q⋆h)−1 − gggg gg⊤/c 2, where the second equality uses ( Q⋆h)−1uuu = ggg/c ,Cov( hhh | − ) = AQ −1 
+
+> h
+
+A⊤ + gggg gg⊤/c 2 = ( Q⋆h)−1.
+
+Both moments agree with the full conditional, so (C.2) is an exact draw from it. 
+
+Proof [Lemma 1] We establish the statements in turn. First, the shrinkage operator an-nihilates constant vectors, ∆ kh+1  
+
+> k
+
+111m = 0 00 (Lemma A.3 applied to the shrinkage graph). Therefore, ∆ kh+1  
+
+> k
+
+(hhh + c111m) = ∆ kh+1  
+
+> k
+
+hhh, which implies g(hhh + c111m) = g(hhh), establishing (i). Taking c = −h0 shows that g(hhh) depends only on the deviations hhh⊥ = hhh − h0111m. The change of variables hhh ↔ (h0, h hh⊥) is linear with constant Jacobian, so g factors as a constant function of h0 times a function of hhh⊥. Its integral over h0 ∈ R diverges, while its integral over the zero-sum hyperplane is finite by Lemma A.6. Because g alone is improper in exactly the level direction and defines no distribution for h0, specifying a valid probabilistic model requires assigning a proper marginal distribution to the level. Multiplying the kernel 
+
+g(hhh) by a proper Gaussian prior on h0 defines the joint prior π(hhh) ∝ g(hhh)ϕ h0; μk, s 20
+
+,establishing (ii). Finally, under the same change of variables, this joint prior factors as π(h0, h hh⊥) ∝
+
+ϕ(h0; μk, s 20) g(hhh⊥). This is a product of proper densities, ensuring that π(hhh) is proper, es-tablishing (iii). The factorization moreover demonstrates that the level and the deviations are independent, with h0 ∼ N (μk, s 20) and hhh⊥ having a density proportional to g on the zero-sum hyperplane. 
+
+Appendix D. Additional simulations and results 
+
+D.1 2D Lattice 
+
+D.1.1 Details on the true trends 
+
+In Table D.1, we provide the details of the true trends to accompany the visualizations in Figures 1 and 2. 
+
+D.1.2 Computational comparisons 
+
+The evaluations of computational efficiency are in Figure D.1. Recall that the frequentist graph trend filtering estimator (4), denoted “GL”, refers to the time to compute the solu-tion path using the R package genlasso . However, GL does not include the time needed to compute a data-driven choice of λ, for instance using cross-validation. The Bayesian methods all use MCMC and are evaluated based on relative efficiency, which reports the 
+
+> 40
+
+Graph-Dependent Shrinkage Priors 
+
+Table D.1: True trends β(u1, u 2) over a d1 × d2 lattice, expressed as normalized coordinates 
+
+u1 = ( r − 1) /(d1 − 1) ∈ [0 , 1] (rows) and u2 = ( c − 1) /(d2 − 1) ∈ [0 , 1] (columns). For bg , the bandwidths are σ1 = 0 .3 and σ2 = 0 .4. 
+
+Name True trend β(u1, u 2)
+
+bg 0.75  
+
+> πσ 1σ2
+
+exp 
+
+n
+
+− (u1−0.2) 2
+
+> σ21
+
+− (u2−0.3) 2
+
+> σ22
+
+o
+
++ 0.45  
+
+> πσ 1σ2
+
+exp 
+
+n
+
+− (u1−0.7) 2
+
+> σ21
+
+− (u2−0.8) 2
+
+> σ22
+
+o
+
+blocks 1{0.2 ≤ u1 ≤ 0.4, 0.6 ≤ u2 ≤ 0.9} + 0 .51{0.6 ≤ u1 ≤ 0.8, 0.1 ≤ u2 ≤ 0.3}
+
+blocks+ 1{0.2 ≤ u1 ≤ 0.3} + 1{0.1 ≤ u2 ≤ 0.2} + 0 .51{0.7 ≤ u1 ≤ 0.8} + 0 .51{0.6 ≤ u2 ≤ 0.7}
+
+lin u1
+
+number of effective samples relative to the total number of MCMC samples, and time to 1000 effective samples, which jointly considers computing time and MCMC efficiency. As anticipated, the simpler shrinkage priors (NIG, BL) achieve higher MCMC efficiency than the more aggressive shrinkage priors (HS, GDSP). The graph-dependent shrinkage in GDSP incurs a small cost in MCMC efficiency relative to the HS, except in the case of 
+
+blocks+ . Comparing algorithm timing more broadly, we see that the frequentist estimator GL is actually slower than many of the Bayesian graph trend filtering methods. Naturally, the horseshoe GDSP requires the longest time to achieve 1000 effective samples. This is expected: the horseshoe GDSP includes more (shrinkage) parameters than other Bayesian models (NIG, BL) and imposes strong dependencies among those (shrinkage) parameters, which both make the MCMC less efficient and more computational intensive. However, the horseshoe GDSP remains computationally viable, and only takes about twice as long as the frequentist estimator GL. We emphasize that GL does not include the cost to cross-validate or otherwise select λ; including this would make the horseshoe GDSP computations far more favorable. 
+
+D.1.3 Different settings 
+
+We report additional simulation results for 1) a complete case with no missing data and 2) varying k = 0 and k = 2 for each graph trend filtering model. 
+
+Complete case. We present results under the same design as in Section 4.1, but without introducing any missingness, in Figure D.2. Without any missing data, the frequentist GL of Wang et al. (2016), using the oracle value of λ, now performs best for the non-smooth trends ( blocks and blocks+ ). However, GL remains noncompetitive for the smooth trends (lin and bg ) and does not provide interval estimates. The proposed horseshoe GDSP maintains its strong performance among the Bayesian models: it is the most accurate and has the narrowest (calibrated) intervals for the non-smooth trends, while all Bayesian priors perform comparably for the smooth trends, like in the case with missing data. For completeness, we also include the computational comparisons as in Section D.1.2. These are presented in Figure D.3. As expected, the relative performance among Bayesian methods is similar to that in the missing data case, but the MCMC efficiency improves without the need to impute the missing observations. 
+
+Graph trend filtering with k = 0 and k = 2 . We compare performance of the horse-shoe GDSP across k ∈ { 0, 1, 2} in Figure D.4. We focus on one non-smooth ( blocks ) trend 
+
+41 Mascaretti and Kowal GDSP HS NIG BL 0.25 0.30 0.35 0.40 0.45 
+
+blocks: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6 7
+
+blocks: time (min) GDSP HS NIG BL 0.20 0.25 0.30 0.35 0.40 
+
+blocks+: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6 7
+
+blocks+: time (min) GDSP HS NIG BL 0.20 0.25 0.30 0.35 0.40 0.45 0.50 
+
+lin: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6 7
+
+lin: time (min) GDSP HS NIG BL 0.20 0.30 0.40 0.50 
+
+bg: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6 7
+
+bg: time (min) 
+
+Figure D.1: Average relative efficiency ¯Neff /N and wall-clock time to 1000 effective samples ¯s1000 (GL: full solution path) for the four trends with 50% missingness. and one smooth ( bg ) trend. In addition to RMSE and MCIW and ECP, we include WAIC (Watanabe, 2010) in Figure D.5. As expected, increasing k encourages smooth trend esti-mates, which is most favorable for smooth trends. Larger k also provides narrower intervals. The choice of k = 1 from Section 4.2 performs well in both cases. However, increasing k also produces a denser graph difference operator ∆ (k+1) , which generally increases computing time. 
+
+42 Graph-Dependent Shrinkage Priors GDSP HS NIG BL GL 0.01 0.02 0.03 0.04 0.05 0.06 
+
+blocks: RMSE GDSP HS NIG BL 0.10 0.15 0.20 0.25 
+
+blocks: MCIW (ECP%) 
+
+# 99% 97% 95% 96% GDSP HS NIG BL GL 0.05 0.07 0.09 0.11 
+
+blocks+: RMSE GDSP HS NIG BL 0.34 0.36 0.38 0.40 0.42 0.44 
+
+blocks+: MCIW (ECP%) 
+
+# 96% 94% 94% 95% GDSP HS NIG BL GL 0.010 0.015 0.020 0.025 
+
+lin: RMSE GDSP HS NIG BL 0.06 0.07 0.08 0.09 0.10 
+
+lin: MCIW (ECP%) 
+
+# 99% 98% 99% 99% GDSP HS NIG BL GL 0.030 0.040 0.050 0.060 
+
+bg: RMSE GDSP HS NIG BL 0.15 0.16 0.17 0.18 0.19 
+
+bg: MCIW (ECP%) 
+
+# 99% 97% 99% 99% 
+
+Figure D.2: RMSEs and MCIWs with ECPs (blue annotations) for the four trends with 0% missingness; each panel title reports the trend and the metric. The frequentist GL estimator, using the oracle λ, performs best for blocks and blocks+ , but is not competitive for lin and bg . The proposed horseshoe GDSP maintains excellent point estimation and precise yet well-calibrated uncertainty quantifi-cation, especially compared to competing Bayesian models. 
+
+D.2 Time series of images 
+
+We complement the spatio-temporal results of Section 4.5 for the remaining trends. Fig-ure D.6 shows the forecast RMSEs and MCIW/ECP at t = T for bg and blocks+ , using the same simulation setup ( d1 = d2 = 40, T = 4, RSNR = 3). The findings are consistent with those for lin and blocks : the proposed horseshoe GDSP achieves the lowest forecast 
+
+43 Mascaretti and Kowal GDSP HS NIG BL 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+blocks: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6
+
+blocks: time (min) GDSP HS NIG BL 0.5 0.6 0.7 0.8 0.9 1.0 
+
+blocks+: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5
+
+blocks+: time (min) GDSP HS NIG BL 0.4 0.6 0.8 1.0 
+
+lin: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6 7
+
+lin: time (min) GDSP HS NIG BL 0.4 0.6 0.8 1.0 
+
+bg: relative efficiency GDSP HS NIG BL GL 1 2 3 4 5 6
+
+bg: time (min) 
+
+Figure D.3: Average relative efficiency ¯Neff /N and wall-clock time to 1000 effective samples ¯s1000 (GL: full solution path) for the four trends with no missingness. RMSE for both trends; for bg it also provides the narrowest (calibrated) intervals, while for blocks+ the interval widths are all similar. All Bayesian methods significantly out-perform GL in point estimation, with the advantage being particularly pronounced under missingness. 
+
+Appendix E. Additional results and MCMC diagnostics for the U.S. unemployment analysis 
+
+In Figure E.1, we report trace plots of the trend β for three representative counties: San Juan County, UT (FIPS 49037; degree 14, the most connected, hence a potentially chal-
+
+> 44 Graph-Dependent Shrinkage Priors
+
+## k=0 k=1 k=2 0.050 0.060 0.070 
+
+# blocks: RMSE 
+
+## k=0 k=1 k=2 0.16 0.20 0.24 0.28 
+
+# blocks: MCIW (ECP%) 
+
+# 99% 98% 95% k=0 k=1 k=2 0.03 0.05 0.07 0.09 
+
+# bg: RMSE 
+
+## k=0 k=1 k=2 0.2 0.3 0.4 0.5 0.6 
+
+# bg: MCIW (ECP%) 
+
+# 96% 99% 98% 
+
+Figure D.4: Performance of the horseshoe GDSP for blocks (top) and bg (bottom) trends on a 50 × 50 lattice (50% missingness) across k ∈ { 0, 1, 2}. The higher order penalties (larger k) encourage greater smoothness, provide narrower intervals, and perform best on smooth trends. The choice of k = 1 from the main paper is competitive for both smooth and non-smooth trends. lenging parameter for MCMC), Los Angeles County, CA (FIPS 06037; large metro), and Washington County, KY (FIPS 21229; from an anomalous block of Kentucky counties), for one observed month (2020-06) and the forecast month (2020-07). The most-connected county corresponds to greater dependencies in the trend and in the log-shrinkage, and thus represents a potentially challenging case for MCMC. The observed county-months mix well for all three counties. Mixing degrades as the information at a node decreases. Bulk ef-fective sample sizes (ESS) per county-month for the GDSP trend have median 4688 of the 
+
+> 45 Mascaretti and Kowal
+
+## k=0 k=1 k=2 −2800 −2500 −2200 
+
+# blocks: WAIC 
+
+## k=0 k=1 k=2 −1300 −1000 −800 
+
+# bg: WAIC 
+
+Figure D.5: WAIC for the horseshoe GDSP across k ∈ { 0, 1, 2} for the blocks (left) and bg 
+
+(right) trends on a 50 ×50 lattice with 50% missingness. Lower WAIC indicates better out-of-sample prediction. 5000 stored draws at the observed county-months, and 2349 at the held-out county-months of the imputation task, whose spatial and temporal neighbors are largely observed. On the forecast slice, which is informed only through the imputation step (Section 3.3) and the graph, the median ESS is 414 and the 5th percentile is 136. The implied Monte Carlo error is small relative to the reported posterior uncertainty. The Monte Carlo standard error of a county’s posterior-mean forecast has median 1 .2% of its 95% forecast-interval width (2 .1% for 95% of counties), and 0 .5% at the imputation targets. Figure E.2 complements the maps of Figure 6 with the full county-level profile: all 3 ,108 counties ordered by FIPS code, with the realized log-unemployment, the GDSP fit, and its 95% intervals for each month of the window. On the observed months the fit tracks the jagged cross-county profile with narrow intervals, and the oracle-tuned GL (red) deviates visibly at the held-out county-months it must impute; on the forecast month the bands widen honestly, by an amount that adapts across regions, with the realized July values falling inside them almost everywhere. 
+
+> 46
+
+Graph-Dependent Shrinkage Priors GDSP HS NIG BL GL 0.2 0.3 0.4 0.5 
+
+bg: RMSE (forecast)    
+
+> GDSP HS NIG BL 0.65 0.70 0.75 0.80
+
+bg: MCIW (ECP%) 
+
+# 97% 96% 99% 99% GDSP HS NIG BL GL 0.2 0.3 0.4 0.5 
+
+blocks+: RMSE (forecast)     
+
+> GDSP HS NIG BL 1.2 1.3 1.4 1.5 1.6
+
+blocks+: MCIW (ECP%) 
+
+# 100% 100% 99% 100% 
+
+Figure D.6: Forecast RMSEs and MCIWs with ECPs (blue annotations) at t = T for the 
+
+bg and blocks+ spatio-temporal trends ( d1 = d2 = 40, T = 4, RSNR = 3); each panel title reports the trend and the metric. The proposed horseshoe GDSP provides accurate point estimates and narrow intervals that achieve the nominal coverage. 
+
+47 Mascaretti and Kowal 0 1000 2000 3000 4000 5000 2.2  2.3  2.4  2.5  2.6  2.7  San Juan County, UT (FIPS 49037, deg 14) -- 2020-06 
+
+Saved iteration 
+
+> β
+
+0 1000 2000 3000 4000 5000 1.0  1.5  2.0  2.5  3.0 
+
+> San Juan County, UT (FIPS 49037, deg 14) -- 2020-07
+
+Saved iteration 
+
+> β
+
+0 1000 2000 3000 4000 5000 2.6  2.7  2.8  2.9  3.0  3.1 
+
+> Los Angeles County, CA (FIPS 06037, deg 4) -- 2020-06
+
+Saved iteration 
+
+> β
+
+0 1000 2000 3000 4000 5000 1.0  2.0  3.0  4.0 
+
+> Los Angeles County, CA (FIPS 06037, deg 4) -- 2020-07
+
+Saved iteration 
+
+> β
+
+0 1000 2000 3000 4000 5000 1.3  1.4  1.5  1.6  1.7  1.8  Washington County, KY (FIPS 21229, deg 5) -- 2020-06 
+
+Saved iteration 
+
+> β
+
+0 1000 2000 3000 4000 5000 -1.0  0.0  1.0  2.0 
+
+> Washington County, KY (FIPS 21229, deg 5) -- 2020-07
+
+Saved iteration 
+
+> β
+
+GDSP, k=1 (chain 1) 
+
+Figure E.1: Trace plots of the trend β for three representative U.S. counties (rows): San Juan County, UT (degree 14, the most connected); Los Angeles County, CA; and Washington County, KY. Columns: the last observed month (2020-06) and the forecast month (2020-07). Each panel shows the 5000 stored draws of the single chain described in Section 5. Mixing is fast for the observed months; for the forecast month, which has no data, the chain explores a wider range, and the intervals in Figure E.2 are correspondingly wider. 
+
+48 Graph-Dependent Shrinkage Priors 1 2 3 4 2020−04                       
+
+> log unemployment realized GDSP posterior mean 95% interval GL (oracle) AL CO GA IL IN IA KS KY LA MI MS MO NE NY OH PA SD TX VA WI 1 2 3 4
+
+2020−05                    
+
+> log unemployment AL CO GA IL IN IA KS KY LA MI MS MO NE NY OH PA SD TX VA WI 1 2 3 4
+
+2020−06                    
+
+> log unemployment AL CO GA IL IN IA KS KY LA MI MS MO NE NY OH PA SD TX VA WI 1 2 3 4
+
+2020−07 (forecast)                    
+
+> log unemployment AL CO GA IL IN IA KS KY LA MI MS MO NE NY OH PA SD TX VA WI
+
+Figure E.2: U.S. log-unemployment data with all 3108 counties on the horizontal axis, or-dered by FIPS code (light vertical lines mark state boundaries; large states la-beled) and plotted across different months (top to bottom). Each panel shows realized log-unemployment (dashed black), the GDSP posterior mean (blue), 95% intervals (gray), and the oracle-tuned GL estimate (red). Under the design of Section 5, 25% of the county-months in the top three panels are held out and imputed. The bottom panel is the out-of-sample July forecast. 
+
+49

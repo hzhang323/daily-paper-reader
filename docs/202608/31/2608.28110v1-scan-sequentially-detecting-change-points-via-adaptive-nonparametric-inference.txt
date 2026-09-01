@@ -1,0 +1,1792 @@
+Title: SCAN: Sequentially Detecting Change-points via Adaptive Nonparametric Inference
+
+URL Source: https://arxiv.org/pdf/2608.28110v1
+
+Published Time: Mon, 31 Aug 2026 00:55:21 GMT
+
+Number of Pages: 64
+
+Markdown Content:
+# SCAN: Sequentially Detecting Change-points via Adaptive Nonparametric Inference 
+
+## Ashoka Prabashwara 
+
+School of Mathematics and Statistics, University of Melbourne 
+
+## and Patricia Menéndez 
+
+School of Mathematics and Statistics, University of Melbourne 
+
+## and Liam Hodgkinson 
+
+School of Mathematics and Statistics, University of Melbourne 
+
+## and Stuart Lee 
+
+Walter and Eliza Hall Institute, University of Melbourne 
+
+## August 28, 2026 
+
+Abstract 
+
+Modern time series are often long, serially dependent, and non-stationary. Exist-ing change-point methods either target specific changes or become computationally intensive when using nonparametric costs on long series. Many also require thresholds to be carefully calibrated under serial dependence. We introduce SCAN, an offline method for detecting multiple distributional change-points in long, serially dependent univariate time series. SCAN compares adjacent windows using an integral proba-bility metric, calibrates local discrepancies with a dependence-aware bootstrap, and refines candidate locations using a scaled 1-Wasserstein criterion, enabling detection of changes in mean, variance, and broader distributional structure within a unified framework. An ensemble over multiple window sizes reduces sensitivity to window size and threshold specification. We establish consistency of the estimated number and locations of change-points under exponential 𝛼 -mixing dependence, and show that the localization statistic reduces to a CUSUM-type statistic under pure mean shifts. In simulations with up to one million observations, SCAN generally achieves higher covering and 𝐹 1-scores than competing methods across mean and joint mean-variance shifts, particularly under serial dependence. On real data, SCAN identifies labeled activity transitions in sensor data and interpretable structural changes in hourly Bitcoin prices. Implementations are available in the Python package scan-cpd 
+
+and R package scanr .
+
+Keywords: Long time series, Serial dependence, Distributional shifts, Bootstrap calibration, Wasserstein distance 1arXiv:2608.28110v1 [stat.ME] 28 Aug 2026 1 Introduction 
+
+Advances in automated data collection have transformed time series analysis from a set-ting involving relatively small to moderately large datasets to one characterized by mas-sive, high-frequency data. Financial markets (Chen et al. 2023), industrial sensor systems, environmental monitoring networks (Bitencourt et al. 2023), and healthcare technologies (Morid et al. 2023) now generate millions of observations, requiring scalable methods capa-ble of extracting information from large and continuously evolving data. In the context of very long time series, often comprising millions of observations, the assumption of station-arity, or even weak stationarity (Hamilton 1994), is frequently unrealistic. For sufficiently long time series, it becomes increasingly unlikely that a single probability law adequately describes the underlying stochastic process over the entire observation period. Changes may occur in the mean, variance, or the distributional law itself, and ignoring such changes can degrade forecasting accuracy and lead to biased inference. This has led to extensive research on offline change-point detection methods for univariate time series, where all observations are available prior to analysis, which is the case con-sidered in this study. Existing methods have focused on detecting a change in the mean, with the cumulative sum (CUSUM) statistic of Page (1954) being one of the earliest ap-proaches, as well as changes in variance (Shi 2015), correlation structure (Cabrieto et al. 2017), and trend (Maeng & Fryzlewicz 2024). Similar problems arise in multivariate and high-dimensional settings, where a common strategy is to reduce the data to one or more univariate series through projections or other transformations (Wang & Samworth 2018, Hahn et al. 2020, Zhang et al. 2024, Qin et al. 2025). Therefore, advances in univariate change-point detection remain relevant beyond the univariate setting. For multiple change-points, existing methods can be broadly divided into exact and approx-2imate approaches. Exact methods formulate detection as a penalized optimization problem and solve it using dynamic programming with pruning techniques, including the Segment Neighborhood method of Jackson et al. (2005), the Pruned Exact Linear Time (PELT) algorithm of Killick et al. (2012), and Functional Pruning Optimal Partitioning (FPOP) of Maidstone et al. (2017). Approximate methods improve computational scalability through recursive partitioning or local scanning procedures. Examples include Binary Segmenta-tion (Sen & Srivastava 1975), Wild Binary Segmentation (WBS) (Fryzlewicz 2014), Seeded Binary Segmentation (SBS) (Kovács et al. 2022), and window-based approaches such as MOSUM (Eichinger & Kirch 2018). While computationally efficient and effective in many settings, the type of change-point detected by these methods is largely determined by the associated cost function, which most commonly targets changes in the mean. As noted by Truong et al. (2020), change-point methods consist of three main compo-nents: a search strategy, a cost or discrepancy function, and a penalty or threshold used to determine the number of changes. While extensive research has been devoted to mean change-point detection in moderately long time series (see Fearnhead & Rigaill (2020) and Aminikhanghahi & Cook (2017) for reviews), the type of distributional change that a method can detect is largely determined by its cost function and therefore often needs to be specified in advance. Nonparametric methods, such as E-divisive (Matteson & James 2014) and kernel-based approaches (Arlot et al. 2019), can detect broader distributional changes without explicitly targeting a particular characteristic of the distribution. However, these methods are often computationally demanding and are typically limited to short or moderately long series. In addition to the cost function, change-point methods require a penalty or threshold to distinguish genuine distributional changes from stochastic fluctuations. Common choices 3include information-criterion-based penalties such as AIC (Bozdogan 1987), BIC (Schwarz 1978), and MBIC (Bogdan et al. 2004). Yet these approaches typically rely on a global penalty and are often calibrated under independence. For dependent time series, serial correlation inflates the long-run variance, causing such thresholds to underestimate the variability of the process and potentially leading to excessive false detections. Although alternative penalty calibration methods have been proposed (Truong et al. 2017, Lavielle 2005), selecting an appropriate penalty remains challenging, particularly in the presence of dependence. This challenge is amplified in long time series, where even small threshold misspecifications can lead to substantial over- or under-segmentation. Among the search methods discussed above, window-based procedures are particularly attractive for very long time series because they reduce the global search problem to a sequence of local comparisons between adjacent segments, despite their sensitivity to the window size. This makes them simple to implement and computationally efficient, with computational cost growing approximately linearly with the series length (Truong et al. 2020), a substantial improvement over the typical quadratic scaling of global nonparametric methods. Nevertheless, existing window-based methods remain sensitive to the choice of window size and threshold calibration, particularly under serial correlation. There remains a need for computationally efficient change-point detection methods for long time series that can detect broad distributional changes while accounting for dependence and requiring minimal tuning. More broadly, the computational cost of existing change-point methods varies considerably. Binary segmentation, wild binary segmentation (WBS), and seeded binary segmentation (SBS) typically scale as 𝑂(𝑇 log 𝑇 ) . PELT is linear under favorable pruning conditions but has worst-case complexity 𝑂(𝑇 2), while FPOP has the same worst-case order despite 4often being fast in practice. Kernel methods such as KCP can be computationally and memory intensive for long series, as they evaluate kernel-based segment costs within a global segmentation problem (Arlot et al. 2019, Truong et al. 2020). Therefore, viewed collectively, these distinct algorithmic challenges underscore a frequent trade-off in the literature. While contemporary frameworks have successfully relaxed spe-cific classical assumptions piecemeal, existing methodologies rarely address computational scalability, complex serial dependence, and nonparametric distributional flexibility simul-taneously. Developing a unified approach that satisfies all three criteria is essential for operating on long time series. To address these concurrent challenges, we propose SCAN ( Sequential Detection of Change-points via Adaptive Nonparametric Inference), a scalable nonparametric framework for multiple change-point detection in long univariate time series that combines the efficiency of window-based methods with the flexibility of nonparametric inference. SCAN performs local two-sample comparisons between adjacent windows based on an integral probability metric (IPM, Müller (1997)), enabling detection of mean, variance, and general distribu-tional changes within a unified detection-localization framework. Candidate regions identi-fied by the scanning procedure are subsequently refined using a newly proposed localization statistic based on the 1-Wasserstein distance (Villani 2009), while detections across multi-ple window sizes are aggregated through an ensemble strategy (Rokach 2010) that reduces sensitivity to the choice of a single window size. We establish theoretical guarantees un-der exponential 𝛼 -mixing conditions (Rosenblatt 1956) and further evaluate the proposed method through simulation studies involving long-memory processes (Granger & Joyeux 1980). Due to its linear computational complexity with respect to the time series length, SCAN achieves execution speeds on par with the fastest exact parametric methods for sim-5ple mean shifts, while providing orders-of-magnitude speedups over competing frameworks when detecting more complex distributional changes. A second contribution establishes a direct analytical connection between the proposed local-ization statistic and the classical CUSUM method. We show that the Scaled 1-Wa sserstein 
+
+Localization (SWAL) statistic reduces exactly to a CUSUM-type criterion under a pure mean shift, positioning it as a distributional generalization of CUSUM. Beyond this spe-cial case, the SWAL statistic retains sensitivity to variance changes, joint mean-variance changes, and more general distributional shifts, while remaining grounded in a unified nonparametric framework. The paper is organized as follows. Section 2 defines the distributional change-point problem for univariate time series. Section 3 introduces SCAN, including the scanning procedure and ensemble extension. Section 4 presents the theoretical guarantees. Section 6 reports the simulation study, and Section 7 applies the method to real datasets with the conclusion in Section 8. Proofs and additional numerical results are provided in the online supplementary material. 
+
+# 2 Model and Data 
+
+Let {𝑋 𝑡 }𝑇 𝑡=1 be a univariate time series with 𝑋 𝑡 ∈ ℝ that is piecewise strictly stationary (Brockwell & Davis 1991) with exponentially 𝛼 -mixing within each stationary segment, with mixing coefficients satisfying 𝛼(ℎ) ≤ 𝑒 −𝜆ℎ , where 𝜆 > 0 and ℎ ≥ 1 . In this study, we aim to estimate the changes in time series mean, variance, or distributional properties, as well as their temporal locations. For that, we assume there exists an integer 𝑘 ≥ 0 and time points 1 ≤ 𝜏 1 < ⋯ < 𝜏 𝑘 < 𝑇 ,with 𝜏 0 = 0 and 𝜏 𝑘+1 = 𝑇 , such that the process changes at each 𝜏 𝑗 either in its mean, 6variance, or distributional properties. We refer to times 𝜏 1, … , 𝜏 𝑘 as change-points. Then for each segment 𝑆 𝑗 = (𝑋 𝜏 𝑗−1 +1 , … , 𝑋 𝜏 𝑗 ) with 𝑗 = 1, … , 𝑘 + 1 , we define the mean, variance and the distribution of segment 𝑆 𝑗 as 𝜇 (𝑗) , 𝜎 2(𝑗) , and 𝐹 𝑆 𝑗 respectively where 𝐹 𝑆 𝑙 represents the cumulative distribution function (CDF) of the ℓth segment for 𝑙 = 1, … , 𝑘 + 1 .At each change-point, the distributions of the adjacent stationary segments differ, so that 
+
+𝐹 𝑆 𝑗 ≠ 𝐹 𝑆 𝑗+1 for 𝑗 = 1, … , 𝑘 . These changes may involve the mean, variance, or other distributional properties. To measure the discrepancy between the probability measures associated with two segments 
+
+𝑆 𝑗 and 𝑆 𝑖 , we use Integral Probability Metrics (IPMs, Müller (1997)) defined as follows: Let 𝑃 𝑆 𝑗 and 𝑃 𝑆 𝑖 be the probability measures associated with these segments, and let 𝒢 
+
+be a class of real-valued measurable functions that are integrable with respect to both 𝑃 𝑆 𝑗 
+
+and 𝑃 𝑆 𝑖 . The IPM between 𝑃 𝑆 𝑗 and 𝑃 𝑆 𝑖 is defined as 
+
+𝑑 𝒢 (𝑃 𝑆 𝑗 , 𝑃 𝑆 𝑖 ) = sup 
+
+> 𝑓∈𝒢
+
+∣𝔼 𝑋∼𝑃 𝑆 𝑗 
+
+[𝑓(𝑋)] − 𝔼 𝑌 ∼𝑃 𝑆 𝑖 
+
+[𝑓(𝑌 )]∣ . 
+
+Equivalently, if 𝐹 𝑆 𝑗 and 𝐹 𝑆 𝑖 denote the corresponding CDFs, then 
+
+𝑑 𝒢 (𝑃 𝑆 𝑗 , 𝑃 𝑆 𝑖 ) = sup 
+
+> 𝑓∈𝒢
+
+∣∫ 𝑓(𝑥) 𝑑𝐹 𝑆 𝑗 (𝑥) − ∫ 𝑓(𝑥) 𝑑𝐹 𝑆 𝑖 (𝑥)∣ . 
+
+Here, ∫ 𝑓(𝑥) 𝑑𝐹 (𝑥) denotes the Lebesgue-Stieltjes integral with respect to the probability measure induced by the CDF 𝐹 .
+
+# 3 Methodology 
+
+SCAN consists of a detection-localization procedure, followed by an ensemble aggregation step over multiple window sizes via majority voting (Lam & Suen 1997) to reduce sensitivity 7to window size selection. This separation of testing, localization, and ensemble stabilization is central to our method and distinguishes it from approaches that optimize a single global cost or rely on a fixed penalty. For window size 𝑤 , the procedure compares two adjacent non-overlapping windows of equal size at each candidate split 𝑡 : the reference window 𝑋 𝑡−𝑤+1∶𝑡 = (𝑋 𝑡−𝑤+1 , … , 𝑋 𝑡 ) and the stride window 𝑋 𝑡+1∶𝑡+𝑤 = (𝑋 𝑡+1 , … , 𝑋 𝑡+𝑤 ), with the equal-size choice motivated by the finite-sample IPM error bound in Section 4. Throughout, window refers to either local sample 𝑋 𝑡−𝑤+1∶𝑡 or 𝑋 𝑡+1∶𝑡+𝑤 ; localization region refers to their union 𝑋 𝑡−𝑤+1∶𝑡+𝑤 ; and 
+
+segment refers to the underlying stationary regimes between consecutive change-points, as defined in Section 2. By operating on adjacent local windows, SCAN converts the global search problem into a sequence of local reference-stride comparisons. This local structure improves computational scalability, as illustrated in Figure 1, where SCAN has competitive runtimes for mean-only change-point methods and shows clear runtime gains for joint mean-variance changes compared with the main benchmark methods. A detailed complexity analysis and runtime comparison are provided in the computational-times subsection of Section 6. For clarity, the scanning and localization stages are described for a single candidate split. For a time series of length 𝑇 and window size 𝑤 , the full procedure applies these steps across all ⌊𝑇 /𝑤⌋ − 1 adjacent window pairs, indexed by 𝑡 𝑚 = 𝑚𝑤 . Detailed steps of the proposed SCAN framework are given below: 1. Window partitioning: For a candidate split at time 𝑡 , the observed local IPM dis-crepancy between the empirical distributions of the reference and stride windows is used as the test statistic 𝑇 𝑡,𝑤 = 𝑑 𝒢 (̂𝐹 (𝑤),𝑡 ,̂ 𝐹 (𝑠),𝑡 ), where ̂ 𝐹 (𝑤),𝑡 and ̂ 𝐹 (𝑠),𝑡 de-note the empirical CDFs of 𝑋 𝑡−𝑤+1∶𝑡 and 𝑋 𝑡+1∶𝑡+𝑤 , respectively. The statistic tests 83 4 5 6 7      
+
+> log 10 (T)
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> Computation time (seconds)
+> Change in mean
+> 34567
+> log 10 (T)
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> Computation time (seconds)
+> Change in mean and variance
+> BinSeg PELT WBS KCP FPOP SBS SCAN
+
+Figure 1: Mean computation times over 1,000 simulation runs for competing change-point detection methods applied to white-noise time series with change-points. The left panel shows results for changes in the mean, while the right panel shows results for joint changes in the mean and variance. The horizontal axis represents log 10 (𝑇 ) , where 𝑇 denotes the series length, and the vertical axis represents computation runtime in seconds. 
+
+𝐻 0,𝑡 ∶ 𝐹 (𝑤),𝑡 = 𝐹 (𝑠),𝑡 against 𝐻 1,𝑡 ∶ 𝐹 (𝑤),𝑡 ≠ 𝐹 (𝑠),𝑡 , where 𝐹 (𝑤),𝑡 and 𝐹 (𝑠),𝑡 denote the corresponding population CDFs. Since 𝑇 𝑡,𝑤 is a non-negative discrepancy measure, evidence against 𝐻 0,𝑡 occurs only in the upper tail of its null distribution. 2. Change-point window selection via a data-driven threshold: Let 𝑏 𝑇 ,𝑚 denote a theoretical or generic threshold for the local IPM test statistic at candidate split 𝑡 𝑚 ,with dependence on the window size suppressed. Its empirically calibrated tapered block-bootstrap counterpart is denoted by ̂ 𝑏 𝑇 ,𝑚 . In practice, the local null hypothesis is rejected and the corresponding reference-stride region is flagged whenever 𝑇 𝑡 𝑚 ,𝑤 >̂ 𝑏 𝑇 ,𝑚 . The threshold ̂ 𝑏 𝑇 ,𝑚 is obtained from a tapered block bootstrap (Paparoditis & Politis 2001) approximation of the null distribution of 𝑇 𝑡 𝑚 ,𝑤 ; see Section 5 for details. Rejection of 𝐻 0,𝑡 shows evidence of a distributional change in either the reference or the stride window, but it does not locate the change-point. Localization is therefore treated as a separate inference problem and is applied conditionally within each 9flagged region. Figure 2 illustrates both stages: Step 1 flags candidate regions using the data-driven IPM threshold, and Step 2 localizes the exact location of the change-point. 3. Change-point detection and localization: Conditional on rejection of the null hypothesis, and under Condition 1 in Section 4, the detection problem reduces to a single-change-point localization problem. For a rejected candidate split 𝑡 , the corre-sponding flagged region is defined as the union of the reference window 𝑋 𝑡−𝑤+1∶𝑡 and the stride window 𝑋 𝑡+1∶𝑡+𝑤 . The SWAL statistic is then applied within the localiza-tion region 𝑋 𝑡−𝑤+1∶𝑡+𝑤 to refine the change-point location. At the population level, the SWAL statistic is defined below: For a local sequence 𝑋 1∶𝑛 of length 𝑛 with finite first-order moments, consider a possible split after observation 𝑘 , which divides the segment into the two subsamples 
+
+𝑋 1∶𝑘 and 𝑋 𝑘+1∶𝑛 . The set of admissible split locations is 𝒦 𝑛 = {1, … , 𝑛 − 1} , so that both subsamples are non-empty. For each 𝑘 ∈ 𝒦 𝑛 , the population scaled 1-Wasserstein statistic is defined as 
+
+𝐺 𝑛 (𝑘) = { 𝑘(𝑛 − 𝑘) 𝑛 }
+
+> 1/2
+
+𝑊 1 (𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) , (3.1) where 𝑊 1 denotes the 1-Wasserstein distance on a compact interval, and 𝐹 1∶𝑘 and 
+
+𝐹 𝑘+1∶𝑛 denote the population distributions associated with 𝑋 1∶𝑘 and 𝑋 𝑘+1∶𝑛 , respec-tively. The population change-point location is then 𝜏 𝑛 ∈ arg max 𝑘∈𝒦 𝑛 𝐺 𝑛 (𝑘) .This statistic operates within a unified nonparametric framework, accommodating changes in the mean, variance, and broader distributional characteristics. 4. Ensemble across window sizes: Because no single window size is universally optimal and labeled change-points are unavailable in unsupervised settings, standard 10 tuning procedures such as cross-validation are not applicable. We therefore introduce an ensemble extension of SCAN by applying the method over a finite collection of window sizes, 𝒲 = {𝑤 1, … , 𝑤 𝑑 }. Each SCAN detector associated with a particu-lar window size is referred to as a base detector, and the resulting detections are aggregated through majority voting. This ensemble acts as a stability filter, reduc-ing sensitivity to the choice of any single window size while preserving localization accuracy. 
+
+Majority-vote aggregation: Candidate detections are aggregated over the col-lection of window sizes 𝒲 = {𝑤 1, … , 𝑤 𝑑 }. For each 𝑤 𝑗 ∈ 𝒲 , SCAN produces an estimated change-point set ̂ ℛ(𝑗) , and the pooled set of candidate detections is ̂ℛ = ⋃ 𝑑 𝑗=1 ̂ ℛ(𝑗) .Let 𝑟 𝑇 > 0 denote a tolerance distance used to merge nearby detections that are plau-sibly associated with the same underlying change-point. Once ̂ ℛ is sorted in ascending order, consecutive detections are assigned to the same cluster if their separation is no larger than 𝑟 𝑇 . Thus, the pooled set is partitioned into clusters 𝒮 = {𝒮 1, … , 𝒮 𝐿 },where ̂ 𝜏 (𝑚) ,̂ 𝜏 (𝑚+1) ∈ 𝒮 ℓ whenever ̂ 𝜏 (𝑚+1) −̂ 𝜏 (𝑚) ≤ 𝑟 𝑇 .Each cluster is then evaluated by its support proportion, SP (𝒮 ℓ) = 1𝑑 
+
+> 𝑑
+
+∑
+
+> 𝑗=1
+
+1 {̂ℛ (𝑗) ∩ 𝒮 ℓ ≠ ∅} , 
+
+which measures the fraction of SCAN detectors that contribute at least one detection to 𝒮 ℓ. A cluster is retained when SP (𝒮 ℓ) ≥ 𝜈 , where 𝜈 ∈ (0, 1] is a fixed voting threshold, treated as a user-specified hyperparameter independent of 𝑇 . For each retained cluster, the vote count at location 𝑡 ∈ 𝒮 ℓ is 𝐶 𝒮 ℓ (𝑡) = ∑ 𝑑 𝑗=1 1 {𝑡 ∈̂ ℛ (𝑗) },and the representative change-point is chosen as ̂ 𝜏(𝒮 ℓ) = arg max 𝑡∈𝒮 ℓ 𝐶 𝒮 ℓ (𝑡) .11 Figure 2: Illustration of the proposed SCAN change-point detection framework. Step 1 compares the local IPM statistic between adjacent windows with a data-driven threshold to flag candidate change-point regions. Step 2 refines each flagged region by maximizing the SWAL statistic over the flagged splits. The final ensemble estimate is therefore ̂ ℛ⋆ = {̂𝜏(𝒮 ℓ) ∶ SP (𝒮 ℓ) ≥ 𝜈, ℓ = 1, … 𝐿} .
+
+# 4 Theoretical Results 
+
+This section establishes the theoretical foundations of the SCAN change-point detection framework. We begin by introducing the regularity conditions required for the theoretical analysis, followed by the main results. The following three conditions are assumed through-out the theoretical analysis. Conditions 1 and 2 are standard identifiability requirements ensuring that change-points are sufficiently separated and that the signal magnitude at each change-point is bounded away from zero. Additionally, Condition 3 imposes uniform bounded variation on the function class 𝒢 , ensuring that the theoretical analysis of IPM 
+
+𝑑 𝒢 can be controlled via empirical processes theory. 12 Condition 1 (Minimal spacing requirement). 
+
+Consecutive elements of the change-point sequence 0 = 𝜏 0 < 𝜏 1 < ⋯ < 𝜏 𝑘 < 𝜏 𝑘+1 = 𝑇 
+
+are separated by at least 𝜏 min > 0 , such that 𝜏 𝑗+1 − 𝜏 𝑗 ≥ 𝜏 min , where 𝑗 = 0, … , 𝑘 . For the asymptotic theory, 𝜏 min is allowed to depend on 𝑇 and satisfies 𝜏 min → ∞ such that 
+
+𝜏 min = 𝑜(𝑇 ) as 𝑇 → ∞ .
+
+Condition 2 (Minimal Signal Magnitude). 
+
+There exists a constant 𝜗 𝒢 > 0 such that, for each 𝑗 = 1, … , 𝑘 , the change is identifiable by the IPM used in the detection stage: 𝑑 𝒢 (𝐹 𝑆 𝑗 , 𝐹 𝑆 𝑗+1 ) ≥ 𝜗 𝒢 .
+
+Condition 3 (Uniform bounded variation of the IPM class). 
+
+Let 𝒢 be a class of measurable real-valued functions on ℝ. For any finite partition 𝑍 = {𝑥 0 <𝑥 1 < ⋯ < 𝑥 𝑚 } of ℝ, assume there exists a constant 𝐶 𝒢 < ∞ such that sup 𝑓∈𝒢 TV ℝ(𝑓) = 
+
+sup 𝑓∈𝒢 sup 𝑍 ∑𝑚 𝑖=1 |𝑓(𝑥 𝑖 ) − 𝑓(𝑥 𝑖−1 )| ≤ 𝐶 𝒢 , where TV ℝ(𝑓) denotes the total variation of 
+
+𝑓 ∈ 𝒢 on ℝ.
+
+Under Condition 3, the functions in 𝒢 have uniformly bounded total variation. This implies 
+
+𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) ≤ 𝐶 𝒢 𝑑 KS (𝐹 (𝑤) , 𝐹 (𝑠) ), (4.1) where 𝑑 KS (𝐹 (𝑤) , 𝐹 (𝑠) ) = sup 𝑥∈ℝ |𝐹 (𝑤) (𝑥) − 𝐹 (𝑠) (𝑥)| is the Kolmogorov-Smirnov distance between 𝐹 (𝑤) and 𝐹 (𝑠) (Marsaglia et al. 2003). A detailed proof of inequality (4.1) is provided in the online supplementary material. Condition 3 is satisfied by several commonly used IPMs in the one-dimensional setting, including the Kolmogorov-Smirnov distance and IPMs generated by uniformly bounded-variation function classes. When the distributions are supported on a compact interval, the 1-Wasserstein distance satisfies this condition, since every 1-Lipschitz function has 13 bounded variation on a compact interval. Similarly, finite collections of polynomial test functions of fixed order have bounded variation on compact intervals, thus moment-based discrepancies are also covered in this setting. For empirical samples, the observed support is finite, so the bounded-variation condition can be verified on the empirical range. However, population-level guarantees for distributions with unbounded support require additional moment, tail, or truncation arguments. 
+
+## 4.1 Dvoretzky-Kiefer-Wolfowitz Inequality under Dependence 
+
+The bound in inequality (4.1) reduces the problem of controlling the empirical IPM error to that of controlling the uniform deviation of the empirical CDF from its population coun-terpart. Under independence, this is addressed by the classical Dvoretzky-Kiefer-Wolfowitz inequality (Dvoretzky et al. 1956). However, since the observations within each window are assumed to be exponentially 𝛼 -mixing rather than independent, a dependent analogue of this inequality is required. Lemma 1 provides this result. 
+
+Lemma 1 (DKW-type inequality under exponentially 𝛼 -mixing). 
+
+Let {𝑋 𝑡 }𝑡≥1 be a strictly stationary univariate time series with continuous marginal CDF 
+
+𝐹 . Suppose its strong-mixing coefficients satisfy 𝛼(ℎ) ≤ exp (−𝜆ℎ) with ℎ ≥ 1 for some 
+
+𝜆 > 0 . For a sample 𝑋 1, … , 𝑋 𝑇 , let ̂ 𝐹 𝑇 (𝑥) = 1𝑇 ∑𝑇 𝑖=1 1{𝑋 𝑖 ≤ 𝑥}, and define 𝑌 𝑖 (𝑥) = 
+
+1{𝑋 𝑖 ≤ 𝑥} − 𝐹 (𝑥) and let 𝜎 2 = sup 𝑥∈ℝ sup 𝑖≥1 [Var {𝑌 𝑖 (𝑥)} + 2 ∑ 𝑗>𝑖 ∣Cov {𝑌 𝑖 (𝑥), 𝑌 𝑗 (𝑥)}∣] .Then 𝜎 2 < ∞ , and there exists a constant 𝐶 > 0 , depending only on 𝜆 , such that, for every 
+
+𝑇 ≥ 2 and every 𝜀 > 0 ,
+
+Pr (sup 
+
+> 𝑥∈ℝ
+
+|̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| > 𝜀) ≤ 6𝜀 exp [− 𝐶𝑇 𝜀 2
+
+4 {𝜎 2 + 𝑇 −1 + (𝜀/2)( log 𝑇 ) 2}] , 
+
+14 4.2 Finite-Sample IPM Error Bounds and Optimal Window Size 
+
+Lemma 1 controls the uniform deviation of a single empirical CDF under exponential 𝛼 -mixing. Theorem 1 extends this to bound the absolute error of the empirical IPM computed between each pair of reference and stride windows, providing the finite-sample guarantee required to control Type-I and Type-II errors of the local hypothesis test at each candidate split. 
+
+Theorem 1 (Absolute IPM Error Bound under 𝛼 -mixing and Condition 3). 
+
+Let {𝑋 𝑡 }𝑇 𝑡=1 ⊂ ℝ be a univariate time series, and consider reference and stride windows of integer sizes 𝑤, 𝑠 ≥ 2 . Assume that the observations within each window are strictly stationary and exponentially 𝛼 -mixing, with mixing coefficients satisfying 𝛼(ℎ) ≤ 𝑒 −𝜆ℎ for some 𝜆 > 0 and all ℎ ≥ 1 . Assume that the marginal CDF of each window is continuous. Let 𝐹 (𝑤) and ̂ 𝐹 (𝑤) (respectively, 𝐹 (𝑠) and ̂ 𝐹 (𝑠) ) denote the population and empirical distri-bution functions of the reference and stride windows, and assume that the IPM function class 𝒢 satisfies Condition 3 with 0 < 𝐶 𝒢 < ∞ . Then, for every 𝜀 > 0 ,
+
+Pr (∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ > 𝜀) ≤ 12𝐶 𝒢 
+
+𝜀 [exp {−𝑤𝜀 2𝑎 𝑤 (𝜀)} + exp {−𝑠𝜀 2𝑎 𝑠 (𝜀)}] , 
+
+where, for 𝑛 ∈ {𝑤, 𝑠} , 𝑎 𝑛 (𝜀) = 𝐶 16𝐶 2𝒢 {𝜎 2+𝑛 −1 + 𝜀 4𝐶 𝒢 (log 𝑛) 2} , 𝐶 > 0 is the constant in Lemma 1, and 𝜎 2 < ∞ is a common upper bound for the covariance-variance quantities in that lemma for the reference and stride windows. 
+
+Remark 1 (Windows containing a change-point). 
+
+For equal window sizes satisfying 2𝑤 𝑇 < 𝜏 min , each combined reference-stride region con-tains at most one change-point, and applying Lemma 1 separately to its stationary subseg-ments yields an analogous absolute IPM error bound with the same convergence rate and adjusted constants; see the online supplementary material for details. 
+
+15 Consequently, under the conditions of Theorem 1, with 𝐶 𝒢 and 𝜎 2 uniformly bounded, the absolute IPM error has rate 𝑂 𝑝 (√ log (𝑤)/𝑤 + √ log (𝑠)/𝑠) as min {𝑤, 𝑠} → ∞ . The two terms are the respective contributions of the reference and stride windows. For a fixed local length 𝑁 = 𝑤 + 𝑠 , the corresponding conservative error bound is minimized by balancing the windows, 𝑤 = 𝑠 = 𝑁 /2 and justifies SCAN’s use of adjacent equal-size windows. Formal corollary statements and proofs for above results are provided in the online supplementary material. 
+
+## 4.3 Consistency of the SWAL Statistic 
+
+We establish consistency of the proposed SWAL estimator ̂ 𝜏 𝑛 by applying Theorem 1 to the 1-Wasserstein distance as the IPM under the compact-interval setting. By uniformly controlling the difference between the empirical and population SWAL statistics in Equa-tion (3.1), we then show that the population criterion admits a unique maximizer, yielding consistency of the empirical estimator. 
+
+Theorem 2 (Consistency of ̂ 𝜏 𝑛 ). 
+
+Fix 𝜂 ∈ (0, 1/2) and set 𝒦 𝑛 = {𝑘 ∶ ⌈𝜂𝑛⌉ ≤ 𝑘 ≤ ⌊(1 − 𝜂)𝑛⌋} , 𝐺 𝑛 (𝑘) ={𝑘(𝑛 − 𝑘)/𝑛} 1/2 𝑊 1 (𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ), and 𝜏 𝑛 ∈ arg max 𝑘∈𝒦 𝑛 𝐺 𝑛 (𝑘) . Let ̂ 𝐺 𝑛 (𝑘) be the empirical counterpart, let ̂ 𝜏 𝑛 ∈ 𝒦 𝑛 be its maximizer, and set ̄ 𝐺 𝑛 (𝑘) = 𝑛 −1/2 𝐺 𝑛 (𝑘) and ̄̂ 𝐺 𝑛 (𝑘) = 𝑛 −1/2 ̂ 𝐺 𝑛 (𝑘) .Suppose (i) sup 𝑘∈𝒦 𝑛 
+
+|̄̂𝐺 𝑛 (𝑘) −̄ 𝐺 𝑛 (𝑘)| 𝑝 
+
+−→ 0 ; (ii) 𝜏 𝑛 is the unique maximizer of 𝐺 𝑛 over 
+
+𝒦 𝑛 and, for every 𝜀 > 0 , there exists 𝑐 𝜀 > 0 , independent of 𝑛 , such that ̄ 𝐺 𝑛 (𝜏 𝑛 ) − 
+
+sup 𝑘∈𝒦 𝑛 
+
+> |𝑘−𝜏 𝑛 |≥𝜀𝑛
+
+̄ 𝐺 𝑛 (𝑘) ≥ 𝑐 𝜀 whenever the comparison set is nonempty; and (iii) ̂ 𝐺 𝑛 (̂𝜏 𝑛 ) ≥̂ 𝐺 𝑛 (𝜏 𝑛 ) − 𝑜 𝑝 (1) . Then |̂𝜏 𝑛 − 𝜏 𝑛 |/𝑛 𝑝 
+
+−→ 0 as 𝑛 → ∞ .
+
+Lemmas 1.1-1.3 in the online supplementary material establish that the conditions assumed 16 in Theorem 2 are satisfied for the proposed SWAL estimator. Beyond consistency, the population SWAL criterion admits a natural connection to classical mean-change detection as shown in Proposition 1. 
+
+Proposition 1 (Similarity with the CUSUM statistic). 
+
+Let {𝑋 𝑡 }𝑛 𝑡=1 follow the single change in mean model with 𝑋 𝑡 = 𝜇 1 + 𝑍 𝑡 for 𝑡 ≤ 𝜏 𝑛 and 
+
+𝑋 𝑡 = 𝜇 2 + 𝑍 𝑡 for 𝑡 > 𝜏 𝑛 , where the 𝑍 𝑡 share a mean-zero distribution with finite first moment, and let 𝐺 𝑛 (𝑘) denote the population SWAL criterion in Equation (3.1) . Then, for every 𝑘 ∈ {1, … , 𝑛 − 1} ,
+
+𝐺 𝑛 (𝑘) = { 𝑘(𝑛 − 𝑘) 𝑛 }
+
+> 1/2
+
+𝑊 1 (𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) = { 𝑘(𝑛 − 𝑘) 𝑛 }
+
+> 1/2
+
+|𝜇 1∶𝑘 − 𝜇 𝑘+1∶𝑛 | . 
+
+which coincides with the CUSUM statistic. 
+
+Under a pure mean shift with all other distributional properties fixed, the proposed 1-Wasserstein localization statistic reduces to the classical CUSUM statistic (a proof is pro-vided in the online supplementary material). Beyond this special case, the statistic re-mains sensitive to broader distributional shifts, including changes in variance and joint mean-variance shifts. This makes it suitable as a nonparametric localization cost for offline change-point methods that traditionally employ CUSUM-type criteria. The online sup-plementary material further illustrates numerically that the SWAL statistic is maximized near the true change-point under changes in mean, variance, joint mean-variance, and more general distributional structure. 17 4.4 Consistency of the Multiple Change-Point Detection Frame-work 
+
+The estimator scans the candidate split points {𝑡 𝑚 = 𝑚𝑤 𝑇 ∶ 𝑚 = 1, … , 𝑀 } , rejecting split 
+
+𝑡 𝑚 whenever 𝑇 𝑡 𝑚 > 𝑏 𝑇 ,𝑚 , and returns a single change-point estimate from each flagged region via the SWAL localization step. The proof that the resulting estimator is consistent for both the number and the locations of the change-points combines two arguments. First, the concentration bound of Theorem 1, applied with a threshold of order √log 𝑇 /𝑤 𝑇 and a sufficiently large fixed multiplier, controls the Type-I and Type-II error probabilities uniformly over the grid; under Conditions 1 and 2, the grid-coverage and error-control lemmas in the supplement show that both error probabilities vanish asymptotically, so that, with probability tending to one, no change-point-free split is flagged and no true change-point is missed. Second, on this event the condition 𝑤 𝑇 = 𝑜(𝜏 min ) forces the rejected splits to cluster into exactly 𝑘 maximal runs, each isolating a single change-point; hence ̂ 𝑘 = 𝑘 ,and Theorem 2 establishes consistency of the estimated location within each run. Detailed proofs for the lemmas are provided in the online supplementary material. 
+
+Theorem 3 (Consistency of the Consolidated SCAN Estimator). 
+
+Let ̂ 𝑘 and ̂ 𝜏 1 < ⋯ <̂ 𝜏 ̂𝑘 be the output of the estimated-change-point SCAN algorithm (Algorithm 1), run with window size 𝑤 𝑇 = ⌊𝑇 𝛽 ⌋, where 𝛽 ∈ (0, 1) and 𝑤 𝑇 = 𝑜(𝜏 min );
+
+𝑀 two-sample tests; and thresholds 𝑏 𝑇 ,𝑚 = 𝐴 𝑇 ,𝑚 √log 𝑇 /𝑤 𝑇 . Suppose that 𝑘 is fixed as 
+
+𝑇 → ∞ , that Conditions 1 and 2 hold, that the local IPM bound of Theorem 1 applies with 
+
+𝑐 > 0 ; and that the conditions of Theorem 2 hold with rate 𝜌 𝑇 = 𝑜(1) . Assume further that there exist fixed constants 𝐴 ∗, 𝐴 ∗ > 0 and 𝑇 0 < ∞ such that, for all 𝑇 ≥ 𝑇 0 and all 𝑚 ,
+
+0 < 𝐴 ∗ ≤ 𝐴 𝑇 ,𝑚 ≤ 𝐴 ∗ < ∞ and 𝑐𝐴 2∗ ≥ 1 − 𝛽 2 . Then 
+
+Pr (̂𝑘 = 𝑘 and max  
+
+> 1≤𝑗≤𝑘
+
+∣̂𝜏 𝑗 − 𝜏 𝑗 ∣ ≤ 𝑇 𝜌 𝑇 ) → 1, 
+
+18 so the framework is consistent in both the number and the relative locations of the change-points. 
+
+Note that the consistency result relies on deterministic thresholds of order √log 𝑇 /𝑤 𝑇 . In practice, we use tapered block-bootstrap thresholds that adapt to the local dependence structure, as explained in detail in Section 5. Establishing uniform bootstrap validity over a growing collection of local tests would require a separate analysis of dependent empirical processes and extreme bootstrap quantiles and is beyond the scope of this work. For a fixed finite ensemble, if every base SCAN detector satisfies Theorem 3 with rate 
+
+𝜌 𝑇 = 𝑜(1) and the merging radius satisfies 2𝑇 𝜌 𝑇 ≤ 𝑟 𝑇 < 𝜏 min /2 , then, for any fixed voting threshold 𝜈 ∈ (0, 1] , Ensemble-SCAN consistently estimates both the number and relative locations of the change-points; a detailed explantion is provided in the online supplementary material. 
+
+# 5 Numerical Implementation 
+
+The theoretical results are stated for abstract admissible window sizes, a fixed finite ensem-ble size, a fixed voting threshold (𝜈) , and a tolerance distance (𝑟 𝑇 ) satisfying the required separation conditions. In practice, defaults must be chosen to balance statistical perfor-mance and computational cost. We set the localization radius to 𝑟 𝑇 = min (𝒲) , since using the smallest window size provides the finest localization resolution. 
+
+## 5.1 Adaptive Threshold 
+
+Null distribution of test statistic via tapered block bootstrap 
+
+The generic threshold 𝑏 𝑇 ,𝑚 introduced in Section 3 is implemented locally at candidate split 
+
+𝑡 = 𝑡 𝑚 and window size 𝑤 using a tapered block bootstrap. We denote the resulting empir-19 ically calibrated threshold by ̂ 𝑏 𝑇 ,𝑚 , with dependence on the fixed window size suppressed. Under the null hypothesis 𝐻 0,𝑡 𝑚 , we assume both the stride and reference windows come from identical distributions. We therefore pool observations from both windows into the local sequence 𝑍 𝑡,1∶2𝑤 = (𝑋 𝑡−𝑤+1 , … , 𝑋 𝑡 , 𝑋 𝑡+1 , … , 𝑋 𝑡+𝑤 ) , with the goal of estimating the distribution of the test statistic 𝑇 𝑡,𝑤 under 𝐻 0,𝑡 .To do so, we generate the collection of 𝐵 tapered block bootstrap replicates {𝑍 ∗(𝑏) 𝑡,1∶2𝑤 }𝐵 𝑏=1 
+
+from the pooled local sequence 𝑍 𝑡,1∶2𝑤 . Compared to the classical bootstrap (Efron & Tibshirani 1994), block bootstrap methods are better suited to dependent data, as they preserve the serial dependence structure by resampling contiguous blocks of observations. Among these, the tapered block bootstrap is adopted here, as it additionally produces smoother transitions between adjacent resampled blocks than the standard block boot-strap. The block length is set to ℓ ≍ (2𝑤) 1/3 , corresponding to the length (2𝑤) of the pooled local region. While the theoretical calibration is stated for the ideal bootstrap dis-tribution, equivalently assuming that 𝐵 → ∞ , the numerical implementation approximates this distribution using a finite number 𝐵 of tapered block bootstrap replications. Then for each replicate 𝑏 = 1, … , 𝐵 , we partition 𝑍 ∗(𝑏) 𝑡,1∶2𝑤 into a bootstrap reference segment and a bootstrap stride segment of lengths 𝑤 and 𝑠 , respectively, and compute the corresponding bootstrap test statistic 𝑇 ∗(𝑏) 𝑡,𝑤 = 𝑑 𝒢 (̂𝐹 (𝑏) (𝑤),𝑡 ,̂ 𝐹 (𝑏) (𝑠),𝑡 ) , where ̂ 𝐹 (𝑏) (𝑤),𝑡 and ̂ 𝐹 (𝑏) (𝑠),𝑡 denote the em-pirical distribution functions of the bootstrap reference and stride segments at candidate split 𝑡 = 𝑡 𝑚 . The data-driven threshold is then defined as the empirical (1 − 𝛼 ′)-quantile of the bootstrap distribution: ̂ 𝑏 𝑇 ,𝑚 = inf {𝑞 ∈ ℝ ∶ 1𝐵 ∑𝐵 𝑏=1 1 (𝑇 ∗(𝑏) 𝑡,𝑤 ≤ 𝑞) ≥ 1 − 𝛼 ′} . 
+
+FWER control in the multiple testing framework 
+
+For a fixed window size, the scan performs 𝑀 = ⌊𝑇 /𝑤⌋ − 1 local tests. We use the Bonferroni-adjusted level 𝛼 ′ = 𝛼/𝑀 , which controls the family-wise error rate without 20 requiring independence among the local statistics. Less conservative procedures such as Holm-Bonferroni (Holm 1979) and Hochberg (Hochberg 1988) require global ordering across the many local tests and are not used. Pseudocode appears as Algorithm S1 in the online supplement. 
+
+## 5.2 SCAN 
+
+We summarize the full SCAN framework in Algorithm 1. For a fixed window size 𝑤 , SCAN examines the candidate splits 𝑡 𝑚 = 𝑚𝑤 : at each split it compares the non-overlapping reference and stride windows through the local IPM discrepancy 𝑇 𝑡 𝑚 and rejects the local null 𝐻 0,𝑡 𝑚 when 𝑇 𝑡 𝑚 exceeds the bootstrap-calibrated threshold ̂ 𝑏 𝑇 ,𝑚 . In the implementa-tion, this threshold is the tapered-block-bootstrap quantile calibrated under the local null, with a Bonferroni adjustment across the 𝑀 local tests that controls the family-wise error rate. This step returns the set of rejected splits. Because the grid spacing equals 𝑤 , a single change-point can fall within the windows of two adjacent splits and trigger both; we show in Theorem 3 that it triggers at most two, and that these are necessarily consecutive. We therefore group consecutive rejected splits into a single flagged region before localizing, which prevents one change-point from being reported twice. Within each flagged region, we then estimate the change-point location as the point that maximizes the SWAL statistic, yielding an accurate estimate of the true change-point. 
+
+## 5.3 Ensemble-SCAN 
+
+Let 𝒲 = {𝑤 1, … , 𝑤 𝑑 } denote the set of window sizes. For each 𝑤 𝑗 ∈ 𝒲 , we apply SCAN to obtain an estimated change-point set ̂ ℛ(𝑗) = {̂𝜏 (𝑗) 1 , … ,̂ 𝜏 (𝑗)̂ 𝑘 𝑗 
+
+}. The ensemble then combines detections across window sizes. Genuine change-points are expected to receive support 21 Algorithm 1: SCAN 
+
+Input: Time series {𝑋 𝑡 }𝑇 𝑡=1 ; window size 𝑤 ; bootstrap replications 𝐵 ; significance level 𝛼 .
+
+Output: ℛ: list of detected change-points.  
+
+> 1
+
+Set 𝑀 ← ⌊𝑇 /𝑤⌋ − 1 , 𝛼 ′ ← 𝛼/𝑀 ,̂ 𝒥 ← ∅ , and ℛ ← ∅ . 
+
+> 2
+
+for 𝑚 = 1, … , 𝑀 do  
+
+> 3
+
+Define the reference and stride windows as 𝑋 (𝑤) 𝑚 ← 𝑋 (𝑚−1)𝑤+1∶𝑚𝑤 and 
+
+𝑋 (𝑠) 𝑚 ← 𝑋 𝑚𝑤+1∶(𝑚+1)𝑤  
+
+> 4
+
+Compute the data-driven threshold ̂ 𝑏 𝑇 ,𝑚 ← AdaptiveThreshold (𝑋 (𝑤) 𝑚 , 𝑋 (𝑠) 𝑚 , 𝐵, 𝛼 ′)
+
+and the IPM test statistic 𝑇 𝑚 ← 𝑑 𝒢 (𝑋 (𝑤) 𝑚 , 𝑋 (𝑠) 𝑚 ) 
+
+> 5
+
+if 𝑇 𝑚 >̂ 𝑏 𝑇 ,𝑚 then  
+
+> 6
+
+Flag split 𝑚 as rejected: ̂ 𝒥 ←̂ 𝒥 ∪ {𝑚}  
+
+> 7
+
+Merge adjacent rejected splits forming 𝑘 localization-regions ̂ 𝒞 1, … ,̂ 𝒞 ̂ 𝑘 ; for ℓ = 1, … ,̂ 𝑘 do  
+
+> 8
+
+Apply SWAL to the consolidated region 𝑋 (loc )ℓ ← 𝑋 (𝑚−1)𝑤+1∶ (𝑚+1)𝑤 , with 𝑚 = min ̂ 𝒞 ℓ,
+
+𝑚 = max ̂ 𝒞 ℓ, to obtain the change-point estimate ̂ 𝜏 ℓ, and set ℛ ← ℛ ∪ {̂𝜏 ℓ} 
+
+> 9
+
+return ℛ
+
+from several SCAN detectors, whereas spurious detections are less likely to persist across scales. Thus, the ensemble acts as a stability filter, reducing sensitivity to the choice of a single window size. Nearby detections are clustered, clusters supported by at least a proportion 𝜈 of the base detectors are retained, and each retained cluster is represented by its most-supported loca-tion; full definitions and pseudocode appear as Algorithm S2 in the online supplement. An overview appears in Figure 3. In the remainder of the paper, Ensemble-SCAN is referred to simply as SCAN unless stated otherwise. Furthermore, practical guidance on selecting the window-size range and voting threshold, along with default parameter settings, is provided in the online supplementary material. 22 Input Time Series Detectors Detected Change Points Majority Voting Final Change Points   
+
+> Detector 1 – ( h)w1
+> Detector 2 – ( h)w2
+> Detector 3 – ( h)w3
+> Detector d– ( h)wd
+
+...
+
+> bR1
+> bR2
+> bR3
+> bRd
+
+...                               
+
+> Change Point Pooling
+> bR ←
+> d[
+> j=1
+> bR(d)
+> Sort and Segment
+> · · ·
+> S1S2S3Sm
+> distance ≤min( W)
+> Segment Vote Count
+> Vote Count Segment
+> · · ·
+> ν
+> S1S2S3Sm-1 Sm
+> · · ·
+> S1S2S3Sm
+> ν- Distinct time points Vote Count Time Point
+> · · ·
+> t1t2t3tr
+> t3is declared as CP for S3
+> Mν={m: VoteCount( Sm)> ν }
+> Final Set of Change Points
+> R∗← R ∗∪ { τ(Sm) : m∈ M γ}
+
+Figure 3: Overview of the Ensemble-SCAN change-point detection framework. SCAN is applied across a collection of admissible window sizes. The resulting detections are pooled, grouped into local candidate clusters, and retained when their support proportion exceeds the majority-voting threshold. 
+
+# 6 Simulation Studies 
+
+## 6.1 Data Generation 
+
+We consider changes in mean and joint changes in mean and variance for series lengths 𝑇 ∈ {500, 1,000, 5,000, 10,000, 20,000, 50,000, 100,000, 1,000,000} , with the number of change-points increasing with 𝑇 while satisfying the minimum spacing between consecutive changes. This extends beyond the fixed-𝑘 regime used in our theoritical framework and provides a more demanding empirical assessment of SCAN. Details of the change-point generation are given in the online supplement. We simulate these change-points under several dependence structures ranging from inde-pendence to long-range dependence, as summarized in Table 1. Mean shifts range from 2 to 6 (both positive and negative), while variance changes are generated on the log scale over [0, log (10)/2] , following Killick et al. (2012). We conduct 1,000 replications for each scenario. The long-range dependence setting additionally evaluates SCAN outside the de-23 Table 1: Dependence structures for univariate simulations.                 
+
+> Dependence structure Model Parameters Independent noise AR(1) (white noise) 𝜌 = 0, 𝜀 𝑡 ∼ 𝒩(0, 1)
+> Short-term dependence AR(1) 𝜌 ∼ Unif [0, 1], 𝜀 𝑡 ∼ 𝒩(0, 1)
+> AR(1) 𝜌 = 0.7, 𝜀 𝑡 ∼ 𝒩(0, 1)
+> ARMA(1,1) 𝜌 = 0.5, 𝜃 = 0.3, 𝜀 𝑡 ∼ 𝒩(0, 1)
+> Long-memory dependence ARFIMA(1, 𝑑 ,1) 𝑑 = 0.35, 𝜀 𝑡 ∼ 𝒩(0, 1)
+
+pendence assumptions used for the theoretical guarantees. 
+
+Performance evaluation 
+
+We use the covering metric (van den Burg & Williams 2020) and 𝐹 1-score (Truong et al. 2020, Aminikhanghahi & Cook 2017) as primary evaluation measures. The covering metric assesses agreement between the segmentations induced by the true and estimated change-points, while the 𝐹 1-score balances true positives, false positives, and false negatives. For 
+
+𝐹 1 computation, an estimate ̂ 𝜏 is counted as a true positive if |̂𝜏 − 𝜏 | ≤ 𝜉 , allowing for small localization errors. Throughout the simulation study, we set 𝜉 = 10 .
+
+Comparison methods and parameter settings 
+
+We compare SCAN with Binary Segmentation, PELT, FPOP, WBS, SBS, and KCP. For joint mean-variance changes, methods restricted to mean-change detection are omitted, while Binary Segmentation and PELT are implemented using a Gaussian log-likelihood cost; KCP is excluded for because of its substantial computational cost for long series 
+
+(𝑇 10,000) . Methods requiring more than 2 minutes for a given series length are also excluded. Competing methods use their default implementations with BIC-type penalties, with full implementation details given in the online supplement. For SCAN, we use 𝐵 = 400 
+
+tapered block-bootstrap replications, ensemble size 𝑑 = 7 , voting threshold 𝜈 = 0.5 , and minimum window size 𝑤 min = 30 , with window sizes sampled uniformly from [𝑤 min , ⌊𝑇 2/3 ⌋] .These settings are fixed across all simulation scenarios. 24 6.2 Simulation Results 
+
+Change in Mean 
+
+Figure 4 shows that SCAN is competitive for short series and delivers its strongest relative performance for moderately long to very long series across the dependence structures con-sidered. Similar patterns are observed for the 𝐹 1-score; see online supplementary material. In settings where the theoretical assumptions are satisfied, the covering metric remains close to 1 and, in several cases, improves as the series length increases, providing empirical support for the consistency of the proposed method. In most longer-series settings, SCAN generally achieves higher detection accuracy than competing change-point detection meth-ods based on fixed penalties. Figure 4 reports the median covering metric over 1000 simulation runs, with the shaded bands representing the first and third quartiles. For SCAN, these bands remain concen-trated near the median, indicating stable performance across the repeated simulations. At shorter series lengths, several competing methods match or exceed SCAN in some settings, whereas for longer series the competing methods typically exhibit lower median performance together with more dispersed bands, suggesting greater sensitivity to sampling variability and dependence structure. Considered together, these results indicate that SCAN’s main empirical advantage is most pronounced in the long-series regime targeted by the proposed method. Under the ARFIMA setting, SCAN performs less favorably than under short-range depen-dence and is more sensitive to the ensemble voting threshold. This is expected because the bootstrap calibration assumes exponentially 𝛼 -mixing dependence, whereas ARFIMA processes exhibit long memory. The resulting inflation of the local IPM statistic increases false detections, particularly at the default threshold 𝜈 = 0.5 , and reduces both the cover-25 3 4 5 6                               
+
+> log 10 (T)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Covering score
+> AR(1) ; ½ = 0
+> 3456
+> log 10 (T)
+> AR(1) ; ½ = 0 :7
+> 3456
+> log 10 (T)
+> AR(1) ; ½ »U(0 ;1)
+> 3456
+> log 10 (T)
+> ARMA(1 ;1)
+> 3456
+> log 10 (T)
+> ARFIMA(1 ;0:35 ;1)
+> BinSeg PELT WBS KCP FPOP SCAN SBS
+
+Figure 4: Covering metric for change-in-mean detection across the series lengths and de-pendence structures considered in the simulation study. Lines and shaded bands show the median and interquartile range over 1,000 runs. Under the 2-minute limit, KCP is excluded for 𝑇 > 10 4, and PELT and Binary Segmentation for 𝑇 = 10 6.ing score and the 𝐹 1-score. As shown in Figure S1 of the online supplementary material, increasing 𝜈 mitigates this effect and yields more stable performance for large 𝑇 . When the dependence structure is unknown, the proposed scree-plot criterion provides an unsu-pervised method for selecting 𝜈 without requiring specification of the memory parameter. 
+
+Change in Mean and Variance 
+
+The results in Figure 5 show that SCAN delivers its strongest relative covering performance for moderately long to very long series across the dependence structures considered. Similar patterns are observed for the 𝐹 1-score; see online supplementary material. In settings where the theoretical assumptions are satisfied, the covering metric for SCAN remains close to 1 and, in several cases, improves as the series length increases, providing empirical support for the consistency of the proposed method. For short series, the results are more mixed, with some competing methods performing similarly or better in selected settings. In most longer-series settings, SCAN generally achieves higher detection and localization accuracy than competing change-point detection methods based on a BIC penalty. In contrast, the performance of BinSeg and PELT deteriorates under serial dependence. 26 Figure 5: Covering metric for joint mean-and-variance change detection, using the settings and display conventions of Figure 4. SBS, WBS, and FPOP are excluded because their implementations detect mean changes only; KCP is omitted because of its computational cost. PELT and Binary Segmentation are excluded for 𝑇 ≥ 10 5 under the 2-minute limit. Both methods are implemented using a Gaussian log-likelihood cost, so their segmenta-tion criterion becomes misspecified when the data are correlated. In particular, serial dependence inflates the long-run variance, which can distort the cost function and reduce the effectiveness of penalty terms such as BIC. Consequently, their covering performance declines more noticeably in dependent settings. A complementary breakdown in terms of false positives and false negatives is provided in Figure 6a. This shows that the precision of BinSeg and PELT is lower under dependence than in the independent case, indicating a greater tendency to over-segment through false positive detections. Figure 6a further highlights the consistency of SCAN, which main-tains a better balance between precision and recall. Although the precision of SCAN also deteriorates under long-range dependence, where its assumptions are violated, it remains competitive with methods based on Gaussian cost functions. Figure 6b compares the performance of SCAN, PELT, and Binary Segmentation on a simulated series with heteroscedastic mean and variance shifts (realization of a simulated series). SCAN successfully detects all true change-points, including those corresponding to 27 relatively small shifts. In contrast, PELT and Binary Segmentation with a BIC penalty miss several of the more subtle changes, indicating that SCAN is more sensitive to both large and small shifts in the mean and variance, thereby providing more accurate localization. 
+
+(a) −2 0          
+
+> (a) SCAN
+> −2 0
+> (b) PELT
+> 0100 200 300 400 500 600 700
+> Time
+> −2 0
+> (c) BinSeg
+> Xt
+> Time series Correct discovery Missed true CP
+
+(b) 
+
+Figure 6: Simulation diagnostics and benchmark comparison: (a) decomposition of preci-sion and recall scores across series lengths under independence, serial correlation (AR(1), 
+
+𝜌 = 0.7 ), and long-range dependence. The solid and dotted lines denote precision and re-call, respectively, while the shaded regions represent the IQR; (b) benchmark comparison under varying shifts in mean and variance. 
+
+Computational Times 
+
+In the univariate setting, computing the empirical 1-Wasserstein distance within a window of size 𝑤 requires sorting and has cost 𝑂(𝑤 log 𝑤) . Since SCAN performs 𝑂(𝑇 /𝑤) local tests for a fixed window size 𝑤 , the bootstrap-calibrated scan has complexity 𝑂(𝐵𝑇 log 𝑤) 
+
+for fixed 𝑤 , where 𝐵 is the number of bootstrap replications. For an ensemble over 𝑑 
+
+window sizes, with 𝐵 and 𝑑 treated as fixed hyperparameters, the resulting complexity is approximately linear in 𝑇 up to logarithmic factors. Figure 1 compares method runtimes (in seconds) from the simulation study. SCAN remains computationally efficient across all series lengths, rising from 0.006 seconds at 𝑇 = 500 to 1.065 seconds at 𝑇 = 10 6. A least-squares regression of log 10 runtime on log 10 𝑇 yields empirical gradients of 0.71 (SCAN), 0.72 (SBS), 0.78 (WBS), 0.78 (FPOP), 1.75 (Binary Segmentation), 1.78 (PELT), and 1.84 (KCP). SCAN thus combines a small computational 28 constant with one of the lowest observed growth rates: at 𝑇 = 10 6 it is approximately 23.5 × faster than WBS and 12.5 × faster than SBS, and at 𝑇 = 10 7 it remains faster than FPOP. Although SCAN incurs a higher initial cost than FPOP owing to the tapered block bootstrap used for threshold calibration, its runtime grows more slowly with 𝑇 . All simulations were run on a 2.4 GHz AMD EPYC 7763 processor with 16 cores and 16 GB of RAM. Further details are in the online supplementary material. 
+
+# 7 Real Data Application 
+
+We illustrate the performance of our proposed change-point detection method using two real-world datasets. The first is the Human Activity Sensing Consortium (HASC) dataset (Kawaguchi et al. 2011), which contains high-frequency motion-sensor recordings collected during sequences of human activities such as walking, jogging, standing, and walking up-stairs or downstairs. Activity transitions induce abrupt changes in the distribution of the sensor signal, particularly through changes in variance, making this dataset useful for evaluating variance-change detection. The second is the Bitcoin (BTC-USD) closing-price series (Zielak 2026) from January 2017 to April 2026, which is used to evaluate detection of changes in mean, variance, and trend. 
+
+HASC Dataset 
+
+For the HASC application, we use Series 2 from individual 671-a, consisting of approxi-mately 40,000 observations and 38 annotated activity transitions. Figure 7a provides a visual benchmark between the annotated change-points and those detected by SCAN. The annotated change-points are mapped to the nearest observation index for plotting. Using a tolerance of 𝜉 = 120 observations for matching detected and annotated change-points, SCAN selects 37 change-points with an 𝐹 1-score of 0.80 and a covering metric of 29 0.8360. Most detected change-points align closely with the annotated activity transitions, indicating that SCAN captures the main distributional changes in the HASC signal. Further parameter settings for this application are provided in the online supplementary material. 
+
+Bitcoin Price 
+
+Bitcoin provides a challenging setting for change-point detection because it trades con-tinuously and responds rapidly to changes in market sentiment, regulation, institutional activity, and macroeconomic conditions. We apply SCAN to the hourly BTC-USD closing price series (Zielak 2026), comprising 81,079 observations over 3,378 days. With no natural window scale specified a priori, we use the ensemble formulation in Section 4, sampling window sizes uniformly up to 𝑤 = ⌊𝑇 2/3 ⌋.SCAN detects change-points on 40 distinct days, many of which coincide with major market events. Examples include the March 2020 COVID-19 crash Cawrey (2020), the 9 February 2021 price surge following Tesla’s Bitcoin purchase announcement White & Westbrook (2021), and the 6 November 2024 rally during the U.S. election period amid expectations of more favorable cryptocurrency regulation Westbrook (2024). The final detected change-point, in January 2026, coincides with a sharp market decline associated with broad risk-off sentiment and liquidations Westbrook & Wee (2026). Overall, 33 of the 40 detected change-points coincide with dates linked to relevant Reuters reports. Details of the labeled events in Figure 7b are provided in the online supplementary material. This application illustrates that SCAN can extract interpretable structural changes from a long, noisy, and highly non-stationary financial time series. The resulting segmentation re-flects both abrupt market stress events and periods of rapid repricing, providing a practical summary of how Bitcoin price dynamics evolve over time. 30 0 5,000 10,000 15,000 20,000 25,000 30,000 35,000   
+
+> Time
+> −2.0 −1.5 −1.0 −0.5 0.0 0.5
+> Series 2
+> Series Detected change points Annotated change points
+
+(a) 2017 2018 2019 2020 2021 2022 2023 2024 2025 2026  
+
+> Time
+> 020000 40000 60000 80000 100000 120000
+> Price (USD)
+> BTC-USD close price Detected change points
+
+(b) 
+
+Figure 7: Real-data applications of SCAN: (a) Series 2 from HASC 2010 (individual 671-a), with dashed detected change-points and dotted annotated activity transitions; (b) BTC-USD hourly closing prices with detected mean and variance change-points. 
+
+# 8 Conclusion 
+
+We introduced SCAN, a scalable nonparametric framework for multiple change-point de-tection in long univariate time series that combines IPM-based local two-sample tests with tapered block-bootstrap calibration, avoiding parametric cost functions and fixed global penalties that can be difficult to calibrate under serial dependence and distributional shifts. Under pure mean shifts, the proposed SWAL statistic reduces to a CUSUM-type statistic, connecting SCAN to classical methodology while retaining sensitivity to more general distri-31 butional changes. Simulations with up to one million observations show that the empirical gains of SCAN are most pronounced for moderately long to very long series, where it gener-ally achieves higher covering and 𝐹 1-scores than Binary Segmentation, PELT, FPOP, WBS, SBS, and KCP for mean and joint mean-variance shifts, particularly under serial depen-dence where fixed-penalty methods tend to over-segment. We further establish consistency of the estimated number and locations of change-points under a regularity condition on the IPM class and exponential 𝛼 -mixing dependence. Extending these guarantees to long-memory processes, and the framework to multivariate and high-dimensional settings, are natural directions for future work. 
+
+Disclosure Statement 
+
+The authors report there are no competing interests to declare. 
+
+Data Availability Statement 
+
+The HASC and BTC-USD datasets are publicly available. Replication code and processed data will be released before publication. 
+
+Declaration of generative AI 
+
+While preparing this work, the authors used ChatGPT-5 to proofread and enhance its language. After using this tool, the authors reviewed and edited the content as needed. 
+
+## ONLINE SUPPLEMENTARY MATERIAL 
+
+The material contains lemmas, proofs computational details, additional results from the paper. SCAN is implemented in the Python package scan-cpd and R package scanr. 
+
+# References 
+
+Aminikhanghahi, S. & Cook, D. J. (2017), ‘A survey of methods for time series change point detection’, Knowledge and Information Systems 51 (2), 339–367. Arlot, S., Celisse, A. & Harchaoui, Z. (2019), ‘A kernel multiple change-point algorithm via model selection’. 32 Bitencourt, H. V., Orang, O., de Souza, L. A. F., Silva, P. C. L. & Guimarães, F. G. (2023), ‘An embedding-based non-stationary fuzzy time series method for multiple output high-dimensional multivariate time series forecasting in IoT applications’, Neural Computing and Applications 35 (13), 9407–9420. Bogdan, M., Ghosh, J. K. & Doerge, R. W. (2004), ‘Modifying the Schwarz Bayesian information criterion to locate multiple interacting quantitative trait loci’, Genetics 
+
+167 (2), 989–999. Bozdogan, H. (1987), ‘Model selection and akaike’s information criterion (aic): The general theory and its analytical extensions’, Psychometrika 52 (3), 345–370. Brockwell, P. J. & Davis, R. A. (1991), Time Series: Theory and Methods , Springer Series in Statistics, 2nd edn, Springer, New York. Cabrieto, J., Tuerlinckx, F., Kuppens, P., Grassmann, M. & Ceulemans, E. (2017), ‘Detect-ing correlation changes in multivariate time series: A comparison of four non-parametric change point detection methods’, Behavior Research Methods 49 (3), 988–1005. Cawrey, D. (2020), ‘Market liquidations cause cascade in Bitcoin price’, https://www.coin desk.com/markets/2020/03/09/market-liquidations-cause-cascade-in-bitcoin-price. Chen, W., Hussain, W., Cauteruccio, F. & Zhang, X. (2023), ‘Deep learning for financial time series prediction: A state-of-the-art review of standalone and hybrid models’, CMES - Computer Modeling in Engineering and Sciences 139 (1), 187–224. Dvoretzky, A., Kiefer, J. & Wolfowitz, J. (1956), ‘Asymptotic minimax character of the sample distribution function and of the classical multinomial estimator’, The Annals of Mathematical Statistics 27 (3), 642–669. Efron, B. & Tibshirani, R. J. (1994), An Introduction to the Bootstrap , 1 edn, Chapman and Hall/CRC. Eichinger, B. & Kirch, C. (2018), ‘A mosum procedure for the estimation of multiple random change points’, Bernoulli 24 (1), 526–564. Fearnhead, P. & Rigaill, G. (2020), ‘Relating and comparing methods for detecting changes in mean’, Stat 9, e291. Fryzlewicz, P. (2014), ‘Wild binary segmentation for multiple change-point detection’, The Annals of Statistics 42 (6), 2243–2281. Granger, C. W. J. & Joyeux, R. (1980), ‘An introduction to long-memory time series models and fractional differencing’, Journal of Time Series Analysis 1(1), 15–29. Hahn, G., Fearnhead, P. & Eckley, I. A. (2020), ‘Bayesproject: Fast computation of a projection direction for multivariate changepoint detection’, Statistics and Computing 
+
+30 (6), 1691–1705. Hamilton, J. D. (1994), Time Series Analysis , Princeton University Press. Hochberg, Y. (1988), ‘A sharper bonferroni procedure for multiple tests of significance’, 
+
+Biometrika 75 (4), 800–802. 33 Holm, S. (1979), ‘A simple sequentially rejective multiple test procedure’, Scandinavian Journal of Statistics 6(2), 65–70. Jackson, B., Sargle, J. D., Barnes, D., Arabhi, S., Alt, A., Gioumousis, P., Gwin, E., Sang-trakulcharoen, P., Tan, L. & Tsai, T. T. (2005), ‘An algorithm for optimal partitioning of data on an interval’, IEEE Signal Processing Letters 12 (2), 105–108. Kawaguchi, N., Ogawa, N., Iwasaki, Y., Kaji, K., Terada, T., Murao, K., Inoue, S., Kawa-hara, Y., Sumi, Y. & Nishio, N. (2011), HASC challenge: Gathering large scale human activity corpus for the real-world activity understandings, in ‘Proceedings of the 2nd Augmented Human International Conference’, AH ’11, Association for Computing Ma-chinery, New York, NY. Killick, R., Fearnhead, P. & Eckley, I. A. (2012), ‘Optimal detection of changepoints with a linear computational cost’, Journal of the American Statistical Association 
+
+107 (500), 1590–1598. Kovács, S., Li, H., Bühlmann, P. & Munk, A. (2022), ‘Seeded binary segmentation: a gen-eral methodology for fast and optimal changepoint detection’, Biometrika 110 (1), 249– 256. Lam, L. & Suen, S. Y. (1997), ‘Application of majority voting to pattern recognition: an analysis of its behavior and performance’, Trans. Sys. Man Cyber. Part A 27 (5), 553–568. Lavielle, M. (2005), ‘Using penalized contrasts for the change-point problem’, Signal Pro-cessing 85 (8), 1501–1510. Maeng, H. & Fryzlewicz, P. (2024), ‘Detecting linear trend changes in data sequences’, 
+
+Statistical Papers 65 (3), 1645–1675. Maidstone, R., Hocking, T., Rigaill, G. & Fearnhead, P. (2017), ‘On optimal multiple changepoint algorithms for large data’, Statistics and Computing 27 (2), 519–533. Marsaglia, G., Tsang, W. W. & Wang, J. (2003), ‘Evaluating kolmogorov’s distribution’, 
+
+Journal of Statistical Software 8(18), 1–4. Matteson, D. S. & James, N. A. (2014), ‘A nonparametric approach for multiple change point analysis of multivariate data’, Journal of the American Statistical Association 
+
+109 (505), 334–345. Morid, M. A., Sheng, O. R. L. & Dunbar, J. (2023), ‘Time series prediction using deep learning methods in healthcare’, ACM Trans. Manage. Inf. Syst. 14 (1). Müller, A. (1997), ‘Integral probability metrics and their generating classes of functions’, 
+
+Advances in Applied Probability 29 (2), 429–443. Page, E. S. (1954), ‘Continuous inspection schemes’, Biometrika 41 (1/2), 100–115. Paparoditis, E. & Politis, D. N. (2001), ‘Tapered block bootstrap’, Biometrika 88 (4), 1105– 1119. Qin, S., Tan, Z., Wei, D. & Wu, Y. (2025), ‘Pca-ucpd: an ensemble method for multiple 34 change-point detection in moderately high-dimensional data’, Statistics and Computing 
+
+35 (2), 31. Rokach, L. (2010), ‘Ensemble-based classifiers’, Artificial Intelligence Review 33 (1), 1–39. Rosenblatt, M. (1956), ‘A central limit theorem and a strong mixing condition’, Proceedings of the National Academy of Sciences of the United States of America 42 (1), 43–47. Schwarz, G. E. (1978), ‘Estimating the dimension of a model’, The Annals of Statistics 
+
+6(2), 461–464. Sen, A. & Srivastava, M. S. (1975), ‘On tests for detecting change in mean’, The Annals of Statistics 3(1), 98–108. Shi, Y. (2015), ‘Testing change in volatility using panel data’, Economics Letters 134 , 107– 110. Truong, C., Gudre, L. & Vayatis, N. (2017), Penalty learning for changepoint detection, in 
+
+‘2017 25th European Signal Processing Conference (EUSIPCO)’, pp. 1569–1573. Truong, C., Oudre, L. & Vayatis, N. (2020), ‘Selective review of offline change point detec-tion methods’, Signal Processing 167 , 107299. van den Burg, G. J. J. & Williams, C. K. I. (2020), ‘An evaluation of change point detection algorithms’, arXiv preprint arXiv:2003.06222 .Villani, C. (2009), Optimal Transport: Old and New , Vol. 338 of Grundlehren der Mathe-matischen Wissenschaften , Springer. Wang, T. & Samworth, R. J. (2018), ‘High dimensional change point estimation via sparse projection’, Journal of the Royal Statistical Society: Series B 80 (1), 57–83. Westbrook, T. (2024), ‘Bitcoin leaps to record high as traders lean towards Trump victory’, https://www.reuters.com/technology/bitcoin-leaps-record-high-traders-lean-towards-trump-victory-2024-11-06/. Westbrook, T. & Wee, R. (2026), ‘Bitcoin slips as Fed chair speculation hits risky assets’, https://www.reuters.com/business/bitcoin-slips-fed-chair-speculation-hits-risky-assets-2026-01-30/. White, S. & Westbrook, T. (2021), ‘Bitcoin rockets to new highs as Tesla takes it main-stream’, https://www.reuters.com/world/china/bitcoin-rockets-new-highs-tesla-takes-it-mainstream-2021-02-09/. Zhang, X., Shi, S. & Guo, Y. (2024), ‘Changepoint detection with outliers based on rwpca’, 
+
+Journal of Applied Mathematics and Physics 12 , 2634–2651. Zielak (2026), ‘Bitcoin historical data’. Kaggle dataset. 
+
+URL: https://www.kaggle.com/datasets/mczielinski/bitcoin-historical-data 
+
+35 Supplementary Material 
+
+## 1 Proofs of Theoretical Results 
+
+1.1 The IPM Discrepancy Is Controlled by the Kolmogorov-Smirnov Distance 
+
+Proof. Let 𝐻(𝑥) = 𝐹 (𝑤) (𝑥) − 𝐹 (𝑠) (𝑥) , for 𝑥 ∈ ℝ . Since 𝐹 (𝑤) and 𝐹 (𝑠) are distribution functions, lim 𝑥→−∞ 𝐻(𝑥) = lim 𝑥→∞ 𝐻(𝑥) = 0 . For 𝑓 ∈ 𝒢 , let 𝑑𝑓 denote its finite signed Lebesgue-Stieltjes measure under right continuity. For a function 𝐺 of bounded variation, define 𝐺(𝑥−) = lim 𝑦↑𝑥 𝐺(𝑦) 
+
+for its left limit, as it exists at every 𝑥 ∈ ℝ and equals 𝐺(𝑥) at continuity points. For finite 𝑎 < 𝑏 ,the Stieltjes integration-by-parts formula gives 
+
+∫
+
+> (𝑎,𝑏]
+
+𝑓(𝑥) 𝑑𝐻(𝑥) + ∫ 
+
+> (𝑎,𝑏]
+
+𝐻(𝑥−) 𝑑𝑓(𝑥) = 𝑓(𝑏)𝐻(𝑏) − 𝑓(𝑎)𝐻(𝑎), 
+
+where 𝐻(𝑥−) = 𝐹 (𝑤) (𝑥−) − 𝐹 (𝑠) (𝑥−) .Under the Condition 3 from the main text, the functions in 𝒢 have uniformly bounded total variation. Therefore, applying the integration-by-parts formula for discrete distributions the IPM representation yields, 
+
+∫
+
+> ℝ
+
+𝑓(𝑥) 𝑑{𝐹 (𝑤) − 𝐹 (𝑠) }(𝑥) = − ∫ 
+
+> ℝ
+
+{𝐹 (𝑤) (𝑥−) − 𝐹 (𝑠) (𝑥−)} 𝑑𝑓(𝑥). 
+
+Consequently, 
+
+𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) = sup 
+
+> 𝑓∈𝒢
+
+∣∫ 
+
+> ℝ
+
+𝑓(𝑥) 𝑑{𝐹 (𝑤) − 𝐹 (𝑠) }(𝑥)∣ = sup 
+
+> 𝑓∈𝒢
+
+∣∫ 
+
+> ℝ
+
+{𝐹 (𝑤) (𝑥−) − 𝐹 (𝑠) (𝑥−)} 𝑑𝑓(𝑥)∣ ≤ sup 
+
+> 𝑓∈𝒢
+
+[sup 
+
+> 𝑥∈ℝ
+
+∣𝐹 (𝑤) (𝑥−) − 𝐹 (𝑠) (𝑥−)∣ ∫ 
+
+> ℝ
+
+|𝑑𝑓(𝑥)|] . (1) For every 𝑥 ∈ ℝ ,
+
+∣𝐹 (𝑤) (𝑥−) − 𝐹 (𝑠) (𝑥−)∣ = lim  
+
+> 𝑦↑𝑥
+
+∣𝐹 (𝑤) (𝑦) − 𝐹 (𝑠) (𝑦)∣ ≤ sup 
+
+> 𝑦∈ℝ
+
+∣𝐹 (𝑤) (𝑦) − 𝐹 (𝑠) (𝑦)∣ , 
+
+because the left limit is the limit of the corresponding difference along a sequence 𝑦 ↑ 𝑥 . Moreover, by Condition 3, ∫ℝ |𝑑𝑓(𝑥)| = TV ℝ(𝑓) ≤ 𝐶 𝒢 uniformly over 𝑓 ∈ 𝒢 . Hence, 
+
+𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) ≤ 𝐶 𝒢 sup 
+
+> 𝑥∈ℝ
+
+∣𝐹 (𝑤) (𝑥) − 𝐹 (𝑠) (𝑥)∣ . 
+
+1Since 𝑑 KS (𝐹 (𝑤) , 𝐹 (𝑠) ) = sup 𝑥∈ℝ |𝐹 (𝑤) (𝑥) − 𝐹 (𝑠) (𝑥)| is the Kolmogorov-Smirnov distance Marsaglia et al. [2003] between 𝐹 (𝑤) and 𝐹 (𝑠) , (1) implies 
+
+𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) ≤ 𝐶 𝒢 𝑑 KS (𝐹 (𝑤) , 𝐹 (𝑠) ). (2) 
+
+1.2 Proof of Lemma 1 
+
+Outline : We apply Theorem 2 of Merlevède et al. [2012] to obtain a Bernstein-type concentration inequality for centered 𝛼 -mixing sequences, deriving a pointwise bound on |̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| . Adiscretization argument based on a finite grid subsequently extends the pointwise bound to a uniform bound over 𝑥 ∈ ℝ , yielding a DKW-type inequality under 𝛼 -mixing dependence. 
+
+Proof. Let {𝑋 𝑡 }𝑡≥1 satisfy the assumptions of the main-text DKW-type inequality under exponen-tially 𝛼 -mixing. For the observed sample 𝑋 1, … , 𝑋 𝑇 , define 𝑌 𝑖 (𝑥) = 1{𝑋 𝑖 ≤ 𝑥} − 𝐹 (𝑥) , so that 
+
+|𝑌 𝑖 (𝑥)| ≤ 1 and 𝔼[𝑌 𝑖 (𝑥)] = 0 . Define 𝑆 𝑇 (𝑥) = ∑ 𝑇 𝑖=1 𝑌 𝑖 (𝑥) by 
+
+𝑆 𝑇 (𝑥) = 
+
+> 𝑇
+
+∑
+
+> 𝑖=1
+
+(1{𝑋 𝑖 ≤ 𝑥} − 𝐹 (𝑥)) = 𝑇 (̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)). (3) For each fixed 𝑥 ∈ ℝ , 𝑌 𝑖 (𝑥) is a measurable transformation of 𝑋 𝑖 . Since the 𝜎 -algebra generated by 
+
+𝑌 𝑖 is contained in the 𝜎 -algebra generated by 𝑋 𝑖 ,
+
+𝛼 𝑌 (ℎ) ≤ 𝛼 𝑋 (ℎ) ≤ 𝑒 −𝜆ℎ .
+
+Moreover, 
+
+𝔼{𝑌 𝑖 (𝑥)} = 0, |𝑌 𝑖 (𝑥)| ≤ 1. 
+
+Thus, for every fixed 𝑥 , the sequence {𝑌 𝑖 (𝑥)} 𝑖≥1 satisfies the centering, uniform boundedness, and exponential strong-mixing conditions of Theorem 2 of Merlevède et al. [2012]. Applying the prob-ability bound in that theorem with 𝑀 = 1 gives Pr (|𝑆 𝑇 (𝑥)| > 𝑡) ≤ exp (− 𝐶𝑡 2
+
+𝑇 𝜎 2 + 1 + 𝑡( log 𝑇 ) 2 ) , (4) where 𝐶 > 0 depends only on 𝜆 and 
+
+𝜎 2 = sup 
+
+> 𝑥∈ℝ
+
+sup 
+
+> 𝑖≥1
+
+[Var {𝑌 𝑖 (𝑥)} + 2 ∑ 
+
+> 𝑗>𝑖
+
+∣Cov {𝑌 𝑖 (𝑥), 𝑌 𝑗 (𝑥)}∣] . 
+
+This variance bound is finite. Indeed, the strong-mixing covariance inequality [Bradley, 2005, eqn. (1.4)] and |𝑌 𝑖 (𝑥)| ≤ 1 imply 
+
+|Cov {𝑌 𝑖 (𝑥), 𝑌 𝑖+ℎ (𝑥)}| ≤ 4𝛼 𝑋 (ℎ) ≤ 4𝑒 −𝜆ℎ .
+
+Also, Var {𝑌 𝑖 (𝑥)} = 𝐹 (𝑥){1 − 𝐹 (𝑥)} ≤ 14 .
+
+2Consequently, 
+
+𝜎 2 ≤ 14 + 8 
+
+> ∞
+
+∑
+
+> ℎ=1
+
+𝑒 −𝜆ℎ = 14 + 8𝑒 −𝜆 
+
+1 − 𝑒 −𝜆 < ∞. 
+
+Using (3) with 𝑡 = 𝑇 𝜀 , we obtain the pointwise bound Pr (|̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| > 𝜀) ≤ exp (− 𝐶𝑇 𝜀 2
+
+𝜎 2 + 𝑇 −1 + 𝜀( log 𝑇 ) 2 ) , (5) For the uniform bound, it is enough to consider deviations in (0, 1] , since sup 𝑥 |̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| ≤ 1 
+
+makes the claimed probability zero for deviations greater than one. We first fix an auxiliary 
+
+𝜀 ∈ (0, 1) and choose an integer 𝑘 such that 𝜀 −1 ≤ 𝑘 ≤ 𝜀 −1 + 1. Since 𝐹 is continuous, choose 𝑥 𝑗 ∈ ℝ 
+
+satisfying 𝐹 (𝑥 𝑗 ) = 𝑗/𝑘 for 𝑗 = 1, … , 𝑘 − 1 , and set 𝑥 0 = −∞ and 𝑥 𝑘 = ∞ , with 𝐹 (𝑥 0) =̂ 𝐹 𝑇 (𝑥 0) = 0 
+
+and 𝐹 (𝑥 𝑘 ) =̂ 𝐹 𝑇 (𝑥 𝑘 ) = 1 . For every 𝑥 ∈ ℝ there exists 𝑗 ∈ {0, … , 𝑘 − 1} such that 𝑥 𝑗 ≤ 𝑥 ≤ 𝑥 𝑗+1 .Since both 𝐹 and ̂ 𝐹 𝑇 are nondecreasing because they are CDFs, 
+
+𝐹 (𝑥 𝑗 ) ≤ 𝐹 (𝑥) ≤ 𝐹 (𝑥 𝑗+1 ),̂ 𝐹 𝑇 (𝑥 𝑗 ) ≤̂ 𝐹 𝑇 (𝑥) ≤̂ 𝐹 𝑇 (𝑥 𝑗+1 ), 
+
+and, by grid construction, 
+
+𝐹 (𝑥 𝑗+1 ) − 𝐹 (𝑥 𝑗 ) = 1𝑘 ≤ 𝜀. (6) Define the event 
+
+𝐴 = { sup 
+
+> 𝑥∈ℝ
+
+|̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| > 2𝜀} , 
+
+and write 𝐴 ⊂ 𝐴 + ∪ 𝐴 −, where 
+
+𝐴 + = { sup 
+
+> 𝑥∈ℝ
+
+(̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)) > 2𝜀} , 𝐴 − = { sup 
+
+> 𝑥∈ℝ
+
+(𝐹 (𝑥) −̂ 𝐹 𝑇 (𝑥)) > 2𝜀} . 
+
+On the event 𝐴 +, there exists some 𝑥 ∈ ℝ such that ̂ 𝐹 𝑇 (𝑥) − 𝐹 (𝑥) > 2𝜀. Choose 𝑗 such that 
+
+𝑥 𝑗 ≤ 𝑥 ≤ 𝑥 𝑗+1 . The monotonicity of the CDFs, together with (6), gives ̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥) ≤ (̂𝐹 𝑇 (𝑥 𝑗+1 ) − 𝐹 (𝑥 𝑗+1 )) + 𝜀. 
+
+It follows that ̂ 𝐹 𝑇 (𝑥 𝑗+1 ) − 𝐹 (𝑥 𝑗+1 ) > 𝜀 , and hence 
+
+𝐴 + ⊂
+
+> 𝑘
+
+⋃
+
+> 𝑗=1
+
+{|̂𝐹 𝑇 (𝑥 𝑗 ) − 𝐹 (𝑥 𝑗 )| > 𝜀} . (7) Similarly, on the event 𝐴 −, there exists some 𝑥 ∈ ℝ such that 𝐹 (𝑥) −̂ 𝐹 𝑇 (𝑥) > 2𝜀. Choose 𝑗 such that 𝑥 𝑗 ≤ 𝑥 ≤ 𝑥 𝑗+1 . By monotonicity and (6), 
+
+𝐹 (𝑥) −̂ 𝐹 𝑇 (𝑥) ≤ 𝐹 (𝑥) −̂ 𝐹 𝑇 (𝑥 𝑗 ) ≤ 𝐹 (𝑥 𝑗 ) −̂ 𝐹 𝑇 (𝑥 𝑗 ) + 1𝑘 ≤ 𝐹 (𝑥 𝑗 ) −̂ 𝐹 𝑇 (𝑥 𝑗 ) + 𝜀, 
+
+and so 
+
+𝐴 − ⊂
+
+> 𝑘−1
+
+⋃
+
+> 𝑗=0
+
+{|̂𝐹 𝑇 (𝑥 𝑗 ) − 𝐹 (𝑥 𝑗 )| > 𝜀} . (8) 3Combining (7), (8), and the union bound gives Pr (sup 
+
+> 𝑥∈ℝ
+
+|̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| > 2𝜀) ≤ 
+
+> 𝑘
+
+∑
+
+> 𝑗=0
+
+Pr (|̂𝐹 𝑇 (𝑥 𝑗 ) − 𝐹 (𝑥 𝑗 )| > 𝜀) ≤ (𝑘 + 1) exp (− 𝐶𝑇 𝜀 2
+
+𝜎 2 + 𝑇 −1 + 𝜀( log 𝑇 ) 2 ) . (9) Since 𝑘 + 1 ≤ 3/𝜀 for 𝜀 ∈ (0, 1) , substituting in (9) gives Pr (sup 
+
+> 𝑥∈ℝ
+
+|̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| > 2𝜀) ≤ 3𝜀 exp (− 𝐶𝑇 𝜀 2
+
+𝜎 2 + 𝑇 −1 + 𝜀( log 𝑇 ) 2 ) . (10) Replacing 𝜀 in the preceding inequality by 𝜀/2 gives for 0 < 𝜀 ≤ 1 ,Pr (sup 
+
+> 𝑥∈ℝ
+
+|̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| > 𝜀) ≤ 6𝜀 exp (− 𝐶𝑇 𝜀 2
+
+4 {𝜎 2 + 𝑇 −1 + (𝜀/2)( log 𝑇 ) 2} ) . 
+
+For 𝜀 > 1 , the result is immediate because sup 𝑥 |̂𝐹 𝑇 (𝑥) − 𝐹 (𝑥)| ≤ 1 .
+
+1.3 Proof of Theorem 1 
+
+Outline : The proof uses the uniform bounded-variation condition to control the IPM discrepancy measure 𝑑 𝒢 using the Kolmogorov-Smirnov distance. Applying the triangle inequality on 𝑑 𝒢 yields an upper bound on the absolute error ∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ , in terms of the two one-sample errors 𝑑 𝒢 (̂𝐹 (𝑤) , 𝐹 (𝑤) ) and 𝑑 𝒢 (̂𝐹 (𝑠) , 𝐹 (𝑠) ). Finally, we bound each one-sample IPM error by applying the main-text DKW-type inequality under exponentially 𝛼 -mixing to derive the stated finite-sample probability bound. 
+
+Proof. Consider the time series {𝑋 𝑡 }𝑇 𝑡=1 ⊂ ℝ defined in the main text, with a split at time 𝑡 and corresponding reference and stride windows of sizes 𝑤 and 𝑠 , respectively. Under the uniform bounded-variation condition, the IPM discrepancy between the CDFs of these windows satisfies 
+
+𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) ≤ 𝐶 𝒢 sup 
+
+> 𝑥∈ℝ
+
+|𝐹 (𝑤) (𝑥) − 𝐹 (𝑠) (𝑥)| = 𝐶 𝒢 𝑑 KS (𝐹 (𝑤) , 𝐹 (𝑠) ) (11) Applying the triangle inequality, 
+
+𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) ≤ 𝑑 𝒢 (̂𝐹 (𝑤) , 𝐹 (𝑤) ) + 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) + 𝑑 𝒢 (𝐹 (𝑠) ,̂ 𝐹 (𝑠) ), (12) 
+
+𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) ) ≤ 𝑑 𝒢 (𝐹 (𝑤) ,̂ 𝐹 (𝑤) ) + 𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) + 𝑑 𝒢 (̂𝐹 (𝑠) , 𝐹 (𝑠) ). (13) Combining (12) and (13) yields 
+
+∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ ≤ 𝑑 𝒢 (̂𝐹 (𝑤) , 𝐹 (𝑤) ) + 𝑑 𝒢 (̂𝐹 (𝑠) , 𝐹 (𝑠) ). 
+
+4Therefore, Pr (∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ > 𝜀) ≤ Pr (𝑑 𝒢 (̂𝐹 (𝑤) , 𝐹 (𝑤) ) + 𝑑 𝒢 (̂𝐹 (𝑠) , 𝐹 (𝑠) ) > 𝜀) ≤ Pr (𝑑 𝒢 (̂𝐹 (𝑤) , 𝐹 (𝑤) ) > 𝜀 2 ) + Pr (𝑑 𝒢 (̂𝐹 (𝑠) , 𝐹 (𝑠) ) > 𝜀 2 ) . (14) By substituting (11) into (14), 
+
+𝑑 𝒢 (̂𝐹 (𝑤) , 𝐹 (𝑤) ) > 𝜀 2 ⟹ sup 
+
+> 𝑥
+
+∣̂𝐹 (𝑤) (𝑥) − 𝐹 (𝑤) (𝑥)∣ > 𝜀 2𝐶 𝒢 
+
+,
+
+and similarly for the stride window. Hence, applying the main-text DKW-type inequality under exponentially 𝛼 -mixing with sample sizes 𝑤 and 𝑠 gives Pr (∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ > 𝜀) ≤ 12𝐶 𝒢 
+
+𝜀 exp (− 𝐶𝑤(𝜀/2𝐶 𝒢 )2
+
+4 {𝜎 2 + 𝑤 −1 + (𝜀/4𝐶 𝒢 )( log 𝑤) 2} ) + (15) 
+
+12𝐶 𝒢 
+
+𝜀 exp (− 𝐶𝑠(𝜀/2𝐶 𝒢 )2
+
+4 {𝜎 2 + 𝑠 −1 + (𝜀/4𝐶 𝒢 )( log 𝑠) 2} ) . (16) Equivalently, Pr (∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ > 𝜀) ≤ 12𝐶 𝒢 
+
+𝜀 {𝑒 −𝑤𝜀 2𝑎 𝑤 (𝜀) + 𝑒 −𝑠𝜀 2𝑎 𝑠 (𝜀) } , (17) where 
+
+𝑎 𝑤 (𝜀) = 𝐶 16𝐶 2𝒢 {𝜎 2 + 𝑤 −1 + (𝜀/(4𝐶 𝒢 ))( log 𝑤) 2} , 𝑎 𝑠 (𝜀) = 𝐶 16𝐶 2𝒢 {𝜎 2 + 𝑠 −1 + (𝜀/(4𝐶 𝒢 ))( log 𝑠) 2} .
+
+Remark 1. Lemma 1 is stated for a strictly stationary time series. However, if a window of length 
+
+𝑤 contains a change point, the observations within that window are piecewise stationary. The window can therefore be decomposed into stationary subsegments, to each of which Lemma 1 can be applied. Suppose 𝑋 1, … , 𝑋 𝑟 ∼ 𝐹 𝐴 and 𝑋 𝑟+1 , … , 𝑋 𝑤 ∼ 𝐹 𝐵 . Then the population and empirical CDFs of the window satisfy 
+
+𝐹 (𝑤) = 𝑟 𝑤 𝐹 𝐴 + 𝑤 − 𝑟 𝑤 𝐹 𝐵 ,̂ 𝐹 (𝑤) = 𝑟 𝑤̂ 𝐹 𝐴,𝑟 + 𝑤 − 𝑟 𝑤̂ 𝐹 𝐵,𝑤−𝑟 .
+
+Hence, 
+
+sup 
+
+> 𝑥
+
+∣̂𝐹 (𝑤) (𝑥) − 𝐹 (𝑤) (𝑥)∣ ≤ 𝑟 𝑤 sup 
+
+> 𝑥
+
+∣̂𝐹 𝐴,𝑟 (𝑥) − 𝐹 𝐴 (𝑥)∣ + 𝑤 − 𝑟 𝑤 sup 
+
+> 𝑥
+
+∣̂𝐹 𝐵,𝑤−𝑟 (𝑥) − 𝐹 𝐵 (𝑥)∣ . 
+
+Therefore, by a union bound, 
+
+Pr (sup 
+
+> 𝑥
+
+∣̂𝐹 (𝑤) (𝑥) − 𝐹 (𝑤) (𝑥)∣ > 𝜖) ≤ Pr (sup 
+
+> 𝑥
+
+∣̂𝐹 𝐴,𝑟 (𝑥) − 𝐹 𝐴 (𝑥)∣ > 𝑤𝜖 2𝑟 )+ Pr (sup 
+
+> 𝑥
+
+∣̂𝐹 𝐵,𝑤−𝑟 (𝑥) − 𝐹 𝐵 (𝑥)∣ > 𝑤𝜖 2(𝑤 − 𝑟) ) . 
+
+5Each term involves a stationary sub-segment and can therefore be controlled using Lemma 1, yield-ing the same convergence order, but with adjusted sample constants. For a strictly stationary window, Lemma 1 gives, Pr (sup 𝑥 ∣̂𝐹 (𝑥) − 𝐹 (𝑥)∣ > 𝜖) ≤ 𝐶 exp (−𝑐𝑤𝜖 2). Decomposing into two stationary sub-segments with allocations 𝜖/2 to each yields Pr (sup 𝑥 ∣̂𝐹 (𝑤) (𝑥) − 𝐹 (𝑤) (𝑥)∣ > 𝜖) ≤ 2𝐶 exp (− 𝑐 4 𝑤𝜖 2). Thus, the exponential convergence order in 𝑤 is preserved, although the finite-sample constants need not remain the same. More generally, if a window contains multiple change-points, the same argument extends by ex-pressing the empirical and population CDFs as weighted mixtures over the resulting stationary subsegments and applying a union bound across them. 
+
+1.4 Proof of Corollary 1 
+
+Corollary 1 (Convergence rate for the absolute IPM error) . Under the conditions of the main-text absolute IPM error bound, suppose that 𝐶 𝒢 and 𝜎 2 are bounded uniformly as the window sizes grow. Then, as min {𝑤, 𝑠} → ∞ , the absolute IPM error satisfies 
+
+∣ 𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ = 𝑂 𝑝 (√ log 𝑤 𝑤 + √ log 𝑠 𝑠 ) . 
+
+Outline : Let 𝑍 𝑤,𝑠 = ∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ , and 𝑟 𝑤,𝑠 = √ log 𝑤 𝑤 + √ log 𝑠 𝑠 . Using the main-text absolute IPM error bound, we show that for 𝜀 = 𝑀𝑟 𝑤,𝑠 , with fixed 𝑀 ≥ 1 chosen sufficiently large, we get Pr (𝑍 𝑤,𝑠 > 𝑀𝑟 𝑤,𝑠 ) ⟶ 0 as min {𝑤, 𝑠} → ∞ . Thus, 𝑍 𝑤,𝑠 = 𝑂 𝑝 (√ log 𝑤 𝑤 + √ log 𝑠 𝑠 ).
+
+Proof. Let 𝑍 𝑤,𝑠 = ∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ and suppose 𝑟 𝑤,𝑠 = √ log 𝑤 𝑤 + √ log 𝑠 𝑠 . We show that 𝑍 𝑤,𝑠 = 𝑂 𝑝 (𝑟 𝑤,𝑠 ) as min {𝑤, 𝑠} → ∞ . This is the convergence rate of the absolute IPM error under the uniform bounded-variation condition. By the main-text absolute IPM error bound, for every 𝜀 > 0 ,Pr (𝑍 𝑤,𝑠 > 𝜀) ≤ 12𝐶 𝒢 
+
+𝜀 {exp {−𝑤𝜀 2𝑎 𝑤 (𝜀)} + exp {−𝑠𝜀 2𝑎 𝑠 (𝜀)}} , (18) where 
+
+𝑎 𝑤 (𝜀) = 𝐶 16𝐶 2𝒢 {𝜎 2 + 𝑤 −1 + 𝜀 4𝐶 𝒢 
+
+(log 𝑤) 2},
+
+and 𝑎 𝑠 (𝜀) is defined analogously with 𝑠 replacing 𝑤 . Consider a fixed 𝑀 ≥ 1 and 𝜀 = 𝑀𝑟 𝑤,𝑠 . Since 
+
+𝑟 𝑤,𝑠 → 0 as min {𝑤, 𝑠} → ∞ , we have 𝜀 → 0 . For 𝑛 ∈ {𝑤, 𝑠} , define 𝑟 𝑛 = √ log 𝑛 𝑛 . Since 𝑟 𝑤,𝑠 ≥ 𝑟 𝑛 ,we have 𝜀 = 𝑀𝑟 𝑤,𝑠 ≥ 𝑀𝑟 𝑛 . For either 𝑛 ∈ {𝑤, 𝑠} , consider 
+
+𝐷 𝑛 (𝜀) = 𝜎 2 + 𝑛 −1 + 𝜀 4𝐶 𝒢 
+
+(log 𝑛) 2.
+
+For all sufficiently large 𝑛 , there exist constants 𝐴, 𝐵 > 0 , independent of 𝑤 and 𝑠 , such that 
+
+𝐷 𝑛 (𝜀) ≤ 𝐴 + 𝐵𝜀( log 𝑛) 2.
+
+6Therefore, for some constant 𝑐 0 > 0 depending on 𝐶 𝒢 and 𝐶 , but independent of 𝑛 ,
+
+𝑛𝜀 2𝑎 𝑛 (𝜀) = 𝐶𝑛𝜀 2
+
+16𝐶 2𝒢 𝐷 𝑛 (𝜀) ≥ 𝑐 0 min {𝑛𝜀 2, 𝑛𝜀 (log 𝑛) 2 } . 
+
+Since 𝜀 ≥ 𝑀 √ log 𝑛/𝑛 , we have 𝑛𝜀 2 ≥ 𝑀 2 log 𝑛 . Also, 
+
+𝑛𝜀 (log 𝑛) 2 ≥ 𝑀 √𝑛 log 𝑛 (log 𝑛) 2 = 𝑀 √𝑛 (log 𝑛) 3/2 .
+
+It follows that, for all sufficiently large 𝑛 , 𝑛𝜀 (log 𝑛) 2 ≥ 𝑀 log 𝑛. Hence, for fixed 𝑀 ≥ 1 and all sufficiently large 𝑛 ,
+
+𝑛𝜀 2𝑎 𝑛 (𝜀) ≥ 𝑐 1𝑀 log 𝑛, (19) for some constant 𝑐 1 > 0 . Applying (19) to (18) gives exp {−𝑤𝜀 2𝑎 𝑤 (𝜀)} ≤ 𝑤 −𝑐 1𝑀 , exp {−𝑠𝜀 2𝑎 𝑠 (𝜀)} ≤ 𝑠 −𝑐 1𝑀 .
+
+Therefore, Pr (𝑍 𝑤,𝑠 > 𝑀 𝑟 𝑤,𝑠 ) ≤ 12𝐶 𝒢 
+
+𝑀𝑟 𝑤,𝑠 
+
+{𝑤 −𝑐 1𝑀 + 𝑠 −𝑐 1𝑀 } . (20) Since 𝑟 𝑤,𝑠 ≥ √ log 𝑤/𝑤 and 𝑟 𝑤,𝑠 ≥ √ log 𝑠/𝑠 , combining with (20) we obtain, 
+
+1𝑟 𝑤,𝑠 
+
+𝑤 −𝑐 1𝑀 ≤√𝑤 √log 𝑤 𝑤 −𝑐 1𝑀 = 𝑤 1/2−𝑐 1𝑀 
+
+√log 𝑤 ,
+
+and similarly, 
+
+1𝑟 𝑤,𝑠 
+
+𝑠 −𝑐 1𝑀 ≤ 𝑠 1/2−𝑐 1𝑀 
+
+√log 𝑠 .
+
+Choosing a sufficiently large 𝑀 such that 𝑐 1𝑀 > 1/2 , both terms converge to zero as min {𝑤, 𝑠} → ∞. Therefore, Pr (𝑍 𝑤,𝑠 > 𝑀𝑟 𝑤,𝑠 ) → 0. 
+
+Finally, 
+
+∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ = 𝑂 𝑝 (√ log 𝑤 𝑤 + √ log 𝑠 𝑠 ) . 
+
+1.5 Proof of Corollary 2 
+
+Outline: We apply the main-text absolute IPM error bound to the IPM estimation error 𝑍 𝑤,𝑠 .Writing ℎ𝜀 (𝑛) = 𝑛𝜀 2𝑎 𝑛 (𝜀) , the two exponential terms in the bound become exp {−ℎ 𝜀 (𝑤)} and exp {−ℎ 𝜀 (𝑠)} . We show that ℎ𝜀 (𝑛) is increasing for 𝑛 > 7 , so the overall bound is controlled by the smaller window size, min {𝑤, 𝑠} . Subject to the constraint 𝑁 = 𝑤 + 𝑠 , this minimum window size is maximized when 𝑤 = 𝑠 = 𝑁 /2 , which minimizes the resulting error bound. 7Corollary 2 (Optimal equal allocation of local window sizes) . Under the conditions of the main-text absolute IPM error bound, suppose 𝑤, 𝑠 > exp (2) and 𝑁 = 𝑤 + 𝑠 is fixed. The upper bound for 
+
+∣ 𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ 
+
+is minimized when 𝑤 = 𝑠 = 𝑁 /2 .Proof. Let 
+
+𝑍 𝑤,𝑠 = ∣𝑑 𝒢 (̂𝐹 (𝑤) ,̂ 𝐹 (𝑠) ) − 𝑑 𝒢 (𝐹 (𝑤) , 𝐹 (𝑠) )∣ . 
+
+By the main-text absolute IPM error bound, for any fixed 𝜀 > 0 ,Pr (𝑍 𝑤,𝑠 > 𝜀) ≤ 12𝐶 𝒢 
+
+𝜀 [exp {−𝑤𝜀 2𝑎 𝑤 (𝜀)} + exp {−𝑠𝜀 2𝑎 𝑠 (𝜀)}] . (21) where 
+
+𝑎 𝑛 (𝜀) = 𝐶 16𝐶 2𝒢 {𝜎 2 + 𝑛 −1 + 𝜀 4𝐶 𝒢 
+
+(log 𝑛) 2}.
+
+Let ℎ𝜀 (𝑛) = 𝑛𝜀 2𝑎 𝑛 (𝜀) . Once it is shown that ℎ𝜀 (𝑛) is increasing in 𝑛 , we have exp {−ℎ 𝜀 (𝑤)} + exp {−ℎ 𝜀 (𝑠)} ≤ 2 exp {−ℎ 𝜀 (min {𝑤, 𝑠})}. 
+
+Thus the bound in (21) admits a conservative worst-window bound controlled by min {𝑤, 𝑠} . For a fixed and even local segment length 𝑁 = 𝑤+𝑠 , this conservative bound is minimized by maximizing min {𝑤, 𝑠} , which occurs at 𝑤 = 𝑠 = 𝑁 /2 . It remains to prove that ℎ𝜀 (𝑛) is increasing in 𝑛 . Since 
+
+𝐶𝜀 2/(16𝐶 2𝒢 ) is positive and does not depend on 𝑛 , this is equivalent to showing 
+
+𝜙(𝑛) = 𝑛 𝜎 2 + 𝑛 −1 + 𝜀 4𝐶 𝒢 
+
+(log 𝑛) 2
+
+is strictly increasing. For notational simplicity, we consider 𝐷 𝑛 (𝜀) = 𝜎 2 + 𝑛 −1 + 𝜀 4𝐶 𝒢 
+
+(log 𝑛) 2. There-fore, 
+
+𝜙(𝑛) = 𝑛 𝐷 𝑛 (𝜀) .
+
+Differentiating 𝜙(𝑛) with respect to 𝑛 yields 
+
+𝜙 ′(𝑛) = 𝜎 2 + 2𝑛 −1 + 𝜀 4𝐶 𝒢 
+
+{( log 𝑛) 2 − 2 log 𝑛} {𝜎 2 + 𝑛 −1 + 𝜀 4𝐶 𝒢 
+
+(log 𝑛) 2}2 .
+
+Therefore, if 𝑛 > 𝑒 2,
+
+(log 𝑛) 2 − 2 log 𝑛 = log 𝑛( log 𝑛 − 2) > 0. 
+
+Because 𝑛 is an integer and 𝑒 2 ≈ 7.389 , the condition 𝑛 > 7 implies 𝑛 ≥ 8 > 𝑒 2. Hence 𝜙 ′(𝑛) > 0 ,so ℎ𝜀 (𝑛) is strictly increasing for 𝑛 > 7 .81.6 Supporting Lemmas for Proving Theorem 2 
+
+The Lemma 1.1 states that, the scaled empirical SWAL criterion converges uniformly in probability to its population counterpart over all candidate split points away from the boundaries. 
+
+Lemma 1.1. Let {𝑋 𝑡 }𝑛 𝑡=1 be a time series and let 
+
+𝒦 𝑛 (𝜂) = {𝑘 ∶ ⌈𝜂𝑛⌉ ≤ 𝑘 ≤ ⌊(1 − 𝜂)𝑛⌋} , 𝜂 ∈ (0, 1/2), 
+
+where 𝜂 is fixed as 𝑛 → ∞ . Suppose that the main-text absolute IPM error bound, together with its extension in Remark 1 in the main text for subsamples containing a single change-point, holds uniformly over 𝑘 ∈ 𝒦 𝑛 (𝜂) , with common constants 𝐶 0, 𝐶 𝒢 , and 𝐶 , and a uniform upper bound on 
+
+𝜎 2. Suppose also that the population criterion 𝐺 𝑛 (𝑘) is the SWAL criterion. Define ̄𝐺 𝑛 (𝑘) = 𝑛 −1/2 𝐺 𝑛 (𝑘),̄̂ 𝐺 𝑛 (𝑘) = 𝑛 −1/2 ̂ 𝐺 𝑛 (𝑘). 
+
+Then, as 𝑛 → ∞ ,
+
+sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+∣̄̂𝐺 𝑛 (𝑘) −̄ 𝐺 𝑛 (𝑘)∣ 𝑝 
+
+−→ 0. 
+
+Proof. We prove uniform convergence of the scaled empirical SWAL criterion over the trimmed index set 𝒦 𝑛 (𝜂) . For 𝑘 ∈ 𝒦 𝑛 (𝜂) , define 
+
+𝑅 𝑛 (𝑘) = ∣𝑑 𝒢 (̂𝐹 1∶𝑘 ,̂ 𝐹 𝑘+1∶𝑛 ) − 𝑑 𝒢 (𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 )∣ . 
+
+The 1-Wasserstein distance on a common fixed compact interval satisfies the uniform bounded-variation condition. For a candidate split 𝑘 , a subsample lying within one stationary segment is covered directly by the main-text absolute IPM error bound, while a subsample containing the single change-point is covered by Remark 1. Hence, using the common uniform prefactor 𝐶 0, for every 𝑘 ∈ 𝒦 𝑛 (𝜂) and 𝜀 > 0 ,Pr {𝑅 𝑛 (𝑘) > 𝜀} ≤ 𝐶 0
+
+𝜀 [exp {−𝑘𝜀 2𝑎 𝑘 (𝜀)} + exp {−(𝑛 − 𝑘)𝜀 2𝑎 𝑛−𝑘 (𝜀)}] , (22) where 𝑎 ℓ(𝜀) is defined as in the main-text absolute IPM error bound with window size ℓ. Let 
+
+𝑟 𝑛 = √ log 𝑛/𝑛 , fix 𝑀 > 0 , and set 𝜀 𝑛 = 𝑀𝑟 𝑛 . For every 𝑘 ∈ 𝒦 𝑛 (𝜂) and ℓ ∈ {𝑘, 𝑛 − 𝑘} ,
+
+𝜂𝑛 ≤ ℓ ≤ 𝑛 and 𝜀 𝑛 (log ℓ) 2 ≤ 𝑀 (log 𝑛) 5/2 
+
+√𝑛 ⟶ 0. 
+
+Together with ℓ−1 ≤ (𝜂𝑛) −1 and the uniform bounds in the lemma, the definition of 𝑎 ℓ therefore yields a constant 𝑐 0 > 0 , independent of 𝑛 , 𝑘 , and ℓ, such that inf  
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+min {𝑎 𝑘 (𝜀 𝑛 ), 𝑎 𝑛−𝑘 (𝜀 𝑛 )} ≥ 𝑐 0
+
+for all sufficiently large 𝑛 . Consequently, by (22), the union bound, and |𝒦 𝑛 (𝜂)| ≤ 𝑛 , for any 
+
+𝑀 > 0 ,Pr ( sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+𝑅 𝑛 (𝑘) > 𝑀𝑟 𝑛 ) ≤ ∑
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+Pr {𝑅 𝑛 (𝑘) > 𝑀𝑟 𝑛 }≤ 𝐶 0|𝒦 𝑛 (𝜂)| 𝑀𝑟 𝑛 
+
+[exp {−𝑐 0𝜂𝑛𝑀 2𝑟 2𝑛 } + exp {−𝑐 0𝜂𝑛𝑀 2𝑟 2𝑛 }] . 
+
+(23) 9Since 𝑛𝑟 2𝑛 = log 𝑛 , (23) gives Pr ( sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+𝑅 𝑛 (𝑘) > 𝑀𝑟 𝑛 ) ≤ 2𝐶 0
+
+𝑀 √log 𝑛 𝑛 3/2−𝑐 0𝜂𝑀 2
+
+.
+
+Choosing 𝑀 sufficiently large makes the exponent 3/2 − 𝑐 0𝜂𝑀 2 negative. Hence sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+𝑅 𝑛 (𝑘) = 𝑂 𝑝 (√ log 𝑛 𝑛 ) . 
+
+By the definition of the scaled SWAL criterion, 
+
+∣̄̂𝐺 𝑛 (𝑘) −̄ 𝐺 𝑛 (𝑘)∣ = √𝑘(𝑛 − 𝑘) 𝑛 𝑅 𝑛 (𝑘), (24) and √𝑘(𝑛 − 𝑘)/𝑛 ≤ 1/2 . Therefore, sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+∣̄̂𝐺 𝑛 (𝑘) −̄ 𝐺 𝑛 (𝑘)∣ ≤ 12 sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+𝑅 𝑛 (𝑘) = 𝑂 𝑝 (√ log 𝑛 𝑛 ) . 
+
+Since log 𝑛/𝑛 → 0 , the right-hand side is 𝑜 𝑝 (1) , and hence sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+|̄̂𝐺 𝑛 (𝑘) −̄ 𝐺 𝑛 (𝑘)| 𝑝 
+
+−→ 0. 
+
+Lemma 1.2 below, shows that the 1-Wasserstein distance between two mixtures of the same distri-butions 𝐹 0 and 𝐹 1 is proportional to the difference in their mixing weights. 
+
+Lemma 1.2. Let 𝐹 0 and 𝐹 1 be probability measures on ℝ with finite first moments, and define 
+
+Δ ∶= 𝑊 1(𝐹 0, 𝐹 1). For every 𝜆 ∈ [0, 1] ,
+
+𝑊 1(𝐹 0, (1 − 𝜆)𝐹 0 + 𝜆𝐹 1) = 𝜆Δ. 
+
+More generally, for every 𝑎, 𝑏 ∈ [0, 1] , if 
+
+𝑀 𝑎 = (1 − 𝑎)𝐹 0 + 𝑎𝐹 1, 𝑀 𝑏 = (1 − 𝑏)𝐹 0 + 𝑏𝐹 1,
+
+then 
+
+𝑊 1(𝑀 𝑎 , 𝑀 𝑏 ) = |𝑎 − 𝑏|Δ. 
+
+Proof. By the Kantorovich-Rubinstein dual representation of the 1-Wasserstein distance, for two probability measures 𝑃 and 𝑄 with finite first moments, 
+
+𝑊 1(𝑃 , 𝑄) = sup 
+
+> 𝑓∈ℱ 1
+
+∣∫ 𝑓 𝑑𝑃 − ∫ 𝑓 𝑑𝑄∣ , ℱ1 = {𝑓 ∶ ‖𝑓‖ Lip ≤ 1}. 
+
+10 For every 𝑓 ∈ ℱ 1, linearity of integration gives 
+
+∫ 𝑓 𝑑𝑀 𝑎 − ∫ 𝑓 𝑑𝑀 𝑏 = (1 − 𝑎) ∫ 𝑓 𝑑𝐹 0 + 𝑎 ∫ 𝑓 𝑑𝐹 1 − (1 − 𝑏) ∫ 𝑓 𝑑𝐹 0 − 𝑏 ∫ 𝑓 𝑑𝐹 1
+
+= (𝑎 − 𝑏) (∫ 𝑓 𝑑𝐹 1 − ∫ 𝑓 𝑑𝐹 0) . 
+
+Taking the supremum over 𝑓 ∈ ℱ 1 and pulling out the scalar, 
+
+𝑊 1(𝑀 𝑎 , 𝑀 𝑏 ) = |𝑎 − 𝑏| sup 
+
+> 𝑓∈ℱ 1
+
+∣∫ 𝑓 𝑑𝐹 1 − ∫ 𝑓 𝑑𝐹 0∣ = |𝑎 − 𝑏| 𝑊 1(𝐹 0, 𝐹 1) = |𝑎 − 𝑏|Δ. 
+
+The first identity follows by taking 𝑎 = 0 , 𝑏 = 𝜆 , since then 𝑀 0 = 𝐹 0 and 𝑀 𝜆 = (1 − 𝜆)𝐹 0 + 𝜆𝐹 1,giving 𝑊 1(𝐹 0, (1 − 𝜆)𝐹 0 + 𝜆𝐹 1) = 𝜆Δ .Lemma 1.3 shows that, in the presence of a single change-point, the population SWAL criterion is uniquely maximized at the true change-point and remains uniformly separated from all sufficiently distant candidate locations. 
+
+Lemma 1.3. Let 𝐺 𝑛 (𝑘) be the population SWAL criterion over 𝒦 𝑛 (𝜂) = {𝑘 ∶ ⌈𝜂𝑛⌉ ≤ 𝑘 ≤ ⌊(1 − 𝜂)𝑛⌋} , and suppose there is a single change-point 𝜏 𝑛 ∈ 𝒦 𝑛 (𝜂) with marginal distributions 
+
+𝐹 𝑢 = 𝐹 0 for 𝑢 ≤ 𝜏 𝑛 , 𝐹 𝑢 = 𝐹 1 for 𝑢 > 𝜏 𝑛 , where 𝐹 0 and 𝐹 1 are probability measures with finite first moments and 0 < Δ = 𝑊 1(𝐹 0, 𝐹 1) < ∞ . Then the following holds: (i) (Unique maximizer) 𝐺 𝑛 (𝑘) < 𝐺 𝑛 (𝜏 𝑛 ) for all 𝑘 ∈ 𝒦 𝑛 (𝜂) , 𝑘 ≠ 𝜏 𝑛 .(ii) (Uniform separation) For every 𝜀 ∈ (0, 1 − 2𝜂) there exists 𝑐 𝜀 > 0 , depending only on (𝜀, 𝜂, Δ) ,such that, whenever the comparison set is nonempty, ̄𝐺 𝑛 (𝜏 𝑛 ) − sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)∶ |𝑘−𝜏 𝑛 |≥𝜀𝑛
+
+̄ 𝐺 𝑛 (𝑘) ≥ 𝑐 𝜀 .
+
+Proof. For 𝑘 ≤ 𝜏 𝑛 , 𝐹 1∶𝑘 = 𝐹 0 and 𝐹 𝑘+1∶𝑛 = 𝜏 𝑛 −𝑘 𝑛−𝑘 𝐹 0 + 𝑛−𝜏 𝑛  
+
+> 𝑛−𝑘
+
+𝐹 1; for 𝑘 > 𝜏 𝑛 , 𝐹 1∶𝑘 = 𝜏 𝑛  
+
+> 𝑘
+
+𝐹 0 + 𝑘−𝜏 𝑛  
+
+> 𝑘
+
+𝐹 1
+
+and 𝐹 𝑘+1∶𝑛 = 𝐹 1. By Lemma 1.2, 𝑊 1(𝐹 0, (1 − 𝜆)𝐹 0 + 𝜆𝐹 1) = 𝜆Δ for 𝜆 ∈ [0, 1] , so 
+
+𝐺 𝑛 (𝑘) = ⎧{{⎨{{⎩(𝑛 − 𝜏 𝑛 )Δ √𝑛 √ 𝑘 𝑛 − 𝑘 , 𝑘 ≤ 𝜏 𝑛 ,𝜏 𝑛 Δ√𝑛 √ 𝑛 − 𝑘 𝑘 , 𝑘 > 𝜏 𝑛 .
+
+(25) 
+
+Proof of (i). Since 𝑘 ↦ √𝑘/(𝑛 − 𝑘) is strictly increasing and 𝑘 ↦ √(𝑛 − 𝑘)/𝑘 strictly decreasing, (25) shows 𝐺 𝑛 is strictly increasing on {𝑘 ≤ 𝜏 𝑛 } and strictly decreasing on {𝑘 > 𝜏 𝑛 }; both branches agree at 𝑘 = 𝜏 𝑛 , so 𝜏 𝑛 is the unique maximizer. 
+
+Proof of (ii). With 𝜌 𝑛 = 𝜏 𝑛 /𝑛 and 𝑞 = 𝑘/𝑛 , dividing (25) by √𝑛 gives ̄ 𝐺 𝑛 (𝑘) = 𝐻(𝜌 𝑛 , 𝑞) , where 
+
+𝐻(𝜌, 𝑞) = { (1 − 𝜌)Δ√𝑞/(1 − 𝑞), 𝑞 ≤ 𝜌, 𝜌Δ√(1 − 𝑞)/𝑞, 𝑞 > 𝜌, 
+
+is jointly continuous on [𝜂, 1 − 𝜂] 2 and, for each fixed 𝜌 , strictly increasing in 𝑞 on 𝑞 ≤ 𝜌 and strictly decreasing on 𝑞 > 𝜌 . The set 𝒜 𝜀 = {(𝜌, 𝑞) ∈ [𝜂, 1 − 𝜂] 2 ∶ |𝑞 − 𝜌| ≥ 𝜀} is compact and nonempty for 𝜀 < 1 − 2𝜂 , and 𝐷(𝜌, 𝑞) = 𝐻(𝜌, 𝜌) − 𝐻(𝜌, 𝑞) is continuous and strictly positive on it, so 𝑐 𝜀 ∶= min 𝒜 𝜀 𝐷 > 0 . For any 𝑛 and 𝑘 ∈ 𝒦 𝑛 (𝜂) with |𝑘 − 𝜏 𝑛 | ≥ 𝜀𝑛 , the pair (𝜌 𝑛 , 𝑘/𝑛) lies in 𝒜 𝜀 ,hence ̄ 𝐺 𝑛 (𝜏 𝑛 ) −̄ 𝐺 𝑛 (𝑘) = 𝐷(𝜌 𝑛 , 𝑘/𝑛) ≥ 𝑐 𝜀 . Taking the supremum over such 𝑘 gives (ii). 11 1.7 Proof of Theorem 2 
+
+Proof. Scaling the criterion by 𝑛 −1/2 does not change the location of its maximizer. Define 
+
+𝑈 𝑛 = sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂)
+
+∣̄̂𝐺 𝑛 (𝑘) −̄ 𝐺 𝑛 (𝑘)∣ . 
+
+By Lemma 1.1, 𝑈 𝑛 𝑝 
+
+−→ 0, and hence 𝑈 𝑛 = 𝑜 𝑝 (1) . Condition (iii), after division by √𝑛 , implies that there exists a sequence 𝛿 𝑛 = 𝑜 𝑝 (1) such that ̄̂ 𝐺 𝑛 (̂𝜏 𝑛 ) ≥̄̂ 𝐺 𝑛 (𝜏 𝑛 ) − 𝛿 𝑛 .
+
+Fix 𝜀 > 0 . If the set {𝑘 ∈ 𝒦 𝑛 (𝜂) ∶ |𝑘 − 𝜏 𝑛 | ≥ 𝜀𝑛} is empty, then Pr (|̂𝜏 𝑛 − 𝜏 𝑛 | ≥ 𝜀𝑛) = 0, and the result is immediate. Otherwise, Lemma 1.3 gives a constant 𝑐 𝜀 > 0 , independent of 𝑛 , such that ̄𝐺 𝑛 (𝜏 𝑛 ) − sup 
+
+> 𝑘∈𝒦 𝑛 (𝜂) |𝑘−𝜏 𝑛 |≥𝜀𝑛
+
+̄𝐺 𝑛 (𝑘) ≥ 𝑐 𝜀 .
+
+On the event {|̂𝜏 𝑛 − 𝜏 𝑛 | ≥ 𝜀𝑛} , the uniform separation inequality implies ̄ 𝐺 𝑛 (𝜏 𝑛 ) −̄ 𝐺 𝑛 (̂𝜏 𝑛 ) ≥ 𝑐 𝜀 .
+
+On the other hand, ̄𝐺 𝑛 (𝜏 𝑛 ) −̄ 𝐺 𝑛 (̂𝜏 𝑛 ) =̄ 𝐺 𝑛 (𝜏 𝑛 ) −̄̂ 𝐺 𝑛 (𝜏 𝑛 )+̄̂ 𝐺 𝑛 (𝜏 𝑛 ) −̄̂ 𝐺 𝑛 (̂𝜏 𝑛 )+̄̂ 𝐺 𝑛 (̂𝜏 𝑛 ) −̄ 𝐺 𝑛 (̂𝜏 𝑛 )≤ ∣̄𝐺 𝑛 (𝜏 𝑛 ) −̄̂ 𝐺 𝑛 (𝜏 𝑛 )∣ + [̄̂𝐺 𝑛 (𝜏 𝑛 ) −̄̂ 𝐺 𝑛 (̂𝜏 𝑛 )] + ∣̄̂𝐺 𝑛 (̂𝜏 𝑛 ) −̄ 𝐺 𝑛 (̂𝜏 𝑛 )∣ ≤ 2𝑈 𝑛 + 𝛿 𝑛 .
+
+The last inequality follows from the definition of 𝑈 𝑛 and the approximate-maximization condition. Consequently, 
+
+{|̂𝜏 𝑛 − 𝜏 𝑛 | ≥ 𝜀𝑛} ⊆ {2𝑈 𝑛 + 𝛿 𝑛 ≥ 𝑐 𝜀 } . 
+
+Therefore, Pr ( |̂𝜏 𝑛 − 𝜏 𝑛 |𝑛 ≥ 𝜀) = Pr (|̂𝜏 𝑛 − 𝜏 𝑛 | ≥ 𝜀𝑛) ≤ Pr (2𝑈 𝑛 + 𝛿 𝑛 ≥ 𝑐 𝜀 )⟶ 0, 
+
+because 𝑈 𝑛 = 𝑜 𝑝 (1) , 𝛿 𝑛 = 𝑜 𝑝 (1) , and 𝑐 𝜀 > 0 is independent of 𝑛 . Since this holds for every 𝜀 > 0 ,
+
+|̂𝜏 𝑛 − 𝜏 𝑛 |𝑛 
+
+> 𝑝
+
+−→ 0. 
+
+12 1.8 Proof of Proposition 1 
+
+Proposition 1 (Population equivalence with CUSUM statistic) . Under a pure mean-shift model with a single change-point and common mean-zero noise distribution with finite first moments, for every 𝑘 ∈ {1, … , 𝑛 − 1} ,
+
+𝐺 𝑛 (𝑘) = { 𝑘(𝑛 − 𝑘) 𝑛 }
+
+> 1/2
+
+𝑊 1 (𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) = { 𝑘(𝑛 − 𝑘) 𝑛 }
+
+> 1/2
+
+|𝜇 1∶𝑘 − 𝜇 𝑘+1∶𝑛 | . 
+
+Outline: Consider the pure location-shift model, 
+
+𝑋 𝑡 = { 𝜇 1 + 𝑍 𝑡 , 𝑡 ≤ 𝜏 𝑛 ,𝜇 2 + 𝑍 𝑡 , 𝑡 > 𝜏 𝑛 ,
+
+where 𝜇 1 and 𝜇 2 are the pre- and post-change means, and 𝑍 𝑡 has a common mean-zero distribution 
+
+𝐹 0. For a candidate split 𝑘 ≠ 𝜏 𝑛 , one or both candidate segments are mixtures of the pre- and post-change distributions. We express these mixtures in terms of the proportions of post-change observations on either side of 𝑘 and apply the linearity of the 1-Wasserstein distance along the resulting mixture path to show that 𝑊 1(𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) = |𝜇 1∶𝑘 − 𝜇 𝑘+1∶𝑛 |.
+
+Proof. Let {𝑋 𝑡 }𝑛 𝑡=1 follow the pure location-shift model 
+
+𝑋 𝑡 = { 𝜇 1 + 𝑍 𝑡 , 𝑡 ≤ 𝜏 𝑛 ,𝜇 2 + 𝑍 𝑡 , 𝑡 > 𝜏 𝑛 ,
+
+where 𝑍 𝑡 has a common mean-zero distribution 𝐹 0 and a finite first moment. Let 𝐹 𝜇 𝑗 denote the distribution of 𝜇 𝑗 +𝑍 𝑡 , for 𝑗 = 1, 2 . We first record two elementary consequences of the location-shift structure. For any location parameter 𝜇 ,
+
+𝐹 −1 𝜇 (𝑢) = 𝜇 + 𝐹 −1 0 (𝑢), 0 < 𝑢 < 1. 
+
+Therefore, 
+
+𝑊 1(𝐹 𝜇 1 , 𝐹 𝜇 2 ) = ∫ 
+
+> 10
+
+∣𝐹 −1 𝜇 1 (𝑢) − 𝐹 −1 𝜇 2 (𝑢)∣ 𝑑𝑢 = |𝜇 1 − 𝜇 2|. 
+
+Next, for any 𝑎, 𝑏 ∈ [0, 1] , define 
+
+𝑀 𝑎 = (1 − 𝑎)𝐹 𝜇 1 + 𝑎𝐹 𝜇 2 , 𝑀 𝑏 = (1 − 𝑏)𝐹 𝜇 1 + 𝑏𝐹 𝜇 2 .
+
+By Lemma 1.2, the mixture identity can be written as 
+
+𝑊 1(𝑀 𝑎 , 𝑀 𝑏 ) = |𝑎 − 𝑏| |𝜇 2 − 𝜇 1|. 
+
+Now fix a candidate split 𝑘 ∈ {1, … , 𝑛 − 1} . Let 
+
+𝜋 𝐿 (𝑘) = 1𝑘 
+
+> 𝑘
+
+∑
+
+> 𝑡=1
+
+1{𝑡 > 𝜏 𝑛 }, 𝜋 𝑅 (𝑘) = 1𝑛 − 𝑘 
+
+> 𝑛
+
+∑
+
+> 𝑡=𝑘+1
+
+1{𝑡 > 𝜏 𝑛 }
+
+13 be the proportions of post-change observations in the left and right candidate segments. The corresponding segment distributions are therefore 
+
+𝐹 1∶𝑘 = {1 − 𝜋 𝐿 (𝑘)}𝐹 𝜇 1 + 𝜋 𝐿 (𝑘)𝐹 𝜇 2 , 𝐹 𝑘+1∶𝑛 = {1 − 𝜋 𝑅 (𝑘)}𝐹 𝜇 1 + 𝜋 𝑅 (𝑘)𝐹 𝜇 2 .
+
+Hence, applying the mixture identity above with 𝑎 = 𝜋 𝐿 (𝑘) and 𝑏 = 𝜋 𝑅 (𝑘) ,
+
+𝑊 1(𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) = |𝜋 𝑅 (𝑘) − 𝜋 𝐿 (𝑘)| |𝜇 2 − 𝜇 1|. 
+
+The corresponding population means are 
+
+𝜇 1∶𝑘 = {1 − 𝜋 𝐿 (𝑘)}𝜇 1 + 𝜋 𝐿 (𝑘)𝜇 2, 𝜇 𝑘+1∶𝑛 = {1 − 𝜋 𝑅 (𝑘)}𝜇 1 + 𝜋 𝑅 (𝑘)𝜇 2.
+
+Therefore, 
+
+|𝜇 1∶𝑘 − 𝜇 𝑘+1∶𝑛 | = |𝜋 𝑅 (𝑘) − 𝜋 𝐿 (𝑘)| |𝜇 2 − 𝜇 1|. 
+
+Combining the last two displays gives 
+
+𝑊 1(𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) = |𝜇 1∶𝑘 − 𝜇 𝑘+1∶𝑛 |. 
+
+Substituting this into the SWAL statistic yields 
+
+𝐺 𝑛 (𝑘) = √ 𝑘(𝑛 − 𝑘) 𝑛 𝑊 1(𝐹 1∶𝑘 , 𝐹 𝑘+1∶𝑛 ) = √ 𝑘(𝑛 − 𝑘) 𝑛 |𝜇 1∶𝑘 − 𝜇 𝑘+1∶𝑛 |, 
+
+which is the population CUSUM statistic for a pure mean shift. 
+
+1.9 Consistency of the Change-Point Detector 
+
+Lemma 1.4 shows the consistency of global Type-I error under the analytical threshold. 
+
+Lemma 1.4. Let 𝑤 𝑇 = ⌊𝑇 𝛽 ⌋, 𝛽 ∈ (0, 1) , with candidate splits 𝑡 𝑚 = 𝑚𝑤 𝑇 , 𝑚 = 1, … , 𝑀 𝑇 ∶= ⌊𝑇 /𝑤 𝑇 ⌋ − 1 , test statistics 𝑇 𝑡 𝑚 , population counterpart 𝐷 𝑇 ,𝑚 , and null set ℳ0 ∶= {𝑚 ∶ 𝐷 𝑇 ,𝑚 = 0} .Suppose 𝑏 𝑇 ,𝑚 ∶= 𝐴 𝑇 ,𝑚 √ log 𝑇 𝑤 𝑇 
+
+, where the threshold multipliers 𝐴 𝑇 ,𝑚 are deterministic constants (possibly varying with 𝑇 and 𝑚 ) and there exist fixed constants 𝐴 ∗ and 𝐴 ∗ satisfying 
+
+0 < 𝐴 ∗ ≤ 𝐴 𝑇 ,𝑚 ≤ 𝐴 ∗ < ∞ 
+
+uniformly in 𝑇 and 𝑚 . Suppose the main-text absolute IPM error bound holds uniformly over ℳ0.In addition, suppose there exist constants 𝑐 > 0 and 𝑇 0 such that 
+
+inf 
+
+> 𝑚∈ℳ 0
+
+𝑎 𝑤 𝑇 (𝑏 𝑇 ,𝑚 ) ≥ 𝑐 
+
+for every 𝑇 ≥ 𝑇 0, where the infimum over an empty set is defined to be +∞ , and assume that 
+
+𝑐𝐴 2∗ ≥ 1 − 𝛽/2 . Then Pr (ℰ 𝐼 𝑇 ,𝑤 𝑇 ) → 0 as 𝑇 → ∞ .
+
+14 Proof. Define the global Type-I error event by 
+
+ℰ𝐼 𝑇 ,𝑤 𝑇 ∶= ⋃
+
+> 𝑚∈ℳ 0
+
+{𝑇 𝑡 𝑚 > 𝑏 𝑇 ,𝑚 }. 
+
+For every 𝑚 ∈ ℳ 0, 𝐷 𝑇 ,𝑚 = 0 , so the main-text absolute IPM error bound gives Pr (𝑇 𝑡 𝑚 > 𝑢) ≤ 24𝐶 𝒢 
+
+𝑢 exp {−𝑤 𝑇 𝑢 2𝑎 𝑤 𝑇 (𝑢)}. 
+
+Because 𝐴 𝑇 ,𝑚 ≤ 𝐴 ∗ uniformly in 𝑇 and 𝑚 , and 𝑤 𝑇 ≍ 𝑇 𝛽 ,sup 
+
+> 𝑚
+
+𝑏 𝑇 ,𝑚 (log 𝑤 𝑇 )2 ≤ 𝐴 ∗√ log 𝑇 𝑤 𝑇 
+
+(log 𝑤 𝑇 )2 ⟶ 0. 
+
+Since 
+
+𝑤 𝑇 𝑏 2𝑇 ,𝑚 = 𝐴 2𝑇 ,𝑚 log 𝑇 , 
+
+and, by assumption, inf 
+
+> 𝑚∈ℳ 0
+
+𝑎 𝑤 𝑇 (𝑏 𝑇 ,𝑚 ) ≥ 𝑐 
+
+for all sufficiently large 𝑇 , we have 𝑎 𝑤 𝑇 (𝑏 𝑇 ,𝑚 ) ≥ 𝑐 uniformly over 𝑚 ∈ ℳ 0. If ℳ0 = ∅ , then 
+
+ℰ𝐼 𝑇 ,𝑤 𝑇 = ∅ and the result is immediate. Otherwise, evaluating at 𝑢 = 𝑏 𝑇 ,𝑚 and applying the union bound over ℳ0,Pr (ℰ 𝐼 𝑇 ,𝑤 𝑇 ) ≤ ∑
+
+> 𝑚∈ℳ 0
+
+𝐶 𝑏 𝑇 ,𝑚 
+
+𝑇 −𝑐𝐴 2𝑇 ,𝑚 ≤ 𝑀 𝑇 ⋅ 𝐶 𝑏 𝑇 , min 
+
+𝑇 −𝑐𝐴 2∗ ,
+
+where 𝑏 𝑇 , min = min 𝑚∈ℳ 0 𝑏 𝑇 ,𝑚 . Since 𝑏 𝑇 , min ≥ 𝐴 ∗√log 𝑇 /𝑤 𝑇 , 𝑤 𝑇 ≍ 𝑇 𝛽 , 𝑀 𝑇 = 𝑂(𝑇 1−𝛽 ), and 
+
+𝑐𝐴 2∗ ≥ 1 − 𝛽/2 , it follows that Pr (ℰ 𝐼 𝑇 ,𝑤 𝑇 ) ≤ 𝐶 𝐴 ∗
+
+√log 𝑇 𝑇 1−𝛽/2−𝑐𝐴 2∗ ≤ 𝐶 𝐴 ∗
+
+√log 𝑇 ⟶ 0. 
+
+In Lemma 1.5, we show that, for sufficiently large samples, every true change-point is covered by an isolated candidate split whose discrepancy retains at least half of the true signal strength and whose associated region contains no other change-points, thereby ensuring that localization step is well defined. 
+
+Lemma 1.5. Let the candidate splits be 𝑡 𝑚 = 𝑚𝑤 𝑇 with reference and stride windows of common length 𝑤 𝑇 , and suppose 𝑤 𝑇 = 𝑜(𝜏 min ). By the minimal-spacing condition, 𝜏 𝑗 ≥ 𝜏 min , and 𝑇 − 𝜏 𝑗 ≥𝜏 min . Since 𝑤 𝑇 = 𝑜(𝜏 min ), every change-point is eventually more than 𝑤 𝑇 away from the boundaries. Hence its nearest grid point belongs to the admissible candidate set 𝑚 = 1, … , 𝑀 𝑇 . Then, for all sufficiently large 𝑇 , each change-point 𝜏 𝑗 admits a split 𝑡 𝑚(𝑗) with |𝑡 𝑚(𝑗) −𝜏 𝑗 | ≤ 𝑤 𝑇 /2 whose combined region (𝑡 𝑚(𝑗) − 𝑤 𝑇 , 𝑡 𝑚(𝑗) + 𝑤 𝑇 ] contains no other change-point; and if 𝑑 𝒢 (𝐹 𝑆 𝑗 , 𝐹 𝑆 𝑗+1 ) ≥ 𝜗 𝒢 > 0 , then 
+
+𝐷 𝑇 ,𝑚(𝑗) ≥ 𝜗 𝒢 
+
+2 .
+
+15 Proof. Because adjacent grid points are 𝑤 𝑇 observations apart, a nearest grid point satisfies 𝑟 𝑇 ,𝑗 ∶= |𝑡 𝑚(𝑗) − 𝜏 𝑗 | ≤ 𝑤 𝑇 /2 . Condition 𝑤 𝑇 = 𝑜(𝜏 min ) implies 2𝑤 𝑇 < 𝜏 min eventually, so the combined region centered at this grid point contains only 𝜏 𝑗 .If 𝑡 𝑚(𝑗) < 𝜏 𝑗 , the reference-window distribution is 𝐹 𝑆 𝑗 , whereas the stride-window distribution is 
+
+𝑟 𝑇 ,𝑗 
+
+𝑤 𝑇 
+
+𝐹 𝑆 𝑗 + (1 − 𝑟 𝑇 ,𝑗 
+
+𝑤 𝑇 
+
+) 𝐹 𝑆 𝑗+1 .
+
+If 𝑡 𝑚(𝑗) ≥ 𝜏 𝑗 , the analogous mixture occurs in the reference window and the stride-window dis-tribution is 𝐹 𝑆 𝑗+1 . In either case, linearity of integration and positive homogeneity of the IPM give 
+
+𝐷 𝑇 ,𝑚(𝑗) = (1 − 𝑟 𝑇 ,𝑗 
+
+𝑤 𝑇 
+
+) 𝑑 𝒢 (𝐹 𝑆 𝑗 , 𝐹 𝑆 𝑗+1 ) ≥ 𝜗 𝒢 
+
+2 .
+
+In Lemma 1.6, we show the consistency of global Type-II error under the analytical threshold as in Lemma 1.4. 
+
+Lemma 1.6. Under the setup of Lemma 1.4, let the 𝑘 true change-points satisfy the assumptions of Lemma 1.5, with associated splits 𝑡 𝑚(𝑗) , 𝑗 = 1, … , 𝑘 . Assume the absolute IPM error bound and its single-change-point extension (Remark 1) hold uniformly over these splits, with common prefactor 
+
+𝐶 0 > 0 . Then Pr (ℰ 𝐼𝐼 𝑇 ,𝑤 𝑇 ) → 0 as 𝑇 → ∞ .Proof. Let 𝛿 𝑇 = 𝜗 𝒢  
+
+> 2
+
+− 𝑏 𝑇 , max with 𝑏 𝑇 , max = max 𝑚 𝑏 𝑇 ,𝑚 . Since 𝑏 𝑇 , max ≤ 𝐴 ∗√log 𝑇 /𝑤 𝑇 =𝑂(𝑇 −𝛽/2 √log 𝑇 ) → 0 , eventually 𝛿 𝑇 ∈ [𝜗 𝒢 /4, 𝜗 𝒢 /2] . By Lemma 1.5, 𝐷 𝑇 ,𝑚(𝑗) − 𝑏 𝑇 ,𝑚(𝑗) ≥ 𝛿 𝑇 , so 
+
+{𝑇 𝑡 𝑚(𝑗) ≤ 𝑏 𝑇 ,𝑚(𝑗) } ⊆ {|𝑇 𝑡 𝑚(𝑗) − 𝐷 𝑇 ,𝑚(𝑗) | > 𝛿 𝑇 /2} . Then inf 𝜀∈𝐾 ̃ 𝑎 𝑤 𝑇 (𝜀) ≥ 𝑐 𝐾 (log 𝑤 𝑇 )−2 for all large 
+
+𝑇 , and the uniform error bound with 𝜀 = 𝛿 𝑇 /2 and a union bound over the 𝑘 splits give Pr (ℰ 𝐼𝐼 𝑇 ,𝑤 𝑇 ) ≤ 2𝑘𝐶 0
+
+𝛿 𝑇 
+
+exp {− 𝑤 𝑇 𝛿 2𝑇 
+
+> 4
+
+̃ 𝑎 𝑤 𝑇 (𝛿 𝑇 /2)}. 
+
+Since eventually 𝛿 𝑇 /2 lies in a fixed compact subset of (0, ∞) , the assumed lower bound on ̃ 𝑎 𝑤 𝑇 
+
+yields 
+
+𝑤 𝑇 𝛿 2𝑇 
+
+4̃ 𝑎 𝑤 𝑇 (𝛿 𝑇 /2) ≥ 𝑐 0𝜗 2𝒢 
+
+64 ⋅ 𝑤 𝑇 
+
+(log 𝑤 𝑇 )2 → ∞, 
+
+while the prefactor 2𝑘𝐶 0/𝛿 𝑇 stays bounded ( 𝑘 fixed, 𝛿 𝑇 ≥ 𝜗 𝒢 /4 ). Hence Pr (ℰ 𝐼𝐼 𝑇 ,𝑤 𝑇 ) → 0 .
+
+1.10 Proof of Theorem 3 
+
+Proof. For the window size 𝑤 𝑇 satisfying 𝑤 𝑇 = 𝑜(𝜏 min ) and thresholds 𝑏 𝑇 ,𝑚 , define the Type-I and Type-II error events 
+
+ℰ𝐼 𝑇 ,𝑤 𝑇 ∶= ⋃
+
+> 𝑚∶ 𝐷 𝑇 ,𝑚 =0
+
+{𝑇 𝑡 𝑚 > 𝑏 𝑇 ,𝑚 }, ℰ𝐼𝐼 𝑇 ,𝑤 𝑇 ∶= 
+
+> 𝑘
+
+⋃
+
+> 𝑗=1
+
+{𝑇 𝑡 𝑚(𝑗) ≤ 𝑏 𝑇 ,𝑚(𝑗) }. 
+
+16 Here, 𝐷 𝑇 ,𝑚 > 0 indicates that the window (𝑡 𝑚 − 𝑤 𝑇 , 𝑡 𝑚 + 𝑤 𝑇 ] contains a true change-point, and 
+
+𝑚(𝑗) is the nearest-grid index of 𝜏 𝑗 from Lemma 1.5. Consider the event 𝒬 𝑇 ∶= (ℰ 𝐼 𝑇 ,𝑤 𝑇 ∪ ℰ 𝐼𝐼 𝑇 ,𝑤 𝑇 )𝑐 .By Lemmas 1.4 and 1.6 and the union bound, Pr (𝒬 𝑐 𝑇 ) → 0. 
+
+Let ̂ 𝒥 𝑇 denote the set of rejected grid indices, and partition it into its maximal consecutive compo-nents 𝒞 𝑇 ,1 , … , 𝒞 𝑇 ,̂𝑘 , where ̂ 𝑘 is defined as the number of such components. For each ℓ ∈ {1, … ,̂ 𝑘} ,define the consolidated region 
+
+ℐ𝑇 ,ℓ ∶= ⋃
+
+> 𝑚∈𝒞 𝑇 ,ℓ
+
+(𝑡 𝑚 − 𝑤 𝑇 , 𝑡 𝑚 + 𝑤 𝑇 ]. 
+
+Then, for each 𝑗 ∈ {1, … , 𝑘} , define the rejected indices associated with 𝜏 𝑗 by 
+
+ℛ𝑇 ,𝑗 ∶= {𝑚 ∈̂ 𝒥 𝑇 ∶ 𝜏 𝑗 ∈ (𝑡 𝑚 − 𝑤 𝑇 , 𝑡 𝑚 + 𝑤 𝑇 ]}. 
+
+Since no Type-I error occurs on 𝒬 𝑇 , every 𝑚 ∈̂ 𝒥 𝑇 satisfies 𝐷 𝑇 ,𝑚 > 0 , and since 2𝑤 𝑇 < 𝜏 min for large 𝑇 , its localization region contains exactly one change-point; hence ̂ 𝒥 𝑇 = ⋃ 𝑘 𝑗=1 ℛ𝑇 ,𝑗 , a disjoint union. The condition 𝜏 𝑗 ∈ (𝑡 𝑚 − 𝑤 𝑇 , 𝑡 𝑚 + 𝑤 𝑇 ] is equivalent to 𝑡 𝑚 ∈ [𝜏 𝑗 − 𝑤 𝑇 , 𝜏 𝑗 + 𝑤 𝑇 ). Since 
+
+𝑡 𝑚 = 𝑚𝑤 𝑇 , this holds if and only if 
+
+𝑚 ∈ [ 𝜏 𝑗 
+
+> 𝑤 𝑇
+
+− 1, 𝜏 𝑗 
+
+> 𝑤 𝑇
+
++ 1), 
+
+an interval of length 2, which contains at most two integers; hence |ℛ 𝑇 ,𝑗 | ≤ 2 . Moreover, if 
+
+𝑚, 𝑚 ′ ∈ ℛ 𝑇 ,𝑗 with 𝑚 < 𝑚 ′, then (𝑚 ′ − 𝑚)𝑤 𝑇 = 𝑡 𝑚 ′ − 𝑡 𝑚 < 2𝑤 𝑇 , forcing 𝑚 ′ − 𝑚 = 1 . Thus each 
+
+ℛ𝑇 ,𝑗 is a singleton or a pair of consecutive indices, and so lies within a single maximal component. Additionally, the components associated with different change-points are eventually separated, since 
+
+𝑚 ∈ ℛ 𝑇 ,𝑗 and 𝑚 ′ ∈ ℛ 𝑇 ,𝑗 ′ with 𝑗 ≠ 𝑗 ′, then 
+
+|𝑡 𝑚 − 𝑡 𝑚 ′ | ≥ |𝜏 𝑗 − 𝜏 𝑗 ′ | − 2𝑤 𝑇 ≥ 𝜏 min − 2𝑤 𝑇 ,
+
+so |𝑚 − 𝑚 ′| ≥ 𝜏 min /𝑤 𝑇 − 2 > 1 for all 𝑇 large enough, since 𝑤 𝑇 = 𝑜(𝜏 min ). Hence ℛ𝑇 ,𝑗 and ℛ𝑇 ,𝑗 ′
+
+cannot belong to the same maximal component. Since no Type-II error occurs, the nearest grid index 𝑚(𝑗) satisfies 𝑚(𝑗) ∈̂ 𝒥 𝑇 , and |𝑡 𝑚(𝑗) − 𝜏 𝑗 | ≤ 𝑤 𝑇 /2 < 𝑤 𝑇 gives 𝑚(𝑗) ∈ ℛ 𝑇 ,𝑗 , so every ℛ𝑇 ,𝑗 is nonempty. Therefore, ̂ 𝑘 = 𝑘 on 𝒬 𝑇 for all 𝑇 large enough, and Pr (̂𝑘 = 𝑘) ≥ Pr (𝒬 𝑇 ) ⟶ 1. 
+
+Finally, under the event 𝒬 𝑇 , each consolidated region ℐ𝑇 ,𝑗 exactly one change-point 𝜏 𝑗 , and apply SWAL statistic per region to estimate the exact location of the change-point. By Theorem 2, for every 𝜀 > 0 ,Pr ( max  
+
+> 1≤𝑗≤𝑘
+
+|̂𝜏 𝑗 − 𝜏 𝑗 | > 𝜀𝑤 𝑇 ) ≤ Pr (𝒬 𝑐 𝑇 ) + 
+
+> 𝑘
+
+∑
+
+> 𝑗=1
+
+Pr ({|̂𝜏 𝑗 − 𝜏 𝑗 | > 𝜀𝑤 𝑇 } ∩ 𝒬 𝑇 ) → 0, 
+
+so 𝑤 −1 𝑇 max 1≤𝑗≤𝑘 |̂𝜏 𝑗 − 𝜏 𝑗 | 𝑝 
+
+−→ 0 . Since 𝑤 𝑇 = 𝑜(𝑇 ) , setting 𝜌 𝑇 ∶= 𝑤 𝑇 /𝑇 = 𝑜(1) yields Pr (̂𝑘 = 𝑘 and max  
+
+> 1≤𝑗≤𝑘
+
+|̂𝜏 𝑗 − 𝜏 𝑗 | ≤ 𝑇 𝜌 𝑇 ) → 1. 
+
+17 1.11 Consistency of Ensemble-SCAN 
+
+Ensemble aggregation is used as a stability mechanism rather than as a separate source of asymp-totic validity. The motivation follows the general ensemble-learning principle that aggregating several competent base procedures can reduce instability without degrading performance [Rokach, 2010, Theisen et al., 2023]. Related consistency arguments for majority-vote classifiers also show that, under suitable conditions, majority aggregation can preserve the consistency of the underlying base learners [Denil et al., 2013]. In the present setting, however, the consistency of Ensemble-SCAN follows directly from the consistency of the finite collection of base SCAN detectors. Let 𝒲 = {𝑤 1, … , 𝑤 𝑑 } denote a finite collection of window sizes, where 𝑑 is fixed and does not grow with 𝑇 . For each 𝑤 𝑖 ∈ 𝒲 , let ̂ ℛ(𝑖) denote the change-point set estimated by the 𝑖 th base SCAN detector, and let ℛ = {𝜏 1, … , 𝜏 𝑘 } denote the true change-point set. By Theorem 3, each SCAN detector consistently estimates both the number and locations of the change-points. That is, for some 𝜌 𝑇 = 𝑜(1) ,Pr (|̂ℛ (𝑖) | = 𝑘 and max  
+
+> 1≤ℓ≤𝑘
+
+|̂𝜏 (𝑖) ℓ − 𝜏 ℓ| ≤ 𝑇 𝜌 𝑇 ) → 1 
+
+as 𝑇 → ∞ , for each 𝑖 = 1, … , 𝑑 in the ensemble. If the ensemble merging radius 𝑟 𝑇 satisfies 
+
+2𝑇 𝜌 𝑇 ≤ 𝑟 𝑇 and 2𝑟 𝑇 < 𝜏 min for all sufficiently large 𝑇 , then, with probability tending to one, detections associated with the same true change-point are grouped into the same cluster, while detections associated with distinct true change-points remain separated. Thus, 𝑟 𝑇 is the theoretical tolerance radius for merging detections. Since 𝑑 is finite, the intersection of the base-detector consistency events also occurs with probability tending to one. On this event, each true change-point receives support from all 𝑑 SCAN detectors, and no spurious cluster receives majority support. Therefore, for any fixed voting threshold 𝜈 ∈ (0, 1] , the ensemble estimator ̂ ℛ⋆ satisfies Pr (|̂ℛ ⋆| = 𝑘) → 1, max 
+
+> 1≤ℓ≤𝑘
+
+|̂𝜏 ⋆ℓ − 𝜏 ℓ|𝑇 
+
+> 𝑝
+
+−→ 0. 
+
+Thus, Ensemble-SCAN preserves the consistency of the base SCAN change-point detection frame-work while reducing sensitivity to the choice of a single window size. 
+
+1.12 Proof of Proposition 2 
+
+Proposition 2 (Window size risk trade-off) . Under Theorems 1 and 2, suppose the local error satisfies the uniform stochastic bound ℰ𝑇 (𝑤) = 𝑂 𝑝 (𝑅 𝑇 (𝑤)) , where 
+
+𝑅 𝑇 (𝑤) = √ log 𝑤 𝑤 + 𝑤 𝑇 .
+
+A minimizer 𝑤 ∗ of 𝑅 𝑇 (𝑤) satisfies 𝑤 ∗ ≍ 𝑇 2/3 (log 𝑇 ) 1/3 .Proof. Under Theorems 1 and 2, 
+
+𝑅 𝑇 (𝑤) = √ log 𝑤 𝑤 + 𝑤 𝑇 .
+
+18 Differentiating 𝑅 𝑇 (𝑤) with respect to 𝑤 gives 
+
+𝑑𝑅 𝑇 (𝑤) 𝑑𝑤 = − 12
+
+log 𝑤 − 1 𝑤 3/2 √log 𝑤 + 1𝑇 .
+
+At the minimizer 𝑤 ∗, the first-order condition 𝑑𝑅 𝑇 (𝑤 ∗)𝑑𝑤 = 0 gives 
+
+1𝑇 = 12
+
+log 𝑤 ∗ − 1 (𝑤 ∗)3/2 √log 𝑤 ∗ .
+
+As 𝑇 → ∞ , we have 𝑤 ∗ → ∞ and therefore log 𝑤 ∗ − 1 ≍ log 𝑤 ∗. The first-order condition conse-quently implies 
+
+(𝑤 ∗)3/2 ≍ 𝑇 √ log 𝑤 ∗,
+
+or equivalently, 
+
+𝑤 ∗ ≍ 𝑇 2/3 (log 𝑤 ∗)1/3 .
+
+Since log 𝑤 ∗ ≍ log 𝑇 , it follows that 𝑤 ∗ ≍ 𝑇 2/3 (log 𝑇 ) 1/3 . Finally, up to logarithmic factors, the optimal window size satisfies 𝑤 ∗ ≍ 𝑇 2/3 .
+
+## 2 Additional Numerical Implementation 
+
+2.1 Adaptive Threshold Calibration 
+
+Algorithm S1 gives how the adaptive threshold is calibrated using tapered-block-bootstrap at each local split. 
+
+Algorithm S1: Calibrate the Data-Driven Threshold 
+
+Input : Reference window 𝑋 𝑡−𝑤+1∶𝑡 ; stride window 𝑋 𝑡+1∶𝑡+𝑤 ; number of bootstrap samples 
+
+𝐵 ; Bonferroni-corrected significance level 𝛼 ′ = 𝛼/𝑀 .
+
+Output: Bootstrap-calibrated threshold ̂ 𝑏 𝑇 ,𝑚 . 
+
+> 1
+
+Estimate the observed IPM discrepancy between the reference and stride windows: 
+
+𝑇 𝑡,𝑤 ← 𝑑 𝒢 (̂𝐹 (𝑤),𝑡 ,̂ 𝐹 (𝑠),𝑡 ) . 
+
+Construct the pooled local sequence: 𝑍 𝑡,1∶2𝑤 ← (𝑋 𝑡−𝑤+1 , … , 𝑋 𝑡 , 𝑋 𝑡+1 , … , 𝑋 𝑡+𝑤 ). for 
+
+𝑏 = 1, … , 𝐵 do  
+
+> 2
+
+Generate a tapered block bootstrap replicate 𝑍 ∗(𝑏) 𝑡,1∶2𝑤 from 𝑍 𝑡,1∶2𝑤  
+
+> 3
+
+Split 𝑍 ∗(𝑏) 𝑡,1∶2𝑤 into the null reference and stride segments 𝑍 ∗(𝑏) 𝑡,1∶𝑤 and 𝑍 ∗(𝑏) 𝑡,𝑤+1∶2𝑤  
+
+> 4
+
+Compute 𝑇 (𝑏) 𝑡,𝑤 = 𝑑 𝒢 (̂𝐹 ∗(𝑏) (𝑤),𝑡 ,̂ 𝐹 ∗(𝑏) (𝑠),𝑡 ) 
+
+> 5
+
+Estimate the (1 − 𝛼 ′) empirical quantile of {𝑇 (𝑏) 𝑡,𝑤 }𝐵 𝑏=1 :̂𝑏 𝑇 ,𝑚 ← inf {𝑥 ∶ 1𝐵 
+
+> 𝐵
+
+∑
+
+> 𝑏=1
+
+1 (𝑇 (𝑏) 𝑡,𝑤 ≤ 𝑥) ≥ 1 − 𝛼 ′} . 
+
+19 2.2 Ensemble-SCAN 
+
+Algorithm S2 summarizes the complete aggregation procedure of the proposed ensemble-SCAN method. 
+
+Algorithm S2: Ensemble-SCAN with Majority Voting 
+
+Input: Time series {𝑋 𝑡 }𝑇 𝑡=1 ; window set 𝒲 = {𝑤 1, … , 𝑤 𝑑 }; bootstrap replications 𝐵 ; significance level 𝛼 ; voting threshold 𝜈 ∈ (0, 1] .
+
+Output: Estimated change-point set ̂ ℛ⋆ and cluster support proportions.  
+
+> 1
+
+Initialize ̂ ℛ⋆ ← ∅  
+
+> 2
+
+for 𝑗 = 1, … , 𝑑 do 
+
+> 3
+
+̂ ℛ(𝑗) ← SCAN ({𝑋 𝑡 }𝑇 𝑡=1 , 𝑤 𝑗 , 𝐵, 𝛼)  
+
+> 4
+
+Pool and sort ̂ ℛ ← ⋃ 𝑑 𝑗=1 ̂ ℛ(𝑗)  
+
+> 5
+
+Partition ̂ ℛ into clusters 𝒮 = {𝒮 1, … , 𝒮 𝐿 } by joining consecutive detections separated by at most 
+
+𝑟 𝑇 = min (𝒲)  
+
+> 6
+
+foreach 𝒮 ℓ ∈ 𝒮 do  
+
+> 7
+
+Compute SP (𝒮 ℓ) ← 𝑑 −1 ∑𝑑 𝑗=1 1{̂ℛ (𝑗) ∩ 𝒮 ℓ ≠ ∅}  
+
+> 8
+
+if SP (𝒮 ℓ) ≥ 𝜈 then  
+
+> 9
+
+Compute 𝐶 𝒮 ℓ (𝑡) ← ∑ 𝑑 𝑗=1 1{𝑡 ∈̂ ℛ (𝑗) } for 𝑡 ∈ 𝒮 ℓ 
+
+> 10
+
+Choose ̂ 𝜏(𝒮 ℓ) ∈ arg max 𝑡∈𝒮 ℓ 𝐶 𝒮 ℓ (𝑡) , resolving ties using the tied location returned by the largest window 
+
+> 11
+
+̂ ℛ⋆ ←̂ ℛ ⋆ ∪ {̂𝜏(𝒮 ℓ)}  
+
+> 12
+
+return ̂ ℛ⋆
+
+2.3 Choice of Tuning Parameters 
+
+SCAN does not require a model-specific penalty parameter; instead, its threshold is data-driven. However, the framework involves several hyperparameters as follows: the significance level 𝛼 , num-ber of bootstrap replications 𝐵 , ensemble size 𝑑 , voting threshold 𝜈 . These control the testing level, Monte Carlo accuracy, ensemble stability and aggregation respectively. Throughout the simulation study, we set 𝐵 = 400 , 𝑑 = 7 , 𝜈 = 0.5 , and 𝑤 min = 30 . The values of 𝐵 and 𝑑 may be increased when additional computational resources are available for further accuracy. Additionally, practical guidance for selecting the window-size range and voting threshold is provided below. 1. Window size: The window size governs a trade-off between statistical stability and local-ization resolution. Small windows provide finer temporal resolution but yield noisier IPM estimates, while larger windows stabilize the empirical discrepancy at the cost of reduced localization accuracy and a greater risk of including more than one change-point in a local comparison. We select the admissible range [𝑤 min , 𝑤 max ] as follows. The lower bound 𝑤 min is the smallest window size for which the upper bound on the local error probability, derived in Lemmas 1.5–1.6, falls below 1/2 . This threshold is motivated by the competence condition required for majority-vote aggregation. The upper bound 𝑤 max preserves the local nature of the scan. If the minimum change-point spacing 𝜏 min is known, we set 𝑤 max ≤ ⌊𝜏 min /2⌋ . Otherwise, we use the rate-motivated default 𝑤 max = ⌊𝑇 2/3 ⌋, up to logarithmic factors, as justified above. 20 The ensemble window set 𝒲 is then constructed by sampling a finite number of window sizes from [𝑤 min , 𝑤 max ], yielding SCAN detectors that operate at multiple temporal scales while excluding windows that are either too narrow for reliable IPM estimation or too wide for accurate localization. 2. Voting threshold: The voting threshold 𝜈 ∈ (0, 1] controls the minimum support required for a candidate cluster to be retained. Since 𝜈 is unknown in practice, we evaluate a grid of possible values and plot the number of retained change-points against 𝜈 . A suitable threshold is chosen near the elbow of this curve, after the main drop in retained detections and before the curve stabilizes; an example is provided in the HASC analysis below. Larger values of 𝜈 
+
+yield more conservative detections, while smaller values increase sensitivity to weaker changes. 
+
+2.4 Localization Statistic 
+
+Figure S1: Illustration of the proposed localization procedure under four representative single change-point scenarios. Each row corresponds to a different type of structural change: (A) change in mean, 𝒩(0, 1) → 𝒩(3, 1) ; (B) change in variance, 𝒩(0, 0.8) → 𝒩(0, 2.2) ;(C) simultaneous change in mean and variance, 𝒩(0, 0.8) → 𝒩(2.5, 2) ; and (D) change in the overall distribution, Poisson (𝜆 = 4) → Exponential (𝜃 = 2) .21 3 Additional Simulation Details 
+
+3.1 Data Generation 
+
+The simulation study allows the number of true change-points, 𝑘(𝑇 ) , to increase with the series length. This design is related to the asymptotic framework of Fryzlewicz [2014], which permits the number of change-points to diverge with 𝑇 . Following the growing-change-point design of Ding et al. [2017], we set 
+
+𝑘(𝑇 ) = ⌊ min {𝐶𝑇 1/3 , 𝑇 𝐶𝜏 min 
+
+}⌋ , 
+
+with 𝐶 = 2.5 and minimum change-point spacing 𝜏 min = 30 , except for 𝑇 = 500 , for which we use four change-points. This specification allows 𝑘(𝑇 ) to grow moderately while preserving the required minimum spacing between consecutive change-points. The resulting designs range from four change-points at 𝑇 = 500 to 250 change-points at 𝑇 = 10 6. The Gaussian simulations also evaluate the empirical behavior of SCAN beyond the compact-support assumptions used for the formal Wasserstein theory. 
+
+3.2 Benchmarking Methods and Their Parameter Settings 
+
+Binary Segmentation, PELT, and KCP: These methods are implemented using the ruptures library with the ℓ2 cost function for changes in the mean and the normal cost function for changes in both the mean and variance, with a BIC-type penalty parameter. SBS, WBS: Implemented using the sbs package in R. These methods were called from Python through the rpy2 interface. The penalty parameter was selected using the BIC criterion. Functional Pruning Optimal Partitioning (FPOP): Implemented using the fpop package in R, with the method called from Python through the rpy2 interface. A BIC-type penalty was used to control the number of estimated change-points. 22 4 Additional results 
+
+4.1 Simulation Results 3 4 5 6                               
+
+> log 10 (T)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> F1 score
+> AR(1) ; ½ = 0
+> 3456
+> log 10 (T)
+> AR(1) ; ½ = 0 :7
+> 3456
+> log 10 (T)
+> AR(1) ; ½ »U(0 ;1)
+> 3456
+> log 10 (T)
+> ARMA(1 ;1)
+> 3456
+> log 10 (T)
+> ARFIMA(1 ;0:35 ;1)
+> BinSeg PELT WBS KCP FPOP SCAN SBS
+
+Figure S2: Comparison of the 𝐹 1-score for change-point detection methods under mean changes across series lengths and dependence structures. The central line shows the median 
+
+𝐹 1-score, and the shaded bands represent the interquartile range (IQR). 
+
+Figure S3: Comparison of the 𝐹 1-score for change-point detection methods under changes in the mean and variance across series lengths and dependence structures. 23 Table 1: Performance comparison of change-point detection methods using covering metric and 
+
+𝐹 1-score. 
+
+Model Series length Covering metric 𝐹 1-score SCAN BinSeg PELT FPOP WBS SBS KCP SCAN BinSeg PELT FPOP WBS SBS KCP AR(1), 𝜌 = 0 
+
+500 0.971 0.973 0.973 0.984 0.984 0.984 0.984 0.957 0.889 0.889 1.000 1.000 1.000 0.889 1000 0.973 0.760 0.561 0.574 0.971 0.971 0.965 0.964 0.846 0.696 0.667 1.000 1.000 0.966 5000 0.984 0.454 0.320 0.323 0.981 0.981 0.823 0.985 0.603 0.456 0.464 0.989 1.000 0.897 10000 0.989 0.541 0.385 0.388 0.950 0.949 0.872 0.990 0.633 0.479 0.486 0.971 0.971 0.909 20000 0.983 0.620 0.462 0.465 0.825 0.825 - 0.980 0.670 0.522 0.527 0.855 0.855 -50000 0.977 0.691 0.539 0.541 0.694 0.696 - 0.962 0.698 0.543 0.554 0.699 0.699 -100000 0.979 0.745 - 0.614 0.614 0.616 - 0.956 0.724 - 0.594 0.590 0.602 -1000000 0.999 - - 0.771 0.289 0.289 - 0.999 - - 0.785 0.327 0.327 -AR(1), 𝜌 = 0.7 
+
+500 0.799 0.917 0.942 0.949 0.405 0.421 0.948 0.752 0.800 0.889 0.889 0.308 0.320 0.889 
+
+1000 0.754 0.704 0.543 0.558 0.612 0.648 0.864 0.792 0.750 0.636 0.609 0.519 0.564 0.889 
+
+5000 0.767 0.452 0.314 0.318 0.908 0.904 0.756 0.820 0.531 0.407 0.400 0.860 0.860 0.806 10000 0.825 0.527 0.381 0.386 0.921 0.921 0.834 0.841 0.560 0.423 0.432 0.874 0.882 0.830 20000 0.877 0.617 0.467 0.468 0.812 0.813 - 0.848 0.583 0.462 0.468 0.769 0.786 -50000 0.930 0.684 0.538 0.540 0.690 0.691 - 0.852 0.608 0.492 0.496 0.615 0.629 -100000 0.954 0.736 - 0.609 0.612 0.613 - 0.859 0.628 - 0.535 0.530 0.530 -1000000 0.996 - - 0.765 0.289 0.290 - 0.939 - - 0.733 0.280 0.280 -AR(1), 𝜌 ∼ Uniform 500 0.885 0.963 0.966 0.976 0.744 0.823 0.980 0.864 0.889 0.889 1.000 0.615 0.727 0.889 1000 0.864 0.741 0.552 0.567 0.868 0.899 0.941 0.890 0.815 0.667 0.667 0.813 0.867 0.963 
+
+5000 0.898 0.449 0.321 0.323 0.946 0.955 0.793 0.929 0.563 0.448 0.436 0.925 0.944 0.868 10000 0.931 0.533 0.387 0.390 0.940 0.940 0.857 0.941 0.593 0.457 0.464 0.932 0.951 0.887 20000 0.949 0.622 0.465 0.465 0.821 0.821 - 0.939 0.635 0.497 0.505 0.821 0.838 -50000 0.961 0.685 0.536 0.538 0.692 0.694 - 0.926 0.660 0.527 0.531 0.671 0.671 -100000 0.970 0.744 - 0.611 0.614 0.615 - 0.927 0.685 - 0.570 0.566 0.566 -1000000 0.999 - - 0.766 0.289 0.290 - 0.988 - - 0.766 0.307 0.307 -ARMA(1,1) 500 0.948 0.972 0.972 0.984 0.980 0.980 0.984 0.932 0.889 0.889 1.000 1.000 1.000 0.889 1000 0.950 0.754 0.555 0.580 0.962 0.965 0.961 0.949 0.833 0.696 0.667 0.966 0.966 0.966 
+
+5000 0.970 0.454 0.319 0.320 0.975 0.978 0.821 0.976 0.585 0.456 0.436 0.977 0.989 0.886 10000 0.980 0.540 0.384 0.387 0.948 0.947 0.870 0.983 0.625 0.479 0.486 0.971 0.971 0.904 20000 0.976 0.619 0.462 0.464 0.825 0.824 - 0.973 0.660 0.516 0.522 0.838 0.855 -50000 0.972 0.691 0.541 0.542 0.694 0.695 - 0.955 0.685 0.538 0.547 0.685 0.685 -100000 0.977 0.744 - 0.614 0.614 0.615 - 0.950 0.712 - 0.585 0.590 0.590 -1000000 0.999 - - 0.770 0.289 0.289 - 0.998 - - 0.783 0.320 0.320 -ARFIMA(1, 0.35 , 1) 500 0.935 0.976 0.976 0.984 0.569 0.610 0.984 0.920 0.889 0.889 1.000 0.471 0.533 0.889 1000 0.983 0.783 0.568 0.609 0.766 0.808 0.971 0.966 0.880 0.727 0.727 0.700 0.757 0.966 
+
+5000 0.990 0.463 0.324 0.326 0.935 0.938 0.832 0.987 0.613 0.456 0.464 0.925 0.925 0.900 10000 0.987 0.546 0.389 0.393 0.952 0.950 0.876 0.988 0.650 0.493 0.496 0.971 0.971 0.909 20000 0.972 0.627 0.466 0.468 0.827 0.825 - 0.975 0.680 0.522 0.527 0.855 0.855 -50000 0.945 0.695 0.540 0.539 0.695 0.695 - 0.945 0.703 0.554 0.558 0.699 0.699 -100000 0.919 0.748 - 0.616 0.614 0.615 - 0.918 0.731 - 0.602 0.602 0.602 -1000000 0.815 - - 0.767 0.289 0.290 - 0.832 - - 0.783 0.333 0.333 -
+
+24 4.2 Long-memory Voting-Threshold Sensitivity 3 4 5 6
+
+log 10 (T)   
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Covering score
+> 3456
+
+log 10 (T)       
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> F1-score
+> SCAN ( ν= 0.5 )SCAN ( ν= 0.7 )SCAN ( ν= 0.8 )SCAN ( ν= 0.9 )
+
+Figure S4: Sensitivity of SCAN performance to the ensemble voting threshold in the presence of long-memory. 
+
+4.3 Computational Complexity and Parallel Implementation 
+
+For a fixed window size 𝑤 , SCAN performs 𝑂(𝑇 /𝑤) local hypothesis tests between adjacent reference and stride windows. In the univariate setting, computing the 1-Wasserstein distance within a window of size 𝑤 has computational cost 𝑂(𝑤 log 𝑤) , since the observations in the window must be sorted when constructing the empirical CDFs. Therefore, with 𝐵 tapered block bootstrap replications, the computational cost for a fixed window size is 𝑂(𝐵𝑇 log 𝑤) .For the ensemble version, let 𝒲 = {𝑤 1, … , 𝑤 𝑑 } denote the set of window sizes and let 𝑤 max =
+
+max (𝒲) . Running all 𝑑 SCAN detectors serially has cost 
+
+> 𝑑
+
+∑
+
+> 𝑗=1
+
+𝑂(𝐵𝑇 log 𝑤 𝑗 ) ≤ 𝑂(𝐵𝑑𝑇 log 𝑤 max ). 
+
+The number of bootstrap replications 𝐵 and the ensemble size 𝑑 are treated as fixed hyperpa-rameters, independent of the series length. Hence, for fixed 𝐵 and 𝑑 , the computational cost is approximately linear in 𝑇 up to logarithmic factors. When no prior information is available for se-lecting the maximum window size, the implementation uses the rate-motivated default 𝑤 max ≍ 𝑇 2/3 ,giving complexity 𝑂(𝐵𝑑𝑇 log (𝑇 2/3 )) .25 Table 2: Performance comparison of change-point detection methods under joint mean-variance changes using the covering metric and 𝐹 1-score. Model Series length Covering metric 𝐹 1-score SCAN BinSeg PELT SCAN BinSeg PELT AR(1), 𝜌 = 0 
+
+500 0.996 0.868 0.960 1.000 0.616 0.794 1000 0.985 0.880 0.942 0.963 0.718 0.876 5000 0.992 0.925 0.966 0.988 0.759 0.905 10000 0.993 0.945 0.979 0.991 0.769 0.909 20000 0.985 0.959 0.987 0.985 0.781 0.915 50000 0.978 0.971 0.993 0.967 0.795 0.922 100000 0.981 0.979 - 0.960 0.806 -1000000 1.000 - - 1.000 - -AR(1), 𝜌 = 0.7 
+
+500 0.815 0.392 0.513 0.750 0.227 0.363 1000 0.769 0.511 0.678 0.800 0.366 0.565 5000 0.776 0.514 0.695 0.827 0.328 0.547 10000 0.829 0.469 0.635 0.842 0.264 0.465 20000 0.880 0.438 0.574 0.850 0.215 0.394 50000 0.931 0.415 0.499 0.854 0.165 0.314 100000 0.955 0.407 - 0.858 0.134 -1000000 0.997 - - 0.938 - -AR(1), 𝜌 ∼ Uniform 500 0.917 0.570 0.741 0.857 0.336 0.555 1000 0.883 0.664 0.837 0.923 0.486 0.745 5000 0.903 0.703 0.882 0.938 0.486 0.782 10000 0.935 0.693 0.879 0.941 0.443 0.759 20000 0.952 0.692 0.869 0.939 0.414 0.738 50000 0.962 0.696 0.854 0.927 0.384 0.710 100000 0.971 0.708 - 0.928 0.364 -1000000 1.000 - - 0.988 - -ARMA(1,1) 500 0.992 0.755 0.912 1.000 0.499 0.734 1000 0.975 0.805 0.920 0.963 0.628 0.847 5000 0.973 0.855 0.953 0.976 0.662 0.887 10000 0.983 0.871 0.968 0.981 0.661 0.892 20000 0.978 0.886 0.977 0.977 0.667 0.900 50000 0.974 0.903 0.985 0.956 0.678 0.910 100000 0.978 0.915 - 0.951 0.686 -1000000 1.000 - - 1.000 - -ARFIMA(1, 0.35 , 1) 500 0.996 0.473 0.619 0.889 0.278 0.420 1000 0.992 0.599 0.768 0.963 0.411 0.570 5000 0.996 0.597 0.772 0.988 0.386 0.560 10000 0.989 0.533 0.696 0.991 0.327 0.499 20000 0.975 0.467 0.609 0.977 0.273 0.437 50000 0.948 0.391 0.499 0.946 0.210 0.353 100000 0.920 0.334 - 0.920 0.164 -1000000 0.814 - - 0.832 - -26 Bootstrap replications and different window sizes can be computed in parallel as separate tasks. The resulting base detectors are not statistically independent; they share the same series and may use overlapping observations, but this does not prevent parallel computation. In practice, the scan-cpd implementation leverages multi-core processing, so the wall-clock time depends on the slowest base-detector task and the available computational resources. Although the literature does not provide an explicit optimal choice for the number of SCAN detectors in the ensemble, increasing this number excessively is not necessarily beneficial because it increases computational cost. The ensemble size should therefore be large enough to provide stability across window sizes, but not increased without bound [Oshiro et al., 2012]. 
+
+4.4 Real-world datasets 
+
+HASC Dataset 
+
+Under standard ensembling theory, a voting threshold of 0.5 is a natural default under the compe-tence framework described in the main body of the paper. However, this threshold may be overly conservative in real-world applications. In particular, for changes in variance, the distributional shift primarily affects the spread rather than the location of the observations, which may produce a weaker discrepancy signal than a mean shift. This can reduce the power of the change-point detection algorithm. For this reason, we replace the default majority-voting threshold of 0.5 with an elbow-type diag-nostic plot for selecting the voting proportion. Figure S5 shows how the voting threshold was determined for the HASC dataset. This approach provides a transparent, unsupervised threshold-selection procedure. 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0  
+
+> Voting threshold ( )
+> 050 100 150 200
+> Number of retained change points
+
+Figure S5: Sensitivity of the number of retained change-points to the ensemble voting threshold. The analysis of the HASC dataset used a significance level of 𝛼 = 0.05 , 𝐵 = 400 tapered block bootstrap replications, and an ensemble of 𝑑 = 20 base SCAN detectors. The window sizes ranged from 𝑤 min = 30 to 𝑤 max = 1081 , and the voting threshold was set to 𝜈 = 0.1 based on the elbow shown in Figure S5. 
+
+BTC-USD Dataset 
+
+27 Table 3: change-points matched with nearby major Bitcoin-related Reuters articles, providing pos-sible interpretations of the detected changes. No. Detected Event date Event summary 1 2017-02-17 13:00 2017-02-23 U.S. Bitcoin-ETF speculation pushes Bitcoin toward a record high 4 2018-03-14 14:00 2018-03-14 Google bans cryptocurrency advertising 5 2018-11-14 22:00 2018-11-14 Bitcoin falls below $6,000 6 2019-04-02 09:00 2019-04-02 Large anonymous order triggers rally 7 2019-05-03 07:00 2019-05-03 Bitcoin jumps as much as 6 percent to new six-month high 8 2019-06-22 04:00 2019-06-22 Bitcoin rises above $10,000 amid renewed cryptocurrency optimism 9 2019-09-24 23:00 2019-09-24 Margin calls trigger a sharp Bitcoin price decline 10 2020-01-07 04:00 2020-01-06 U.S.–Iran tensions support a Bitcoin price breakout 11 2020-03-09 09:00 2020-03-09 Market liquidations accelerate Bitcoin’s decline 12 2020-04-16 13:00 2020-04-16 Bitcoin jumps above $7,100 and triggers BitMEX liquidations 13 2020-07-27 21:00 2020-07-27 High trading volume pushes Bitcoin toward $11,000 14 2020-11-04 18:00 2020-11-04 U.S. election uncertainty lifts Bitcoin 15 2021-02-09 05:00 2021-02-09 Tesla investment drives Bitcoin to new highs 16 2021-05-17 06:00 2021-05-17 Bitcoin falls after Musk comments 17 2021-10-06 17:00 2021-10-06 Soros holdings and seasonal rally 18 2021-12-04 09:00 2021-12-04 Leveraged positions liquidated during crash 19 2022-04-22 20:00 2022-04-22 Binance–Russia investigation 20 2022-06-13 13:00 2022-06-13 Crypto market falls below $1 trillion 21 2022-08-26 20:00 2022-08-27 Hawkish Fed speech pressures Bitcoin 22 2023-01-12 23:00 2023-01-12 Softer U.S. inflation supports Bitcoin 23 2023-06-21 06:00 2023-06-21 BlackRock spot-ETF application drives rally 24 2023-08-18 02:00 2023-08-18 Global risk-asset sell-off 25 2023-10-20 08:00 2023-10-20 Technical rally with no clear catalyst 26 2024-02-14 14:00 2024-02-14 Spot-ETF inflows lift Bitcoin market value 27 2024-02-27 07:00 2024-02-27 Institutional demand pushes Bitcoin above $57,000 28 2024-11-06 04:00 2024-11-06 Bitcoin leaps to record high as traders lean toward Trump victory 29 2025-02-23 13:00 2025-02-24 Crypto’s biggest hacks and heists after $1.5 billion theft from Bybit 28 No. Detected Event date Event summary 30 2025-04-25 12:00 2025-04-25 Swiss National Bank chairman rebuffs Bitcoin as reserve asset 31 2025-05-08 16:00 2025-05-09 Bitcoin retakes $100,000 on global trade deal optimism 32 2025-07-09 20:00 2025-07-09 Bitcoin soars to all-time peak just shy of $112,000 33 2026-01-30 02:00 2026-01-30 Bitcoin slips as Fed chair speculation hits risky assets 
+
+## References 
+
+Richard C. Bradley. Basic properties of strong mixing conditions. a survey and some open questions. 
+
+Probability Surveys , 2:107–144, 2005. doi: 10.1214/154957805100000104. Misha Denil, David Matheson, and Nando de Freitas. Consistency of online random forests. In 
+
+Proceedings of the 30th International Conference on Machine Learning (ICML) , volume 28, pages 1256–1264. PMLR, 2013. Jie Ding, Jiawei Zhou, and Vahid Tarokh. Asymptotically optimal prediction for time-varying data generating processes. IEEE Transactions on Information Theory , 2017. Piotr Fryzlewicz. Wild binary segmentation for multiple change-point detection. The Annals of Statistics , 42(6):2243–2281, 2014. doi: 10.1214/14-AOS1245. George Marsaglia, Wai Wan Tsang, and Jingbo Wang. Evaluating kolmogorov’s distribution. Jour-nal of Statistical Software , 8(18):1–4, 2003. doi: 10.18637/jss.v008.i18. Florence Merlevède, Magda Peligrad, and Emmanuel Rio. Bernstein inequality and moderate deviations under strong mixing conditions, 2012. Thais Mayumi Oshiro, Pedro Santoro Perez, and José Augusto Baranauskas. How many trees in a random forest? In Petra Perner, editor, Machine Learning and Data Mining in Pattern Recog-nition , volume 7376 of Lecture Notes in Computer Science , pages 154–168, Berlin, Heidelberg, 2012. Springer. doi: 10.1007/978-3-642-31537-4_13. Lior Rokach. Ensemble-based classifiers. Artificial Intelligence Review , 33(1):1–39, 2010. ISSN 1573-7462. doi: 10.1007/s10462-009-9124-7. Ryan Theisen, Hyunsuk Kim, Yaoqing Yang, Liam Hodgkinson, and Michael W. Mahoney. When are ensembles really effective?, 2023. 29

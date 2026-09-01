@@ -1,0 +1,414 @@
+Title: Efficient Online Continual Foundation Model Fine-Tuning for Predictive Process Monitoring
+
+URL Source: https://arxiv.org/pdf/2608.28237v1
+
+Published Time: Mon, 31 Aug 2026 01:05:49 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Efficient Online Continual Foundation Model Fine-Tuning for Predictive Process Monitoring 
+
+Sjoerd van Straten 1 and Marwan Hassani 1,2 
+
+> 1
+
+Department of Mathematics and Computer Science, Eindhoven University of Technology, The Netherlands 
+
+{h.a.j.v.straten, m.hassani}@tue.nl  
+
+> 2
+
+Department of Mathematics and Computer Science, University of Wuppertal, Germany 
+
+Abstract. Predictive Process Monitoring (PPM) models are increasingly deployed in dynamic environments where concept drift causes the underlying process dis-tribution to shift over time. While recent work has moved toward online contin-ual learning, existing methods train compact, task-specific networks entirely from scratch, leaving a persistent cold-start problem. Foundation Models (FMs) offer a compelling solution to this problem, but their continual fine-tuning in the process mining domain remains unexplored. We propose COMPASS (Continual Online foundation Model-based PPM with Adaptive SubSpaces), the first framework for online continual fine-tuning of FMs for PPM. COMPASS adapts loss-plateau drift detection to autonomously identify task boundaries in event streams and main-tains a unified knowledge subspace including both pre-trained and task-specific directions. We evaluate our approach on nine event streams covering synthetic and real-world concept drift scenarios, across task-free and task-aware settings with multiple backbones and with consistent hyperparameter tuning across all methods. Our approach outperforms three SOTA non-FM competitors and two update strategy baselines, with particularly strong gains on streams exhibiting recurrent drift and complex, long-running cases, while incurring acceptable com-putational overhead compared to the non-FM competitors. 
+
+Keywords: Foundation Models · Online Continual Learning · Process Mining · Predictive Process Monitoring · Parameter-Efficient Fine-Tuning. 
+
+## 1 Introduction 
+
+Predictive Process Monitoring (PPM) is a cornerstone of modern operational intelli-gence, enabling organizations to predict future process behavior, such as the next inter-action in a customer journey with a company, for instance to proactively mitigate risks or optimize resource allocation [2,1]. Traditionally, PPM models were trained on static datasets under the assumption of a stable environment. However, real-world organiza-tional processes are inherently dynamic and subject to concept drifts, where changes in regulations, seasonality or resource availability cause the underlying process distribu-tion to vary over time. While recent advancements have moved toward online settings where models adapt to streaming event data [9,13,10,12], current approaches suffer from at least one of two arXiv:2608.28237v1 [cs.LG] 28 Aug 2026 2 van Straten and Hassani CONAP-LLM: Continual Online Ne 
+
+Image Stream  Event Stream                                    
+
+> C1 AGEB
+> C2 AGECF
+> C3 ADGCFH
+> C4 ACFCHH
+> C5 AEFGB
+> C6 ACFH
+> C7 AGEFE
+> Time Time
+
+𝓣𝑩 𝓣𝑨  𝓣𝑨     
+
+> Elephant Photos
+> R1 R2 R3
+> 𝓣𝟏
+> Dog
+> Photos
+> Elephant Drawings
+> 𝓣𝟐 𝓣𝟑
+> CONCEPT DRIFT CONCEPT DRIFT
+> Resources:
+
+Fig. 1. Comparison of an image stream and a process event stream under concept drift. In an image stream ( left ) tasks are visually distinct between TA and TB . In a process event stream (right ), cases ( C1 − C7) are long-running and interleaved across task boundaries, and drift is caused by organizational changes causing activities (represented as letters) and the time between them to change. Resource R1 is on maternity leave after T1, and a policy change after T2 causes newly initiated cases to be prioritized, pushing older interleaved cases to the background. No input-space signal announces the shift, making autonomous drift detection substantially harder than in image streams. 
+
+fundamental limitations. First, most existing methods rely on training compact, task-specific networks entirely from scratch for each new deployment [6,3,14]. This results in a persistent cold-start problem , where the model possesses no prior sequence under-standing and must learn the “organizational logic” of a process from scratch. Second, these models often struggle with the stability-plasticity dilemma, resulting from the need to adapt to new behaviors (plasticity) without overwriting or forgetting previously learned knowledge (stability), a phenomenon known as catastrophic forgetting .These challenges are compounded by properties of process event streams that make online continual learning (OCL) substantially more complex than in domains such as image classification. As illustrated in Fig. 1, while an image stream presents clean ob-servations with task boundaries that manifest as clear breaks in the input space, event streams are fundamentally different. An example of a case is the connected treatment steps of a patient in a hospital or the end-to-end processing steps of a customer loan ap-plication in a bank. Each step occurrence is referred to as an event , consisting of an ac-tivity (e.g., the name of the treatment step) that is executed by a resource (e.g., the doc-tor) at a certain timestamp . Cases are long-running and interleaved across task bound-aries, while drift is caused by organizational changes such as policy updates, staffing change or seasonality that are not necessarily reflected in the events themselves. The only evidence of a shift is a gradual change in the distribution of activities, resources and time between activities, in addition to decision points. Together with the interleaved cases, this makes autonomous drift detection and adaptation a noisier and more delayed problem than in other domains. Foundation Models (FMs), especially Large Language Models (LLMs), offer a compelling response to the cold-start problem. Pre-trained on a large corpora of text, they encode sequence-modeling capabilities that transfer naturally to process traces when activities are treated as discrete tokens [11]. PPM tasks include for example next activity prediction (e.g., predicting the next treatment step for a patient), final outcome prediction (e.g., whether their treatment will be satisfying) and remaining time pre-Efficient Online Continual FM Fine-Tuning for PPM 3
+
+diction (e.g., the time until the patient leaves the hospital). In this work we focus on next activity prediction as a representative task. We expect the proposed framework to extend to other PPM tasks, though we do not evaluate this empirically. Unlike NLP and computer vision, where domain-specific FMs are well-established, no FMs exist for PPM. Therefore, FMs must be adapted to the process mining domain on the fly. Parameter-efficient fine-tuning (PEFT) via LoRA [4] makes FM adaptation efficient and computationally feasible, but vanilla LoRA provides no mechanism for preserving either pre-trained or previously learned task knowledge as the stream evolves. We propose COMPASS ( Continual Online foundation Model-based PPM with Adaptive 
+
+Sub Spaces), the first framework for online continual fine-tuning of FMs for next activ-ity prediction. Upon detecting that the loss has stabilized, signaling that the current task distribution has been captured, our approach expands a unified knowledge space includ-ing both the pre-trained FM’s dominant input directions and the task-specific directions accumulated across all observed tasks. New adapters are reinitialized into the residual subspace orthogonal to the unified knowledge space, ensuring plasticity toward new tasks without interference with prior knowledge. The contributions of this work are threefold. (i) we adapt the loss-plateau drift de-tection of [16] to process event streams for autonomous task boundary detection; (ii) we adapt and combine the residual subspace projection of [7] with pre-trained knowledge anchoring to jointly achieve plasticity, backward stability and forward stability in event streams; and (iii) we evaluate our approach on nine event streams under synthetic and real-world concept drifts, across task-free and task-aware settings with multiple back-bones, demonstrating state-of-the-art performance on next activity prediction against three non-FM competitors and two update strategy baselines. Our contribution is pri-marily the integration and adaptation of these mechanisms into a coherent framework for the PPM domain, rather than the introduction of new continual learning algorithms in isolation. The remainder of this paper is structured as follows. Section 2 introduces the pre-liminaries and formally defines the problem. Section 3 reviews related work and defines the research gap. Section 4 describes the proposed framework in detail. Section 5 and Section 6 present the experimental setup and results, respectively. Section 7 concludes with a discussion and avenues for future work. 
+
+## 2 Preliminaries and Problem Definition 
+
+Let A denote the universe of all possible process activities. The execution of a process instance yields a trace , defined as a finite sequence σ = ⟨a1, a 2, . . . , a L⟩ ∈ A ∗ of length L, where each element ai ∈ A represents the activity label of the i-th event. In this work, we focus on next activity prediction, which is defined over prefixes of such traces as follows: 
+
+Definition 1 (Next Activity Prediction). Given a prefix x = ⟨a1, a 2, . . . , a k⟩ of length 
+
+1 ≤ k < L , the next activity prediction task is to predict ˆak+1 that should ideally match the ground truth target y = ak+1 .
+
+In an online setting, events arrive as a continuous, non-stationary event stream S
+
+rather than a static dataset. All prefix-target pairs (xi, y i) are sorted by timestamp and 4 van Straten and Hassani 
+
+partitioned into contiguous, non-overlapping windows ⟨γ1, γ 2, . . . ⟩ where each γl =
+
+{(xi, y i)}Γi=1 is a batch of Γ pairs. Due to concept drifts, the underlying joint distri-bution P (X, Y ) may shift over time. A task is defined as a maximal contiguous sub-sequence of S over which P (X, Y ) remain stable. The model fθ must predict before updating via a test-then-train protocol, preventing data leakage. We consider a model 
+
+fθ parameterized by θ, where the base weights W0 ∈ Rd×m with hidden dimension d
+
+and output dimension m encode general sequence understanding acquired during large-scale pre-training on text corpora. Rather than updating all of θ, parameter-efficient fine-tuning constrains adaptation to a low-dimensional subspace via an increment ∆W with 
+
+∥∆W ∥0 ≪ dm , leaving W0 nominally frozen. The model’s objective over window γl
+
+is to minimize the cross-entropy loss (Eq. 1): 
+
+LCE (γl) = − 1
+
+Γ
+
+X
+
+> (xi,y i)∈γl
+
+log P (yi | xi; W0 + ∆W ) (1) In continual learning, the model observes tasks T1, T2, . . . sequentially and must maintain performance across all tasks seen so far. The primary failure mode is catas-trophic forgetting . Updating θ to minimize loss on Tt may degrade performance on Tt′
+
+for t′ < t . In addition, aggressive updates risk overwriting the general sequence under-standing in W0, degrading the model’s ability to generalize to unseen process behavior. In the task-free setting considered in this work, task boundaries are unknown a priori and must be inferred from the event stream itself. This gives rise to the following problem. Given a pre-trained FM fθ with base weights W0 ∈ Rd×m and a non-stationary event stream S with unknown task bound-aries, find a parameter update strategy that, for all tasks T1, T2, . . . observed so far, jointly satisfies: 
+
+– Plasticity : fθ minimizes LCE on the current task Tt;
+
+– Backward stability : performance degradation on all previously observed tasks Tt′ ,
+
+t′ < t , is minimized; 
+
+– Forward stability : the general sequence understanding encoded in W0 is preserved throughout the stream. 
+
+## 3 Related Work 
+
+Update Strategies. Early work on model maintenance in PPM focused on periodic of-fline retraining. Maisenbacher and Weidlich [9] formalize concept drift in PPM and present a paradigm grounded in incremental learning, showing that advanced drift-aware classifiers are best suited for continuously evolving processes. Márquez-Chamorro et al. [10] compare six data selection strategies for offline model rebuilding, finding that ensemble and non-cumulative approaches outperform naive full retraining, with gains of up to fifteen percentage points over a no-update baseline. Rizzi et al. [13] similarly evaluate four update strategies for final outcome prediction, demonstrating that incre-mental updates match full retraining accuracy at a fraction of the computational cost. Pauwels and Calders [12] extend this to next activity prediction, showing that incremen-tal strategies can exploit catastrophic forgetting as a natural mechanism for discarding Efficient Online Continual FM Fine-Tuning for PPM 5
+
+outdated process behavior. These works establish that continual adaptation is essential in dynamic environments. However, they all assume periodic, batch-oriented updates rather than true event-by-event online streaming and train task-specific models entirely from scratch, foregoing the structural knowledge and sequence understanding that FMs can provide out of the box. 
+
+Online Continual Learning Approaches for PPM. A second generation of methods moves toward genuinely online settings where models adapt to streaming event data without periodic rebuilding. DynaTrainCDD [6] monitors the incoming stream using the PrefixCDD [5] algorithm, triggering retraining upon detected structural deviations, though it reinitializes a single dense layer (SDL) backbone [12] from scratch at each drift point and does not address catastrophic forgetting. TFCLPM [14] takes a task-free continual learning perspective, combining a dynamic loss function with Memory Aware Synapses and a diversity-aware hard sample buffer to mitigate forgetting, while still relying on a lightweight SDL network trained from scratch. CNAPwP [3] adapts the DualPrompt [15] architecture to next activity prediction, using learnable general and expert prompts to disentangle task-invariant from task-specific knowledge, demon-strating strong performance under recurrent concept drifts. However, these existing ap-proaches share a fundamental limitation. They train compact, task-specific networks entirely from scratch for each new deployment. This means the cold-start problem per-sists, each new event stream must be learned from the ground up, without any prior sequence understanding. FMs, by contrast, arrive with generalizable sequence knowl-edge that can be efficiently adapted rather than rebuilt, opening a path toward efficient online continual learning for PPM. 
+
+Continual Fine-Tuning of Foundation Models. Low-Rank Adaptation (LoRA) [4] provides the foundation for parameter-efficient fine-tuning by freezing base weights and injecting pairs of trainable low-rank matrices into transformer layers, reducing trainable parameters by orders of magnitude while introducing no additional inference latency. Building on this, several works have explored LoRA fine-tuning in continual learn-ing settings. Online-LoRA [16] extends LoRA to the task-free online setting for vision transformers, using loss-surface plateaus to autonomously detect distribution shifts and trigger initialization of new LoRA parameters, combined with an online weight regu-larization scheme to mitigate catastrophic forgetting. KeepLoRA [7] further addresses the preservation of general pre-trained knowledge by constraining LoRA updates to the residual subspace of the parameter space, thereby jointly achieving forward stability, backward stability and plasticity. Despite these advances in computer vision and NLP domains, the continual fine-tuning of Foundation Models in the context of process min-ing remains unexplored, representing a clear research gap that this work addresses. 
+
+## 4 Method 
+
+We propose COMPASS ( Continual Online foundation Model-based PPM with Adaptive 
+
+Sub Spaces), a framework for online continual next activity prediction using FMs (cf. Fig. 2, where colors indicate the functional stages which are described in detail below). Process activities are tokenized directly as integers via ϕ : A → Z following [11], and 6 van Straten and Hassani Stream Processing … ……Event Stream !"! """#
+
+> FM Fine-Tuning
+
+!! " #+ ×             
+
+> $$% ""
+> "!#"
+> ! " != $ ""!+ &' ()" !
+> Loss Queue $
+> Plateau Detection
+> *+' #< -
+> &"#$ ’()"
+> )"
+> Activations %"
+> &"#$ ’(*"
+> *"
+> Gradients &"
+> SVD on %&+
+> top-'new directions
+> SVD on %'+
+> .$%= $ &, . $
+> ( = * %,:,$:( )+ = !
+> Plateau detected?
+> Yes No
+> backward forward
+
+Fig. 2. Overview of the COMPASS architecture. Colors indicate functional stages: LoRA fine-tuning (purple), plateau-based drift detection (blue), knowledge subspace expansion (green), and adapter reinitialization (pink), described in order below. 
+
+each prefix xi = ⟨a1, . . . , a k⟩ is padded to length Lmax . Prefix-target pairs are sorted by timestamp into S and partitioned into non-overlapping windows γl of size Γ . For each γl, the model first predicts all events and then updates its weights, preventing data leakage. The FM fθ is adapted via LoRA [4] (purple stage in Fig. 2). Base weights 
+
+W0 ∈ Rd×m are frozen and low-rank matrices A ∈ Rr×m and B ∈ Rd×r are injected, giving the modified forward pass (Eq. 2): 
+
+h(xi) = W0xi + αr BAx i (2) where α = 2 r is a scaling factor. The model is optimized with cross-entropy loss 
+
+LCE (γl) over each window. This reduces trainable parameters by orders of magnitude and makes real-time adaptation on event streams computationally feasible. 
+
+Drift Detection. Since task boundaries are unknown a priori, we detect them via a rolling variance Var H of a queue H of the N most recent window losses (blue stage in Fig. 2), adapted from [16]. When Var H < τ , the loss has stabilized which indicates that the task distribution has been captured by fθ . This triggers the knowledge consolidation phase. A cooldown period of C windows prevents redundant triggers within the same task. 
+
+Knowledge Subspace Expansion. Upon detecting a plateau for task Tt, COMPASS expands a unified knowledge subspace (green stage in Fig. 2) to incorporate the di-rections most relevant to task Tt adapted from [7]. This subspace has two components consisting of a fixed anchor derived from W0 and a growing set of task-specific direc-tions accumulated across all observed tasks. For clarity, Table 1 summarizes the subspaces introduced below: Wp (fixed, pre-trained directions), Mt (task-specific directions accumulated up to task t), and M ′ 
+
+> t
+
+=[Wp, M t] (the unified subspace used for orthogonal projection). 
+
+Pre-Trained Knowledge Subspace Wp: The pre-trained FM fθ encodes general se-quence understanding acquired during large-scale language pre-training. Overwriting these capabilities during continual fine-tuning causes forward forgetting, degrading the model’s ability to generalize to unseen processes. To preserve this knowledge, for each Efficient Online Continual FM Fine-Tuning for PPM 7
+
+Table 1. Summary of the subspaces used in knowledge subspace expansion. 
+
+Symbol Meaning Updated 
+
+Wp Dominant input directions of pre-trained W0 Fixed after initial SVD 
+
+Mt Task-specific directions accumulated across tasks 
+
+1, . . . , t 
+
+Grows at each consolidation 
+
+M ′ 
+
+> t
+
+= [ Wp, M t] Unified knowledge subspace used for orthogonal projection Grows, capped at rank R
+
+LoRA-wrapped layer we decompose W0 = U SV ⊤ and retain the top-p right singular vectors (spanning the dominant input directions of W0) as columns of Wp ∈ Rm×p,such that: 
+
+∥Wp∥2 
+
+> F
+
+≥ ϵw ∥W0∥2 
+
+> F
+
+(3) where ∥ · ∥ F denotes the Frobenius norm and ϵw ∈ (0 , 1) is the energy retention threshold. All subsequent LoRA updates are constrained to be orthogonal to Wp, ensur-ing the pre-trained sequence understanding remains intact throughout the event stream. 
+
+Previous Task Knowledge Subspace Mt: Forward hooks capture the input activations 
+
+Xt at each LoRA-wrapped layer, collecting all token-level representations from window 
+
+γl. Novel task-specific directions are isolated by projecting onto the residual subspace orthogonal to both Wp and the previously accumulated directions Mt−1 ∈ Rm×nt−1 ,where nt−1 is the number of task-specific directions stored after t − 1 consolidations: 
+
+ˆXt = Xt − XtWpW ⊤
+
+> p
+
+| {z }
+
+> pre-trained directions
+
+− XtMt−1M ⊤
+
+> t−1
+
+| {z }
+
+> previous task directions
+
+(4) SVD on ˆXt yields the top-q dominant singular right vectors, where q is determined dynamically by energy threshold ϵf ∈ (0 , 1) , retaining the minimum number of di-rections needed to account for fraction ϵf of the residual energy. These new directions are appended to Mt−1 and the combined matrix is re-orthogonalized via a secondary SVD, resulting in Mt. Wp and Mt are then unified into a single consolidated subspace 
+
+M ′ 
+
+> t
+
+= [ Wp, M t] ∈ Rm×(p+nt), which grows monotonically across task boundaries and serves as a compressed memory of all process knowledge encountered so far. In prac-tice, the number of columns retained in both Wp and Mt is capped at a maximum rank 
+
+R for memory efficiency, bounding the growth of M ′ 
+
+> t
+
+across task boundaries. 
+
+Adapter Reinitialization. With M ′ 
+
+> t
+
+updated, the LoRA adapter is reinitialized (pink stage in Fig. 2) to: (i) span a subspace orthogonal to M ′
+
+> t−1
+
+, preventing interference with prior knowledge, and, (ii) approximate the gradient of the new task, maintaining plasticity. We temporarily unfreeze W0 and compute the full-weight gradient Gt =
+
+∇W0 L(W0; γl) ∈ Rd×m from a single forward-backward pass on the current window. This gradient is projected onto the residual subspace orthogonal to M ′
+
+> t−1
+
+:
+
+ˆGt = Gt
+
+|{z} 
+
+> plasticity
+
+− GtWpW ⊤ 
+
+> p
+
+− GtMt−1M ⊤
+
+> t−1
+
+| {z }
+
+> stability
+
+(5) 8 van Straten and Hassani 
+
+SVD on ˆGt = UGSGV ⊤ 
+
+> G
+
+yields the top-r singular vectors, which initialize the LoRA matrices A = V ⊤  
+
+> G, :,1: r
+
+and B = 0. A captures the dominant directions of change required for the new task, while B = 0 delays their effect until training updates B. A
+
+is then frozen and B is trained for subsequent windows. Since αr BA = 0 at initializa-tion, the forward pass is unchanged at the moment of consolidation, which ensures a stable transition between tasks. Optimizing B alone is equivalent to gradient descent on W0 constrained to span( A) [7] (a subspace orthogonal by construction to M ′
+
+> t−1
+
+). We thereby ensure that new learning prevents overwriting previously learned process knowledge, mitigating catastrophic forgetting effectively. 
+
+## 5 Experimental Setup 
+
+Datasets and Metrics. We evaluate our approach on nine event streams covering syn-thetic and real-world concept drift scenarios. The five synthetic streams ( IRO5000 ,
+
+ORI5000 , ROI5000 , OIR5000 and RIO5000 ) [8] simulate recurrent drifts to test the ca-pacity to retain past knowledge. For real-world evaluation we use four streams from the BPI Challenges 3. We use three subsets of the BPIC 2020, named DomesticDeclarations (BPI20-DD ), InternationalDeclarations ( BPI20-ID ) and RequestForPayment ( BPI20-RFP) . Additionally, we evaluate on a recurrent version of BPIC 2015 ( BPI15-REC) ,constructed from the first three municipalities, each recurring three times. We report average accuracy over the full evaluation stream and per-window accuracy at given in-dex, providing both a holistic and fine-grained view of performance under concept drift. For computational efficiency, we report end-to-end runtime and memory consumption over the stream. 
+
+Baselines. We compare against five baselines consisting of two update strategies and three SOTA non-FM competitors. DoNothing [13] trains only on the first three windows and never updates, serving as a lower bound. γ = LastDrift [12] retrains monthly on all data since the most recent drift. DynaTrainCDD [6] monitors the stream with Prefix-CDD [5] and triggers retraining on structural deviations. TFCLPM [14] is a task-free online continual learning framework using a single dense layer (SDL) network with dy-namic loss function and a diversity-aware hard-sample buffer. CNAPwP [3] adopts the DualPrompt [15] architecture with learnable general and expert prompts for recurrent drift handling. 
+
+Implementation Details. COMPASS is evaluated with both the Tiny-LLM 4 (10M parameters) and DistilGPT2 5 (82M parameters) backbones. To isolate the contribution of the continual learning strategy, DoNothing and γ = LastDrift are evaluated with the DistilGPT2 backbone, which represents the best-performing COMPASS configuration. We further distinguish a task-aware variant (oracle drift boundaries) from our proposed task-free variant (plateau detection, cf. Section 4). Experiments have been run on an HPC cluster with NVIDIA Tesla V100 (16GB) GPUs. We perform 5 repetitions with different seeds, reporting mean and standard deviation. To assess whether performance      
+
+> 3The BPI Challenge datasets are publicly available at https://data.4tu.nl
+> 4https://huggingface.co/arnir0/Tiny-LLM
+> 5https://huggingface.co/distilbert/distilgpt2 Efficient Online Continual FM Fine-Tuning for PPM 9
+
+differences are meaningful, we conduct a paired two-sided student’s t-test ( α = 0 .05 )between our best-performing COMPASS configuration and the best competing baseline on each experiment, using the per-seed accuracies as paired samples. The first 15% of cases of each dataset serve as a validation set for hyperparameter tuning, the remaining 85% is reserved for online evaluation following the test-then-train protocol, preventing data leakage. The full implementation including key parameters and additional results for each method and dataset is available in the public GitHub repository 6.
+
+## 6 Evaluation Results 
+
+Average Accuracy. Table 2 reports average accuracy across all methods and datasets. DoNothing [13] fails to keep up with the stream, achieving near-zero accuracy on BPI15-REC and remaining far below all adaptive methods, confirming that a static model is infeasible under concept drift. Our approach with the DistilGPT2 backbone consistently achieves the highest next activity prediction accuracy, outperforming all baselines on seven of the nine evaluated logs. Gains are the highest on the recur-rent BPI15-REC dataset, where COMPASS DistilGPT2 substantially outperforms the next best baseline CNAPwP [3] by +19%, highlighting the benefit of our approach on streams with complex, long-running cases. Strong performance on the synthetic streams, which simulate recurrent drift, further demonstrate that COMPASS retains previously learned task knowledge and recovers it when earlier process behaviors reap-pear, rather than overwriting it with each new adaptation. On the BPIC 2020 streams, differences are smaller as these logs exhibit less severe drift. The smaller Tiny-LLM backbone performs similar to the DistilGPT2 backbone, but at a fraction of the pa-rameters. Crucially, the task-free variant closely tracks the task-aware oracle across all datasets, demonstrating that plateau-based drift detection is a reliable substitute when known task boundaries are unknown. 
+
+Accuracy at Given Index. Fig. 3 shows the stream accuracy over the BPI15-REC and ORI5000 stream, averaged per window. Dashed vertical lines show known concept drifts. For visual clarity, we show the DistilGPT2 variants only and remove the DoNoth-ing [13]. From the very start of the evaluation stream, COMPASS achieves higher accu-racy than the baselines, reflecting the advantage of pre-trained sequence understanding over randomly initialized models that must learn process behavior from scratch. COM-PASS further maintains consistently higher accuracy throughout the streams, recover-ing more quickly after each concept drift. The task-free and task-aware variants follow nearly identical trajectories, further validating the plateau detection mechanism. 
+
+Computational Efficiency. Fig. 4 plots average accuracy against runtime and mem-ory consumption for ORI5000, BPI15-REC and BPI20-DD. COMPASS DistilGPT2 achieves its accuracy gains at a moderate computational cost. It is slower than lightweight baselines such as TFCLPM [14], DynaTrainCDD [6] and CNAPwP [3] due to the back-bone size and SVD-based consolidation steps at task boundaries, but runtime is kept well within practical bounds. Notably, γ = LastDrift [12] incurs comparable or higher runtime on several datasets due to its periodic full retraining, yet consistently under-performs COMPASS in accuracy. Memory usage shows a brief peak at stream onset,  
+
+> 6https://github.com/SvStraten/COMPASS
+
+10 van Straten and Hassani 
+
+Table 2. Average accuracy for all baselines and datasets. Bold denotes the highest accuracy, italic 
+
+and underlined the second and third highest. Sig. = statistically significant difference ( α = .05). 
+
+Method 
+
+> IRO5000 ORI5000 ROI5000 OIR5000 RIO5000 BPI15-REC BPI20-RFP BPI20-DD BPI20-ID
+
+DoNothing [13] .192 ±.107 .200 ±.068 .223 ±.097 .205 ±.072 .171 ±.072 .013 ±.006 .511 ±.088 .495 ±.090 .247 ±.008 
+
+γ = LastDrift [12] .220 ±.085 .770 ±.003 .246 ±.056 .709 ±.003 .269 ±.052 .484 ±.000 .886 ±.001 .863 ±.001 .840 ±.006 
+
+DynaTrainCDD [6] .775 ±.005 .785 ±.006 .790 ±.001 .729 ±.004 .784 ±.004 .455 ±.008 .831 ±.010 .830 ±.011 .793 ±.003 
+
+TFCLPM [14] .803 ±.001 .817 ±.002 .825 ±.011 .775 ±.002 .814 ±.001 .473 ±.003 .863 ±.009 .876 ±.003 .820 ±.002 
+
+CNAPwP [3] .802 ±.002 .816 ±.005 .829 ±.002 .780 ±.001 .812 ±.006 .492 ±.015 .879 ±.001 .881 ±.008 .846 ±.003 
+
+Task-Aware 
+
+COMPASS Tiny-LLM .794 ±.007 .827 ±.002 .821 ±.011 .787 ±.001 .793 ±.016 .582 ±.019 .879 ±.002 .890 ±.001 .843 ±.002 
+
+COMPASS DistilGPT2 .812 ±.002 .825 ±.002 .840 ±.002 .784 ±.001 .821 ±.001 .681 ±.002 .886 ±.001 .895 ±.001 .851 ±.001 
+
+Task-Free 
+
+COMPASS Tiny-LLM .787 ±.013 .826 ±.001 .823 ±.024 .786 ±.001 .803 ±.014 .585 ±.009 .879 ±.002 .890 ±.002 .840 ±.001 
+
+COMPASS DistilGPT2 .812 ±.001 .826 ±.001 .840 ±.001 .783 ±.002 .820 ±.001 .676 ±.002 .885 ±.002 .893 ±.001 .849 ±.001 
+
+Sig. ( α = .05 ) * * * * * * - * *
+
+caused by the one-time extraction of Wp via SVD. From that point, memory usage re-mains stable across the stream, as the rank cap on M ′
+
+t bounds subspace growth and pre-vents unbounded memory accumulation regardless of how many tasks are encountered. The Tiny-LLM backbone variant offers a particularly favorable trade-off, approaching DistilGPT2 accuracy at substantially lower runtime and memory footprint, making it an attractive option for resource-constrained deployments. Together, these results show that the accuracy gains of COMPASS come with acceptable computational overhead. Full runtime results can be found in the GitHub repository. 
+
+Table 3. Ablation study using accuracy for our components (TF = Task-Free). 
+
+Wp Mt TF Avg. 
+
+× × ✓ .735 ±.002 
+
+× × × .758 ±.003 
+
+✓ × ✓ .721 ±.004 
+
+✓ × × .747 ±.002 
+
+✓ ✓ ✓ .802 ±.004 *
+
+✓ ✓ × .802 ±.003 *Ablation Study. Table 3 reports the contribution of each component averaged across all nine evaluated datasets. Removing both Wp and Mt reduces average accuracy to .735 (task-free) and .758 (task-aware), establishing the cost of using vanilla LoRA without any subspace protec-tion. Adding Wp alone does not improve over this base-line and slightly hurts performance (.721/.747), suggest-ing that anchoring the pre-trained subspace without also protecting task-specific directions is insufficient and may unnecessarily constrain plasticity. The full combination of both Wp and Mt recovers the best performance (.802 in both settings), demonstrating that the two components are complementary and jointly necessary. Notably, the task-free and task-aware variants achieve identical average accuracy, confirming that the plateau detection mechanism in-troduces no meaningful performance penalty compared to oracle boundaries. Efficient Online Continual FM Fine-Tuning for PPM 11 0 20 40 60 80 100     
+
+> Event index (×1000)
+> .20 .40 .60 .80
+> Accuracy
+> BPI15-REC
+> 010 20 30 40
+> Event index (×1000)
+> .40 .50 .60 .70 .80 .90
+> Accuracy
+> OIR5000
+> = LastDrift
+> DynaTrainCDD TFCLPM CNAPwP COMPASS DistilGPT2 · task-aware COMPASS DistilGPT2 · task-free
+
+Fig. 3. Accuracy at given index for the BPI15-REC and OIR5000 stream, illustrating COMPASS’ faster recovery after concept drift and mitigation of the cold-start problem. 
+
+## 7 Conclusion and Future Work 
+
+OCL for PPM has long been constrained by the cold-start problem and the stability-plasticity dilemma, with existing methods rebuilding task-specific networks from scratch at every drift point. COMPASS breaks from this paradigm by continuously fine-tuning a FM via a growing orthogonal knowledge subspace, ensuring that neither important pre-trained sequence understanding nor previously learned process behaviors are over-written as the stream evolves. Evaluated on nine event streams, COMPASS consistently outperforms five competitors and baselines, with gains of up to 19% exhibiting recur-rent drifts and complex, long-running cases. The task-free variant matches oracle per-formance across all evaluated datasets, making COMPASS practical for real-world de-ployments where task boundaries are usually difficult to obtain. The limitations of this work include that the semantic transfer of language pretraining into integer-tokenized activities remains untested, and evaluation is limited to next activity prediction only. Future work includes exploring online or adaptive hyperparameter tuning strategies, extending COMPASS to a multimodal setup and incorporating richer event attributes such as resources. 
+
+## References 
+
+1. Ceravolo, P., Comuzzi, M., De Weerdt, J., Di Francescomarino, C., Maggi, F.M.: Predictive process monitoring: concepts, challenges, and future research directions. Process Science 
+
+1(1), 2 (2024) 2. Di Francescomarino, C., Ghidini, C.: Predictive process monitoring. In: Process mining handbook, pp. 320–346 (2022) 3. Hassani, M., Verbeek, T., van Straten, S.: Chameleons do not forget: prompt-based online continual learning for next activity prediction. IJCIS p. 2650003 (2026) 4. Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., et al.: LoRA: Low-rank adaptation of large language models. ICLR 1(2), 3 (2022) 12 van Straten and Hassani 0 500 1000 1500                   
+
+> Runtime (s)
+> .76 .78 .80 .82
+> Accuracy
+> ORI5000
+> 02000 4000
+> Runtime (s)
+> .50 .60 .70
+> BPI15-REC
+> 0500 1000 1500
+> Runtime (s)
+> .83 .85 .88 .90
+> BPI20-DD
+> 700 750 400 500
+> GPU Memory (MB)
+> 010 20 30 40
+> Event index (×1000)
+> 25 50 700 750 400 500 025 50 75 100
+> Event index (×1000)
+> 25 50 400 500 600 700 010 20 30 40 50
+> Event index (×1000)
+> 25 50
+> = LastDrift
+> DynaTrainCDD TFCLPM CNAPwP COMPASS DistilGPT2 · task-aware COMPASS TinyLLM · task-aware COMPASS DistilGPT2 · task-free COMPASS TinyLLM · task-free
+
+Fig. 4. Accuracy versus runtime (top) and memory consumption (bottom) over the event stream for ORI5000, BPI15-REC and BPI20-DD. COMPASS shows state-of-the-art accuracy with ac-ceptable computational overhead. 5. Huete, J., Qahtan, A.A., Hassani, M.: PrefixCDD: effective online concept drift detection over event streams using prefix trees. In: COMPSAC. pp. 328–333 (2023) 6. Kosciuszek, T., Hassani, M.: Online next activity prediction under concept drifts. In: CAiSE Workshops. pp. 335–346 (2024) 7. Luo, M.L., Zhou, Z.H., Zhang, Y.L., Wan, Y., Wei, T., Zhang, M.L.: KeepLoRA: Continual learning with residual gradient adaptation. arXiv:2601.19659 (2026) 8. Maaradji, A., Dumas, M., La Rosa, M., Ostovar, A.: Fast and accurate business process drift detection. In: BPM. pp. 406–422 (2015) 9. Maisenbacher, M., Weidlich, M.: Handling concept drift in predictive process monitoring. In: SCC. pp. 1–8 (2017) 10. Márquez-Chamorro, A.E., Nepomuceno-Chamorro, I.A., Resinas, M., Ruiz-Cortés, A.: Up-dating prediction models for predictive process monitoring. In: CAiSE. pp. 304–318 (2022) 11. Oyamada, R.S., Peeperkorn, J., De Weerdt, J., De Smedt, J.: Domain adaptation of LLMs for process data. arXiv:2509.03161 (2025) 12. Pauwels, S., Calders, T.: Incremental predictive process monitoring: The next activity case. In: BPM. pp. 123–140 (2021) 13. Rizzi, W., Di Francescomarino, C., Ghidini, C., Maggi, F.M.: How do i update my model? on the resilience of predictive process monitoring models to change. Knowledge and Infor-mation Systems 64 (5), 1385–1416 (2022) 14. van Straten, S., Yao, R., Hassani, M.: Task-free diversity-aware continual learning for online next activity prediction. Process Science 3(1), 7 (2026) 15. Wang, Z., Zhang, Z., Ebrahimi, S., Sun, R., Zhang, H., Lee, C.Y., Ren, X., Su, G., Perot, V., Dy, J., et al.: DualPrompt: Complementary prompting for rehearsal-free continual learning. In: ECCV. pp. 631–648 (2022) 16. Wei, X., Li, G., Marculescu, R.: Online-LoRA: Task-free online continual learning via low rank adaptation. In: WACV. pp. 6634–6645 (2025)

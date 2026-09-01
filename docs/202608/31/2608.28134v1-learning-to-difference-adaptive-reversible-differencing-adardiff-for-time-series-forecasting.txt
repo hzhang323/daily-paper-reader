@@ -1,0 +1,1610 @@
+Title: Learning to Difference: Adaptive Reversible Differencing (AdaRDiff) for Time Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2608.28134v1
+
+Published Time: Mon, 31 Aug 2026 00:46:51 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+## Learning to Difference: Adaptive Reversible Differencing (AdaRDiff) for Time Series Forecasting 
+
+Morad Laglil 1,2 , Younes Hlal 1, Marouane El Hadari 1, Emilie Devijver 1, Eric Gaussier 1
+
+> 1
+
+Univ. Grenoble Alpes, CNRS, Grenoble INP, LIG, 38000 Grenoble, France 
+
+> 2
+
+Savoye, 21600 Longvic, France {morad.laglil, emilie.devijver, eric.gaussier}@univ-grenoble-alpes.fr, younes.hlal@etu.univ-grenoble-alpes.fr, marouane.el-hadari@grenoble-inp.org 
+
+Abstract 
+
+Reliable long-horizon time series forecasting is an impor-tant yet difficult problem. Trends and seasonality introduce complex temporal structure that challenges learning-based forecasting models. Differencing, which subtracts nearby past values to remove such structure, is the classical remedy, but its reliance on hand-picked orders and periods has kept it largely absent from recent deep architectures. We propose 
+
+Ada ptive Reversible Diff erencing (AdaRDiff) , a generalized differencing approach that uses learnable weights to simplify the series through weighted differencing with previous time instants. This yields stabilized residuals on which forecast-ing is performed, after which the removed components are restored autoregressively to reconstruct the forecast, captur-ing trend and seasonality jointly through a single operator. This reconstruction admits a closed-form convolutional ex-pression, which parallelizes on GPU and yields up to 33 .7×
+
+speedup over the naive recurrence. We furthermore rely on a two-phase training schedule that separates temporal struc-ture discovery from reconstruction learning, as suggested by a theoretical analysis of the gradient when using a linear fore-casting model. AdaRDiff attains state-of-the-art forecast ac-curacy across eight benchmarks spanning electricity, weather, traffic, and energy, at negligible parameter cost. Furthermore, it is designed as a plug-and-play module: integrating AdaRD-iff improves eight diverse backbones, from linear models to Transformers, in the large majority of cases, by up to 25 .9% 
+
+with a linear backbone and 18 .3% with iTransformer. 
+
+1 Introduction 
+
+Time series forecasting is fundamental to many real-world applications, such as traffic flow prediction, product sales forecasting, and energy consumption management, where ac-curate predictions support proactive decision-making. Fore-casting over long horizons, commonly referred to as Long-term Time Series Forecasting (LTSF) (Zhou et al. 2021), is particularly valuable and has accordingly drawn sustained attention. In all these settings, forecasting quality depends on how well a model extracts and exploits the temporal patterns present in the historical window (Lin et al. 2024b). Among these patterns, trend and seasonality dominate: real-world series combine long-term drifts and recurring pe-riodic cycles into most of their structured variation (Cleve-land, Cleveland, and Terpenning 1990), and these com-ponents are precisely what makes forecasting difficult for learning-based models. Zhang and Qi (Zhang and Qi 2005) showed empirically that feedforward networks struggle to capture trend and seasonal patterns from raw series, whereas detrending and deseasonalizing the data beforehand substan-tially reduces forecasting error. The classical tool for this is differencing : replacing each observation by its difference with a previous value removes low-order trends ( 1st -order differencing ) or periodic components ( seasonal differenc-ing ), leaving a simpler, more regular residual for the model to predict (Hyndman and Athanasopoulos 2021). Isolating such a residual is a powerful lever, and one that architectural sophistication alone may not supply. Such preprocessing is fundamental to classical statistical models, including ARIMA and SARIMA (Box and Jenkins 1976), which have guided time series analysis for decades. Despite its proven effectiveness in traditional time series analysis, this principle has been largely overlooked in mod-ern deep learning–based forecasting models. We believe this is due to a key limitation of classical differencing: the scheme is rigid and must be specified by hand, including the orders, seasonal periods, and their coefficients, which demands data exploration and domain expertise and does not fit end-to-end training. AdaRDiff instead learns the scheme directly from data, discovering the relevant lags and their weights rather than requiring them to be fixed in advance. Recent deep ar-chitectures have begun to reintroduce related preprocessing through time series decomposition, as in DLinear (Zeng et al. 2023) and CycleNet (Lin et al. 2024a), but these methods tar-get a fixed form of structure and do not adaptively capture the range of trends and periodicities encountered across datasets. This motivates an adaptive, data-driven form of differenc-ing that captures multiple seasonalities and trends jointly, and can be paired with any forecasting model. We propose here such a framework, Adaptive Reversible Differencing (AdaRDiff) . AdaRDiff is model-agnostic: rather than a stan-dalone forecaster, it is a differencing module that wraps around a forecasting backbone, simplifying the series be-fore the backbone predicts and reconstructing the forecast afterward. It generalizes classical differencing by replacing the hand-set coefficients with learnable, channel-wise dif-ferencing weights : for each time step, it forms a weighted combination of past observations within a fixed window and subtracts it from the current value, so that the model learns a differencing scheme tailored to the data. The backbone then arXiv:2608.28134v1 [cs.LG] 28 Aug 2026 operates on the resulting simplified residual. As AdaRDiff is 
+
+reversible , the forecast is then reconstructed autoregressively ,applying the learned weights step by step to the backbone’s output so that each predicted value builds on the previously reconstructed ones, recovering the forecast in the original space and restoring the trend and seasonal structure that dif-ferencing had removed. The learned differencing weights are moreover interpretable, as their magnitudes at each lag re-veal the dominant periods and dependencies the model has identified. AdaRDiff lets even a lightweight Linear or MLP backbone reach state-of-the-art accuracy across benchmarks spanning multiple domains. Our main contributions are as follows: 
+
+• We introduce AdaRDiff, a plug-and-play differencing module whose learnable weights capture trend and sea-sonality jointly and reversibly, recovering predictions in the original space while training end-to-end with any fore-casting backbone. 
+
+• We theoretically analyze the training dynamics of AdaRDiff with a linear backbone through the gradient with respect to its parameters, revealing a tension be-tween the differencing and reconstruction pathways that motivates a two-phase training schedule separating tem-poral structure discovery from reconstruction learning. 
+
+• We evaluate AdaRDiff through extensive experiments on eight benchmark datasets and eight forecasting back-bones, demonstrating its effectiveness. 
+
+2 Related Work 
+
+LTSF has a long statistical history, from exponential smooth-ing to the Box–Jenkins ARIMA/SARIMA family (Box and Jenkins 1976), built on well-established statistical princi-ples. We build on these but compare against recent deep-learning approaches, grouped into lightweight linear/MLP and Transformer-based models. Orthogonal to the choice of forecaster, reversible instance normalization (RevIN) (Kim et al. 2021) has become a standard component of modern deep forecasting architectures: it normalizes each input win-dow and restores its statistics at the output, mitigating dis-tribution shift between training and test data. AdaRDiff is fully compatible with RevIN and employs it as an optional component. 
+
+Linear and MLP models. Lightweight linear- and MLP-based models often match or surpass far larger architectures on LTSF at a fraction of their cost. DLinear (Zeng et al. 2023) decomposes the series into trend and seasonal parts by mov-ing average, and then forecasts each part with a linear model, while TimeMixer (Wang et al. 2024) mixes multi-scale com-ponents through MLP blocks. A second line exploits pe-riodicity and low-rank structure to simplify the series and shrink the model: CycleNet (Lin et al. 2024a) learns recur-rent cycles and subtracts them before forecasting the resid-ual; SparseTSF (Lin et al. 2024b) decouples periodicity from trend by downsampling into cross-period subsequences, fore-casting with under a thousand parameters; TimeBase (Huang et al. 2025) extracts core basis components and forecasts at the segment level rather than point by point; and MixLinear (Ma, Luo, and Sha 2026) combines segment-based trend ex-traction in the time domain with low-rank spectral filtering in the frequency domain, reaching competitive accuracy with roughly a hundred parameters. However those methods cap-ture only a single fixed form of the input structure in isolation. In contrast, AdaRDiff, learns a single differencing operator that jointly captures trend and multiple seasonalities. 
+
+Transformer-based models. The Transformer (Vaswani et al. 2017), effective at modeling long-range dependencies, has been widely adapted to LTSF. Informer (Zhou et al. 2021) reduces attention complexity for long sequences, while FED-former (Zhou et al. 2022) combines seasonal–trend decom-position with frequency-domain attention, iTransformer (Liu et al. 2024) treats each series as a token to model multivari-ate correlations, and PatchTST (Nie et al. 2023) segments each series into subseries-level patches and applies attention under channel independence. TQNet (Lin et al. 2025) uses periodically shifted learnable queries in a single-layer at-tention module to capture global inter-variable correlations. These models learn temporal or cross-variate structure im-plicitly within attention. AdaRDiff instead handles per-series temporal structure explicitly, in a model-agnostic differenc-ing module that can wrap a Transformer as readily as a linear model. A separate line of work develops time series foundation models (Ansari et al. 2024; Das et al. 2024), pretrained on large corpora for zero- and few-shot transfer. We do not com-pare against them: their pretraining corpora often overlap with standard benchmarks, which precludes a fair compari-son with fully-supervised methods, a data-leakage issue doc-umented in prior work (Laglil et al. 2026). 
+
+3 AdaRDiff: Adaptive Reversible Differencing 
+
+Problem setup. Given a look-back window of L obser-vations across C channels, the task is to forecast the next 
+
+H steps. Our method processes each channel indepen-dently, so we present the univariate case ( C = 1 ) through-out: the input is x = ( x1, . . . , x L), the ground-truth tar-get window xf = (xL+1 , . . . , x L+H ), and the forecast 
+
+ˆxf = (ˆ xL+1 , . . . , ˆxL+H ).
+
+3.1 Adaptive Differencing and Reconstruction 
+
+AdaRDiff is a model-agnostic, reversible framework for time series forecasting. It operates in three stages, summarized in Figure 1: (i) a learnable, channel-wise differencing operator transforms the input into residuals; (ii) a forecasting back-bone maps past residuals to predicted future residuals; and 
+
+(iii) an autoregressive reconstruction recovers the forecast in the original space. 
+
+Channel-Wise Differencing. Given x = (x1, . . . , x L)
+
+and a window size P , we learn differencing weights 
+
+δ = (δ1, . . . , δ P ) ∈ RP and form the residuals z =(z1, . . . , z L−1) ∈ RL−1 by 
+
+zt−1 = xt −
+
+> P
+
+X
+
+> j=1
+
+δj xt−j , t ∈ { 2, . . . , L }, (1) In practice, the series is left-padded by repeating x1 a total of P −1 times, i.e. xt := x1 for t ≤ 1, so that differencing applies from t = 2 . Since channels may exhibit heteroge-neous dynamics, a distinct δ is learned per channel. This subsumes classical schemes: δ1=1 gives first-order differ-encing, δ1=2 , δ 2=−1 second-order, and δℓ=1 seasonal dif-ferencing at lag ℓ (all other coefficients zero); combining lags lets a single operator remove an affine trend and a periodic component at once. 
+
+Backbone. The backbone fθ maps past residuals to pre-dicted future residuals: 
+
+ˆz = fθ (z) ∈ RH . (2) We primarily use a linear model ( ˆz = Wb z + b, Wb ∈
+
+RH×(L−1) ) and a two-layer MLP but more complex back-bones are evaluated in the ablation study (Section 4.3). 
+
+Autoregressive Reconstruction. Given the predicted fu-ture residuals ˆz ∈ RH , the forecast in the original space is recovered by inverting (1) through a linear recurrence: 
+
+ˆxL+1 −j := xL+1 −j for j = 1 , . . . , P , and the forecast is recursively defined by 
+
+ˆxL+k = ˆ zk +
+
+> P
+
+X
+
+> j=1
+
+δj ˆxL+k−j , k = 1 , . . . , H. (3) Computing ˆxf directly through the recursive application of Eq. (3) prevents parallelization across the horizon. We thus recast it as a convolution, amenable to parallelization. Let 
+
+c = ( c1, . . . , c H ) collect the initial-condition terms, ck =
+
+PPj=k δj xL+k−j for k ≤ P and ck = 0 otherwise, and let 
+
+h be the linear recurrence sequence (Elaydi 2005) based on the same recurrence as the reconstruction, with hn = 0 for 
+
+n < 0, h0 = 1 , and 
+
+hn =
+
+> P
+
+X
+
+> j=1
+
+δj hn−j , n ≥ 1. (4) 
+
+Proposition 1. The forecast (3) satisfies 
+
+ˆxL+k =  h ∗ (ˆ z + c) 
+
+> k
+
+=
+
+> k−1
+
+X
+
+> m=0
+
+hm (ˆ zk−m + ck−m). (5) In matrix notation, Eq. (5) can be written as ˆxf =
+
+Th(ˆ z + c), where Th ∈ RH×H is the lower-triangular Toeplitz matrix with (Th)n,k = hn−k. Both terms can be par-allelized on GPUs: h is obtained through repeated squaring (Knuth 1997) of the companion-matrix 1 of the recurrence in Eq. (4), requiring O(log H) sequential steps—against O(H)
+
+of the naive recurrence—and the Toeplitz product is realized as a one-dimensional convolution across horizon and batch, as detailed in Appendix B.        
+
+> 1The companion matrix
+> 
+> δ1··· δP−1δP
+> 10
+> ......
+> 10
+> .
+
+Figure 1: Overview of AdaRDiff. (i) A learnable differenc-ing operator transforms the input into residuals. (ii) A fore-casting backbone predicts future residuals. (iii) The forecast is reconstructed autoregressively in the original space. 
+
+Training. The full model, with parameters (δ, θ ), is trained end-to-end, the target objective being the forecast loss 
+
+Lforecast = 12 ∥ˆxf − xf ∥2, (6) Since the reconstruction (5) depends polynomially on δ,this objective is non-convex and we therefore optimize it by stochastic gradient descent. 
+
+3.2 Gradient Analysis with Linear Backbone 
+
+We study the training dynamics of AdaRDiff through the gradient with respect to its parameters, taking the linear backbone as the analytically tractable case. Throughout, 
+
+L := Lforecast .
+
+Backbone gradient. With e := ˆxf − xf , the linear-backbone gradient is 
+
+∇Wb L = ( T ⊤ 
+
+> h
+
+e) z⊤, (T ⊤ 
+
+> h
+
+e)t =
+
+> H
+
+X
+
+> k=t
+
+hk−t ek, (7) so the effective error at position t is a backward convolution of e with h. Without reconstruction ( Th = I) this collapses to e z⊤, where each position sees only its own error; re-construction couples positions through h, whose growth is governed by the spectral radius ρ of the companion matrix. 
+
+Proposition 2 (Growth of hn and Error Propagation) . For 
+
+(hn) as in Eq. (4) 2:1. If ρ < 1: ∀ρ′ ∈ (ρ, 1) , ∃C > 0, |hn| ≤ Cρ ′ n, and 
+
+|(T ⊤ 
+
+> h
+
+e)t| = O(∥e∥);2. If ρ > 1, sup n |hn| = ∞.
+
+The coupling is thus localized when ρ < 1: each posi-tion receives feedback dominated by nearby errors, enabling position-specific learning, and the effective error is bounded independently of the horizon. This uniform control is lost as 
+
+ρ exceeds 1, in which case h is no longer bounded.    
+
+> 2The case ρ= 1 occurs on a measure-zero set of parameters and is omitted here for readability; it is treated in Appendix A.
+
+Differencing Gradient. The gradient of L in δj decom-poses into three terms, one per pathway through which δ
+
+acts on the forecast: 
+
+∂L
+
+∂δ j
+
+=
+
+> H−1
+
+X
+
+> n=0
+
+∂h n
+
+∂δ j
+
+ϕev (n)
+
+| {z }
+
+> I: reconstruction
+
+− p⊤x(j)
+
+> 2: L
+
+| {z } 
+
+> II: differencing
+
++
+
+> j
+
+X
+
+> t=1
+
+(T ⊤ 
+
+> h
+
+e)t xL+t−j
+
+| {z }
+
+> III: boundary
+
+,
+
+(8) where ϕev (n) = PHk=n+1 ek vk−n with vm = ˆ zm + cm,
+
+p⊤ = ( T ⊤ 
+
+> h
+
+e)⊤Wb, and x(j) 
+
+> 2: L
+
+∈ RL−1 is the lag-j shift of 
+
+x2: L, i.e. (x(j)
+
+> 2: L
+
+)s = xs+1 −j .3
+
+As the third term of Eq. (8) arises only because the first 
+
+P forecast steps are reconstructed from the last observed context values. It is supported on at most P of the H horizon positions, a vanishing fraction for long horizons; we therefore focus on Terms I and II of Eq. (8). 
+
+Term I is the only term involving the sensitivity of h to δ,whose behavior is again governed by ρ.
+
+Proposition 3 (Growth of ∂h n/∂δ j and Term I) . For 
+
+j ∈ { 1, . . . , P }, the sensitivity g(j) 
+
+> n
+
+:= ∂h n/∂δ j is the self-convolution g(j) 
+
+> n
+
+= ( h ∗ h(j))n with h(j) 
+
+> n
+
+:= hn−j , and satisfies: 2
+
+1. If ρ < 1: ∀ρ′ ∈ (ρ, 1) , ∃Cg > 0, ∀n ≥ 0, |g(j) 
+
+> n
+
+| ≤ 
+
+Cg ρ′ n, and |Term I | = O(∥e∥ ∥ v∥);2. If ρ > 1, sup n |g(j) 
+
+> n
+
+| = ∞.
+
+Term I is therefore bounded independently of the hori-zon only in the stable regime ( ρ < 1) . Since nothing in the objective prevents δ from leaving the stable regime, we intro-duce an optional reparameterization that makes ρ explicitly controllable, as stated in Theorem 1. 
+
+Theorem 1. If ∥δ∥1 < 1 in Eq. (4) , then ρ < 1.
+
+Concretely, we ℓ1-normalize an unconstrained ˜δ ∈ RP
+
+and rescale by a gain α,
+
+δeff  
+
+> j
+
+= α ˜δj
+
+∥˜δ∥1
+
+, (9) so that ∥δeff ∥1 = |α|: direction and magnitude are decou-pled, and α directly controls proximity to the stability con-dition. Fixing α < 1 would enforce ρ < 1 but imposes the same magnitude on every channel, whereas channels may require different amounts of differencing; we therefore learn 
+
+α per channel. Note that we consider the reparametrization as an optional procedure, which may not be needed on all datasets and forecasting configurations. 
+
+Term II , from the differencing pathway, does not involve the sensitivity g(j) 
+
+> n
+
+. As stated in Proposition 4, its expected value is a linear functional of the input autocovariance in which the lag j enters only through data autocovariance, so the learning signal for δ is also shaped by the data’s second-order temporal structure—trend and periodicity—a property specific to this pathway. 
+
+> 3
+
+We adopt the left-padding convention of Eq. (1) ( xt := x1 for 
+
+t ≤ 1), so that all shifted indices are well-defined. 
+
+Proposition 4 (Autocovariance coupling) . Let (xt) be zero-mean weakly stationary with autocovariance γ(k) = 
+
+E[xt xt−k]. Then, for any fixed parameters (δ, W b, b), the differencing term of Eq. (8) has expectation 
+
+Ex
+
+p⊤x(j)
+
+> 2: L
+
+ =
+
+> L+H−2
+
+X
+
+> m=1 −L
+
+Φ( m) γ(m + j), (10) 
+
+where the weights Φ( m) depend on the parameters but not on the lag j.
+
+There is a fundamental tension between Terms I and II: Term II encourages δ to match the data autocorrelation structure, potentially implying large ∥δ∥1, whereas Term I enforces stable reconstruction dynamics, requiring smaller 
+
+∥δ∥1. The learned weights δ are therefore a compromise which depends on the relative magnitudes of these two con-tributions. 
+
+3.3 Two-Phase Training 
+
+We address the tension between Terms I and II with a two-phase training scheme that separates temporal structure dis-covery from reconstruction learning. 
+
+Phase 1: residual loss. We first train the differencing op-erator and the backbone in residual space, bypassing recon-struction entirely: the backbone output ˆz is compared directly against the differenced target, minimizing 
+
+Lres = 12 ∥ˆz − zf ∥2, zf,k = xL+k −
+
+> P
+
+X
+
+> j=1
+
+δj xL+k−j ,
+
+(11) where zf applies the differencing operator to the target win-dow. Because Th is absent from the forward pass, Term I vanishes and, with ep := ˆ z − zf , the gradient reduces to 
+
+∂Lres 
+
+∂δ j
+
+= e⊤
+
+> p
+
+ x(j)f − Wb x(j)
+
+> 2: L
+
+ (12) with x(j)f ∈ RH the lag-j shift of the target window, 
+
+(x(j)f )k = xL+k−j . This gradient carries no sensitivity g(j)
+
+> n
+
+and is bounded by O (∥Wb∥ ∥ x∥ + ∥xf ∥)∥ep∥, indepen-dently of ρ, so Phase 1 fits the data structure free of the reconstruction’s conditioning. 
+
+Phase 2: forecast loss. We then optimize the full objec-tive Lforecast = 12 ∥ˆxf − xf ∥2, reintroducing Th and Term I. Initialized from the Phase 1 solution, δ already fits the data structure, so Term I refines the reconstruction rather than discovering structure under an ill-conditioned gradient. This schedule improves accuracy by a substantial margin over single-phase training with Lforecast (Section 4.3). 
+
+4 Experiments 
+
+4.1 Experimental Setup 
+
+Datasets. To evaluate our proposed method, we con-duct experiments on several widely adopted benchmark datasets: the ETT collection (ETTh1, ETTh2, ETTm1, ETTm2) (Zhou et al. 2021), Weather, Traffic, Electricity, and Solar-Energy (Lai et al. 2018). Further dataset details are in Appendix C. Models AdaRDiff-Linear 
+
+(Ours) AdaRDiff-MLP 
+
+(Ours) MixLinear (2026) TimeBase (2025) TQNet (2025) SparseTSF (2024) TimeMixer (2024) iTransformer (2024) CycleNet (2024) DLinear (2023) PatchTST (2023) TimesNet (2023) FEDformer (2022) Metrics MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE 96 0.360 0.390 0.389 0.412 0.351 0.383 0.349 0.384 0.377 0.404 0.362 0.389 0.410 0.441 0.389 0.421 0.379 0.403 0.378 0.402 0.377 0.408 0.437 0.454 0.485 0.500 192 0.402 0.419 0.409 0.434 0.395 0.423 0.387 0.410 0.424 0.437 0.404 0.412 0.448 0.465 0.424 0.446 0.416 0.425 0.415 0.425 0.413 0.431 0.456 0.469 0.481 0.498 336 0.426 0.436 0.449 0.446 0.411 0.434 0.408 0.418 0.450 0.454 0.435 0.428 0.482 0.490 0.456 0.469 0.447 0.445 0.449 0.449 0.436 0.446 0.494 0.494 0.522 0.521 ETTh1 720 0.423 0.450 0.487 0.485 0.423 0.456 0.439 0.446 0.521 0.517 0.426 0.448 0.475 0.500 0.545 0.532 0.477 0.483 0.507 0.517 0.455 0.475 0.632 0.578 0.604 0.575 96 0.268 0.333 0.272 0.340 0.283 0.340 0.292 0.345 0.282 0.350 0.294 0.346 0.315 0.380 0.305 0.361 0.271 0.337 0.294 0.360 0.276 0.339 0.349 0.403 0.401 0.451 192 0.330 0.374 0.330 0.378 0.337 0.376 0.339 0.387 0.354 0.393 0.340 0.377 0.383 0.415 0.405 0.421 0.332 0.380 0.412 0.437 0.342 0.385 0.500 0.488 0.425 0.464 336 0.352 0.399 0.352 0.404 0.356 0.395 0.358 0.410 0.387 0.419 0.360 0.398 0.385 0.438 0.411 0.436 0.362 0.408 0.471 0.478 0.364 0.405 0.445 0.465 0.427 0.471 ETTh2 720 0.378 0.424 0.398 0.445 0.380 0.423 0.400 0.448 0.415 0.447 0.383 0.425 0.432 0.471 0.448 0.470 0.415 0.449 0.740 0.609 0.395 0.434 0.438 0.465 0.462 0.493 96 0.286 0.336 0.291 0.345 0.333 0.375 0.311 0.351 0.298 0.352 0.314 0.359 0.332 0.384 0.315 0.369 0.307 0.353 0.314 0.350 0.298 0.352 0.359 0.391 0.406 0.441 192 0.326 0.360 0.327 0.363 0.353 0.382 0.338 0.371 0.347 0.381 0.348 0.376 0.355 0.398 0.349 0.388 0.337 0.371 0.347 0.381 0.335 0.373 0.368 0.398 0.450 0.477 336 0.356 0.378 0.362 0.384 0.391 0.407 0.364 0.386 0.373 0.395 0.368 0.386 0.386 0.416 0.381 0.409 0.364 0.387 0.367 0.387 0.366 0.394 0.429 0.438 0.436 0.466 ETTm1 720 0.410 0.408 0.421 0.416 0.439 0.435 0.413 0.414 0.437 0.429 0.419 0.413 0.452 0.457 0.437 0.439 0.410 0.411 0.415 0.415 0.420 0.421 0.477 0.474 0.462 0.479 96 0.159 0.250 0.160 0.250 0.170 0.261 0.162 0.256 0.167 0.257 0.167 0.259 0.192 0.285 0.179 0.274 0.159 0.249 0.163 0.257 0.165 0.260 0.200 0.288 0.339 0.406 192 0.216 0.289 0.214 0.291 0.223 0.298 0.218 0.293 0.220 0.295 0.219 0.297 0.253 0.329 0.239 0.314 0.214 0.289 0.223 0.304 0.219 0.298 0.274 0.337 0.397 0.452 336 0.268 0.327 0.265 0.327 0.275 0.332 0.270 0.328 0.283 0.340 0.271 0.330 0.307 0.362 0.309 0.356 0.268 0.326 0.291 0.355 0.268 0.333 0.340 0.382 0.449 0.491 ETTm2 720 0.350 0.380 0.345 0.381 0.360 0.384 0.352 0.380 0.370 0.391 0.353 0.380 0.380 0.412 0.387 0.407 0.353 0.384 0.407 0.433 0.352 0.386 0.384 0.407 0.451 0.499 96 0.140 0.192 0.141 0.201 0.172 0.227 0.146 0.198 0.162 0.216 0.174 0.231 0.163 0.223 0.159 0.212 0.164 0.220 0.174 0.242 0.149 0.199 0.176 0.234 0.289 0.342 192 0.181 0.234 0.183 0.245 0.212 0.260 0.185 0.241 0.200 0.249 0.216 0.267 0.201 0.254 0.203 0.252 0.209 0.258 0.215 0.277 0.193 0.243 0.219 0.270 0.340 0.394 336 0.234 0.276 0.234 0.288 0.257 0.295 0.236 0.281 0.251 0.288 0.260 0.299 0.258 0.300 0.253 0.291 0.242 0.283 0.262 0.319 0.240 0.281 0.277 0.311 0.370 0.408 Weather 720 0.302 0.342 0.303 0.339 0.324 0.344 0.309 0.331 0.318 0.339 0.325 0.345 0.329 0.348 0.317 0.337 0.338 0.333 0.319 0.359 0.312 0.334 0.344 0.356 0.420 0.421 96 0.131 0.225 0.128 0.225 0.139 0.233 0.139 0.231 0.138 0.237 0.139 0.239 0.142 0.247 0.135 0.233 0.128 0.223 0.141 0.244 0.141 0.240 0.202 0.308 0.226 0.341 192 0.146 0.241 0.146 0.244 0.154 0.248 0.153 0.245 0.150 0.246 0.155 0.250 0.164 0.275 0.155 0.253 0.143 0.237 0.155 0.258 0.156 0.256 0.218 0.322 0.220 0.336 336 0.161 0.259 0.161 0.261 0.171 0.265 0.169 0.262 0.184 0.277 0.171 0.265 0.171 0.260 0.169 0.267 0.159 0.254 0.170 0.275 0.172 0.267 0.232 0.332 0.224 0.337 Electricity 720 0.196 0.295 0.196 0.296 0.209 0.298 0.207 0.294 0.207 0.296 0.208 0.300 0.209 0.313 0.204 0.301 0.197 0.287 0.209 0.309 0.208 0.299 0.299 0.375 0.271 0.378 96 0.387 0.270 0.367 0.265 0.390 0.268 0.394 0.267 0.381 0.268 0.389 0.268 0.396 0.294 0.374 0.273 0.381 0.266 0.396 0.272 0.363 0.250 0.605 0.325 0.664 0.431 192 0.397 0.273 0.382 0.272 0.404 0.276 0.403 0.271 0.396 0.277 0.399 0.272 0.404 0.295 0.393 0.283 0.394 0.273 0.404 0.275 0.382 0.258 0.627 0.340 0.613 0.382 336 0.412 0.280 0.396 0.279 0.416 0.283 0.417 0.278 0.397 0.277 0.417 0.279 0.419 0.302 0.409 0.292 0.406 0.279 0.417 0.283 0.399 0.268 0.631 0.349 0.612 0.379 Traffic 720 0.449 0.298 0.434 0.298 0.452 0.283 0.456 0.298 0.439 0.299 0.449 0.299 0.458 0.309 0.450 0.314 0.441 0.300 0.457 0.310 0.432 0.289 0.700 0.371 0.664 0.410 96 0.189 0.258 0.162 0.217 0.339 0.465 0.192 0.239 0.184 0.246 0.205 0.241 0.232 0.271 0.217 0.255 0.194 0.255 0.200 0.234 0.205 0.239 0.243 0.284 0.231 0.254 192 0.212 0.277 0.178 0.232 0.345 0.445 0.213 0.252 0.201 0.253 0.215 0.265 0.238 0.293 0.208 0.257 0.205 0.251 0.239 0.294 0.227 0.280 0.253 0.311 0.257 0.301 336 0.229 0.290 0.187 0.248 0.431 0.470 0.222 0.261 0.220 0.263 0.213 0.276 0.234 0.301 0.238 0.309 0.218 0.257 0.231 0.298 0.225 0.290 0.222 0.287 0.260 0.319 Solar 720 0.237 0.296 0.195 0.251 0.241 0.308 0.235 0.264 0.236 0.282 0.232 0.272 0.273 0.319 0.270 0.319 0.239 0.278 0.237 0.277 0.249 0.291 0.254 0.298 0.260 0.290 
+
+1st Count 15 11 14 4 1 4 3 5 0 0 0 1 0 0 0 0 6 7 0 0 3 3 0 0 0 0Table 1: Forecasting comparison with lookback L = 720 and prediction length H ∈ { 96 , 192 , 336 , 720 }. Baseline results are taken from the TimeBase (Huang et al. 2025) paper where available, and otherwise reproduced using the official code of each baseline. The best results are shown in red , second best in blue. Dataset Two-Phase Single-Phase Impr. (%) ETTh1 0.404 0.458 +11.9 
+
+ETTh2 0.342 0.350 +2.2 
+
+ETTm1 0.350 0.361 +3.0 
+
+ETTm2 0.255 0.262 +2.8 
+
+Weather 0.221 0.223 +0.9 
+
+Electricity 0.162 0.217 +25.6 
+
+Traffic 0.434 0.503 +13.7 
+
+Solar 0.253 0.256 +1.2 Overall +7.7 
+
+Table 2: Two-phase versus single-phase training, test MSE averaged over horizons H ∈ { 96 , 192 , 336 , 720 } at look-back L = 336 . Impr. is the relative MSE reduction of two-phase over single-phase; positive favors two-phase. Better value in each pair in red .
+
+Baselines. We compare AdaRDiff against 11 state-of-the-art long-term forecasting baselines, grouped as (i) MLP/Linear-based methods: DLinear (Zeng et al. 2023), SparseTSF (Lin et al. 2024b), TimeMixer (Wang et al. 2024), CycleNet (Lin et al. 2024a), TQNet (Lin et al. 2025), TimeBase (Huang et al. 2025), and MixLinear (Ma, Luo, and Sha 2026); (ii) Transformer-based methods: FED-former (Zhou et al. 2022), iTransformer (Liu et al. 2024), and PatchTST (Nie et al. 2023); and (iii) CNN-based methods: TimesNet (Wu et al. 2023). 
+
+Hyperparameters and Implementation Details. Owing to its minimal design, AdaRDiff’s only method-specific hy-perparameter is the window size P . On the smaller ETT datasets it is tuned over {4, 24 , 96 }, a grid spanning the dom-inant daily period of both the hourly ETTh variants ( 24 ) and the 15 -minute ETTm variants ( 96 ), together with a short window ( 4) capturing only short-range dependence; on the other datasets P is set to the dominant period (Appendix C). Three further choices are selected per dataset on the vali-dation set: the initialization of δ, which is zero ( δ = 0), uniform ( δj = 1 /P ), or first-order ( δ1 = 1 , else 0); whether to apply RevIN (Kim et al. 2021) for distribution shift; and whether to apply the ℓ1-reparameterization of Eq. (9). In the main results we evaluate linear and MLP backbones, with all hyperparameters tuned on the validation set. Models are im-plemented in PyTorch (Paszke et al. 2019) and trained with Adam (Kingma and Ba 2014) for 30 epochs in Phase 1 and 
+
+10 in Phase 2, with early stopping. We report MSE and MAE, and run all experiments on a single NVIDIA H100 (80 GB). Full details are in Appendix B. 
+
+4.2 Main Results 
+
+Table 1 reports the full forecasting comparison. 4 Across the eight benchmarks, the AdaRDiff-Linear backbone attains the best results more often than the other methods, on both MSE and MAE (on 15 and 11 cases respectively), with the MLP backbone being second on MSE ( 14 ); together the two vari-ants dominate the count of top-ranked scores by a wide mar-gin over every competing method. The gains are largest on Solar-Energy, where the MLP backbone lowers MSE by 11 –
+
+16% over the strongest baseline across all horizons. Photo-voltaic output alternates zero-valued nights with gradual day-time rises and falls (Lin et al. 2024a), so consecutive values are highly predictable from the immediate past: short-range structure rather than a seasonal cycle. AdaRDiff suits this, its differencing weights concentrating at the smallest lags rather than the daily period (Figure 4), acting as a low-order differencing. On the high-dimensional Traffic dataset ( 862 
+
+channels), AdaRDiff matches the strong PatchTST baseline 
+
+4Results for shorter look-back windows ( L ∈ { 96 , 336 , 512 })are reported in Appendix C. Models Linear DLinear MLP MixLinear SparseTSF CycleNet PatchTST iTransformer ETTh1 Original 0.441 0.425 0.428 0.401 0.420 0.417 0.419 0.438                                                                                                                                                                                         
+
+> +AdaRDiff 0.404 0.409 0.425 0.400 0.402 0.408 0.413 0.427 Promotion 8.4% 3.8% 0.6% 0.4% 4.4% 2.0% 1.3% 2.4%
+> ETTh2 Original 0.462 0.470 0.371 0.355 0.350 0.351 0.351 0.396
+> +AdaRDiff 0.342 0.355 0.345 0.344 0.338 0.355 0.347 0.361 Promotion 25.9% 24.4% 7.1% 3.2% 3.6% -1.1% 1.1% 8.8%
+> ETTm1 Original 0.362 0.363 0.357 0.379 0.374 0.355 0.351 0.365
+> +AdaRDiff 0.350 0.353 0.349 0.356 0.356 0.350 0.342 0.367 Promotion 3.3% 2.8% 2.1% 6.2% 5.0% 1.6% 2.5% -0.4%
+> ETTm2 Original 0.293 0.274 0.268 0.267 0.266 0.252 0.258 0.281
+> +AdaRDiff 0.255 0.256 0.253 0.258 0.258 0.256 0.258 0.270 Promotion 13.1% 6.6% 5.9% 3.4% 3.1% -1.5% -0.2% 3.8%
+> Weather Original 0.245 0.245 0.236 0.257 0.257 0.243 0.230 0.235
+> +AdaRDiff 0.221 0.225 0.221 0.230 0.226 0.237 0.225 0.230 Promotion 9.9% 8.1% 6.5% 10.5% 11.8% 2.5% 2.3% 1.8%
+> Electricity Original 0.177 0.168 0.165 0.176 0.173 0.160 0.169 0.203
+> +AdaRDiff 0.162 0.165 0.162 0.168 0.167 0.159 0.163 0.166 Promotion 8.4% 1.9% 1.6% 4.6% 3.4% 1.0% 3.4% 18.3%
+> Traffic Original 0.450 0.436 0.408 0.441 0.438 0.423 0.413 0.528
+> +AdaRDiff 0.434 0.435 0.406 0.439 0.437 0.421 0.422 0.438 Promotion 3.6% 0.3% 0.3% 0.4% 0.0% 0.5% -2.2% 17.1%
+> Solar Original 0.258 0.253 0.217 0.280 0.278 0.261 0.214 0.238
+> +AdaRDiff 0.253 0.262 0.191 0.269 0.266 0.249 0.200 0.207 Promotion 2.0% -3.5% 11.7% 3.7% 4.3% 4.4% 6.5% 13.1%
+
+Table 3: Effect of AdaRDiff on each backbone (MSE), av-eraged over horizons at L = 336 . Promotion is the relative MSE reduction (red = regression). at a fraction (ca. 6.6%) of its parameter count, and clearly outperforms all other methods. We attribute this to the strong temporal-lag structure of Traffic (Lin et al. 2024a): by condi-tioning each prediction on recent lagged values, AdaRDiff’s recursive reconstruction directly exploits the short-range de-pendencies that dominate this dataset. Notably, all of these re-sults are obtained with a lightweight linear or MLP backbone, indicating that the learnable differencing operator, rather than backbone capacity, drives the improvement. 
+
+4.3 Ablation Study and Model Analysis 
+
+Two-phase training. Table 2 compares the two-phase schedule with single-phase training under identical settings. Two-phase training lowers test MSE on all eight datasets, by 7.7% on average, with the largest gains on the highest-dimensional datasets: Electricity ( +25 .6% , 321 channels) and Traffic ( +13 .7% , 862 channels). Since a distinct δ is learned per channel, these are the settings in which single-phase optimization must resolve the tension between the two pathways across hundreds of independent δ, exactly where separating the two phases helps most. 
+
+AdaRDiff as a Plug-and-Play Module. Table 3 evaluates AdaRDiff as a plug-and-play module across eight backbones spanning linear models, MLPs, and Transformers. AdaRDiff improves MSE in the large majority of configurations ( 56 
+
+of 64 backbone–dataset pairs), and no regression exceeds 
+
+3.5% . Three patterns emerge. First, the gains are largest on backbones that lack any dedicated mechanism for tem-poral structure. The plain linear model and MLP improve by up to 25 .9% (linear, ETTh2), and a simple linear back-bone equipped with AdaRDiff matches or surpasses much larger Transformer baselines—evidence that the improve-ment originates in the adaptive differencing and reconstruc-0.3925 0.3950 0.3975 0.4000 0.4025 0.4050 0.4075 0.4100 MAE                                     
+
+> 0.2625 0.2650 0.2675 0.2700 0.2725 0.2750 0.2775 0.2800 MAE
+> 0.212 0.214 0.216 0.218 0.220 0.222 0.224 MAE
+> 0.230 0.232 0.234 0.236 0.238 0.240 MAE
+> 410 24 48 96 144 168 200
+> Window size P
+> 0.365 0.370 0.375 0.380 0.385 0.390 0.395
+> MSE
+> ETTh1
+> 410 24 48 96 144 168 200
+> Window size P
+> 0.165 0.170 0.175 0.180 0.185 0.190
+> MSE
+> ETTm2
+> 410 24 48 96 144 168 200
+> Window size P
+> 0.142 0.144 0.146 0.148 0.150 0.152 0.154 0.156 0.158 0.160
+> MSE
+> Weather
+> 410 24 48 96 144 168 200
+> Window size P
+> 0.133 0.134 0.135 0.136 0.137 0.138 0.139 0.140 0.141 0.142
+> MSE
+> Electricity
+> MSE MAE
+
+Figure 2: Performance of the AdaRDiff/Linear model with varied P . The forecast horizon is set as 96. The dashed line marks the window size minimizing MSE. tion rather than in backbone capacity. Second, and more revealing, AdaRDiff also improves backbones that already model temporal structure explicitly. DLinear removes trend by moving average, SparseTSF and CycleNet model fixed pe-riodic patterns, and MixLinear separates trend from low-rank spectral components; each captures a single form of structure in isolation. In contrast, AdaRDiff models trend and season-ality jointly through one learnable differencing operator, and therefore remains complementary even to backbones with built-in decomposition, improving SparseTSF and MixLin-ear by up to 11 .8% and 10 .5% respectively on Weather. Third, the benefit is most pronounced on iTransformer, which mod-els cross-variate correlations rather than per-series temporal dynamics. Here AdaRDiff’s per-channel differencing sup-plies the temporal component the backbone lacks, yielding large gains on the high-dimensional Electricity ( +18 .3% )and Traffic ( +17 .1% ) datasets. That AdaRDiff strengthens even these specialized backbones establishes it as an effec-tive and broadly portable forecasting component. 
+
+Effect of the window size P . Figure 2 reports MSE against the differencing window P on four datasets of differing peri-ods. The best P broadly reflects the temporal structure of each dataset: ETTh1, with a daily period ( 24 steps), is optimal at 
+
+P = 24 , while the longer-period, high-dimensional datasets Weather and Electricity (periods of 144 and 168 ) favor larger windows. On ETTm2, MSE changes little between P = 24 
+
+and its dominant period P = 96 , showing that AdaRDiff is robust to this choice. Overall, performance tracks the domi-nant period while remaining stable to moderate variations in 
+
+P .
+
+Efficiency analysis. Figure 3(a) reports the number of pa-rameters, the compute (MACs per sample), the peak GPU memory (in MB) and the average epoch time (in seconds) on Electricity. As a plug-and-play module, AdaRDiff adds only 
+
+C ×P parameters ( 572 K with a linear backbone, compara-ble to CycleNet and far below PatchTST at 8.7M), and its epoch time ( 37 .6 s) matches the lightweight linear models. The higher MACs and memory come from the reconstruc-tion, which builds the sequence h in O(C P 3 log H); the 10 3 10 4 10 5 10 6 10 7           
+
+> Parameters
+> SparseTSF FITS
+> AdaRDiff (Ours)
+> CycleNet DLinear iTransformer TimeMixer PatchTST FEDformer
+> 1K 133.6K
+> 572.3K
+> 573K 1.04M 5.47M 5.58M 8.69M 22.14M 10 710 810 910 10 10 11
+> MACs
+> 12.7M 42.7M
+> 23.38G
+> 166.4M 333M 1.79G 30.30G 14.17G 10.48G 10 210 310 4
+> Peak GPU Memory (MB)
+> 125 MB 497 MB
+> 1.13 GB
+> 147 MB 158 MB 828 MB 1.38 GB 18.03 GB 2.36 GB 0200 400 600 800
+> Epoch Time (s)
+> 31.3 s 43.1 s
+> 37.6 s
+> 33.2 s 41.1 s 65.6 s 537 s 827 s 558 s
+> AdaRDiff/Linear (Ours) Baselines
+
+(a) Compute, time, and memory 96 192 336 720 1000   
+
+> Forecast horizon H
+> 0510 15 20 25 30 35
+> Reconstruction speedup (×)
+> naive 1.0×
+> 3.9× 7.3× 13.5× 26.5× 33.7×
+
+(b) Reconstruction speedup 
+
+Figure 3: Efficiency of AdaRDiff/Linear. (a) Number of parameters, compute (MACs per sample), peak GPU memory, and epoch time across models on Electricity (forecast length and look-back window both set to 720 ; epoch time and memory measured at batch size 12 ). (b) Inference speedup of the closed-form convolutional reconstruction over the naive sequential reconstruction as a function of the forecast horizon H.0 25 50 75 100 125 150 175 200                                             
+
+> lag k
+> 0.00 0.05 0.10 0.15
+> k
+> Daily period (24) Previous hour
+> ETTh1
+> 025 50 75 100 125 150 175 200
+> lag k
+> 0.0 0.1 0.2 0.3
+> k
+> Weekly period (168) Daily period (24)
+> Electricity
+> 025 50 75 100 125 150 175 200
+> lag k
+> 0.00 0.05 0.10 0.15 0.20 0.25
+> k
+> Weekly period (168) Daily period (24)
+> Traffic
+> 025 50 75 100 125 150 175 200
+> lag k
+> 0.0 0.1 0.2 0.3
+> k
+> Daily period (144)
+> Solar
+> 025 50 75 100 125 150 175 200
+> lag k
+> 0.0000 0.0025 0.0050 0.0075 0.0100 0.0125
+> k
+> No periodic pattern
+> Synthetic: xt=at +b+t
+
+Figure 4: Learned differencing weights δk across lags for AdaRDiff with look-back L = 336 , forecast horizon H =96 , window size extended to P = 200 and δ initialized to zero). Curves show the mean over channels, with shaded regions denoting ± one standard deviation. cubic dependence on P dominates on long-period datasets (P =168 on Electricity). Since accuracy remains stable to moderate variations in P (Figure 2), reducing P saves com-pute at negligible accuracy loss: on Electricity, P =48 vs. 
+
+168 cuts the reconstruction cost ∼ 43 × for only a 2.9% ac-curacy loss. Crucially, although the raw MAC count is high, our reconstruction replaces the sequential recurrence with a parallel formulation of O(log H) which runs efficiently on GPU. This explains why the epoch time is low despite the peak memory usage and compute values. Figure 3(b) shows that our reconstruction is up to 33 .7× faster than the naive recurrence, the gain growing with the horizon. AdaRDiff thus attains its accuracy gains at a compute cost which is partly controllable through P , and a runtime competitive with the lightest baselines. 
+
+Visualization and Interpretation of the Learned Differ-encing Weights. AdaRDiff learns the differencing weights 
+
+δ directly from the training data. Figure 4 shows the learned 
+
+δk across lags. On ETTh1, Electricity, and Traffic the weights exhibit clear seasonal structure: sharp peaks at the daily pe-riod ( 24 ) on ETTh1, and at both the daily ( 24 ) and weekly (168 ) periods on Electricity and Traffic, aligning with the known period lengths of each dataset (Appendix C). On ETTh1 the coefficient at lag 1 is also large and decays quickly, indicating strong short-range dependence on the immedi-ate past. On a synthetic series with a linear trend and no periodicity ( xt = at + b + εt), by contrast, the weights are near-uniform ( δk ≈ 1/P = 0 .005 ) with no periodic peaks; applied as a differencing operator, such weights sub-tract the moving average of the recent past, removing the linear trend—leaving a stable residual—while averaging out the noise. The model thus produces distinct weight patterns for distinct temporal structures, adapting its differencing to each series without human hard-coding and providing an interpretable account of its behavior. 
+
+5 Conclusion 
+
+We introduced AdaRDiff, a model-agnostic module that re-visits classical differencing through a learnable, reversible operator. We provided both a theoretical analysis of how AdaRDiff behaves with a linear backbone, as well as an ex-perimental validation including different backbones. Across eight benchmarks and eight backbones, AdaRDiff attains state-of-the-art accuracy, yields consistent plug-and-play gains, and produces interpretable differencing weights that recover temporal structures. More broadly, our results show that classical forecasting tools offer principled inductive bi-ases that make deep models more robust and interpretable when adapted to end-to-end learning. A compelling next step is to bring this perspective to time series foundation models: by handling trend and seasonality explicitly, a learn-able differencing operator addresses the dominant temporal structure directly, which could let these models reach strong accuracy with far fewer parameters while exposing, through the learned weights, the temporal patterns they otherwise capture only implicitly. References 
+
+Ansari, A. F.; Stella, L.; Turkmen, C.; Zhang, X.; Mercado, P.; Shen, H.; Shchur, O.; Rangapuram, S. S.; Pineda Arango, S.; Kapoor, S.; Zschiegner, J.; Maddix, D. C.; Mahoney, M. W.; Torkkola, K.; Gordon Wilson, A.; Bohlke-Schneider, M.; and Wang, Y. 2024. Chronos: Learning the Language of Time Series. Transactions on Machine Learning Research .Box, G.; and Jenkins, G. 1976. Time Series Analysis: Forecasting and Control . Holden-Day series in time se-ries analysis and digital processing. Holden-Day. ISBN 9780816211043. Cleveland, R. B.; Cleveland, W. S.; and Terpenning, I. 1990. STL: A seasonal-trend decomposition procedure based on loess. Journal of Official Statistics , 6: 3–73. Das, A.; Kong, W.; Sen, R.; and Zhou, Y. 2024. A decoder-only foundation model for time-series forecasting. In Pro-ceedings of the 41st International Conference on Machine Learning , ICML’24. JMLR.org. Elaydi, S. 2005. An Introduction to Difference Equa-tions . Undergraduate Texts in Mathematics. New York, NY: Springer, 3 edition. ISBN 978-0-387-27602-1. Fei, J.; Yi, K.; Fan, W.; Zhang, Q.; and Niu, Z. 2025. Amplifier: bringing attention to neglected low-energy com-ponents in time series forecasting. In Proceedings of the Thirty-Ninth AAAI Conference on Artificial Intelli-gence and Thirty-Seventh Conference on Innovative Ap-plications of Artificial Intelligence and Fifteenth Sympo-sium on Educational Advances in Artificial Intelligence ,AAAI’25/IAAI’25/EAAI’25. AAAI Press. ISBN 978-1-57735-897-8. Huang, Q.; Zhou, Z.; Yang, K.; Yi, Z.; Wang, X.; and Wang, Y. 2025. TimeBase: The Power of Minimalism in Efficient Long-term Time Series Forecasting. In Singh, A.; Fazel, M.; Hsu, D.; Lacoste-Julien, S.; Berkenkamp, F.; Maharaj, T.; Wagstaff, K.; and Zhu, J., eds., Proceedings of the 42nd In-ternational Conference on Machine Learning , volume 267 of 
+
+Proceedings of Machine Learning Research , 26227–26246. PMLR. Hyndman, R. J.; and Athanasopoulos, G. 2021. Forecasting: Principles and Practice . Australia: OTexts, 3rd edition. Kim, T.; Kim, J.; Tae, Y.; Park, C.; Choi, J.-H.; and Choo, J. 2021. Reversible instance normalization for accurate time-series forecasting against distribution shift. In International Conference on Learning Representations .Kingma, D. P.; and Ba, J. 2014. Adam: A Method for Stochas-tic Optimization. CoRR , abs/1412.6980. Knuth, D. E. 1997. The Art of Computer Programming, Volume 2: Seminumerical Algorithms . Addison-Wesley, 3rd edition. Laglil, M.; Pracca, B.; Devijver, E.; and Gaussier, E. 2026. Foundation Models and Fine-Tuning: Toward a New Generation of Models for Time Series Forecasting. arXiv:2607.23146. Lai, G.; Chang, W.-C.; Yang, Y.; and Liu, H. 2018. Modeling Long- and Short-Term Temporal Patterns with Deep Neural Networks. In The 41st International ACM SIGIR Confer-ence on Research & Development in Information Retrieval ,SIGIR ’18, 95–104. New York, NY, USA: Association for Computing Machinery. ISBN 9781450356572. Lin, S.; Chen, H.; Wu, H.; Qiu, C.; and Lin, W. 2025. Tem-poral Query Network for Efficient Multivariate Time Series Forecasting. In Forty-second International Conference on Machine Learning .Lin, S.; Lin, W.; HU, X.; Wu, W.; Mo, R.; and Zhong, H. 2024a. CycleNet: Enhancing Time Series Forecasting through Modeling Periodic Patterns. In The Thirty-eighth Annual Conference on Neural Information Processing Sys-tems .Lin, S.; Lin, W.; Wu, W.; Chen, H.; and Yang, J. 2024b. SparseTSF: modeling long-term time series forecasting with 1k parameters. In Proceedings of the 41st International Conference on Machine Learning , ICML’24. JMLR.org. Liu, Y.; Hu, T.; Zhang, H.; Wu, H.; Wang, S.; Ma, L.; and Long, M. 2024. iTransformer: Inverted Transformers Are Effective for Time Series Forecasting. In The Twelfth Inter-national Conference on Learning Representations .Liu, Y.; Wu, H.; Wang, J.; and Long, M. 2022. Non-stationary Transformers: Exploring the Stationarity in Time Series Forecasting. In Oh, A. H.; Agarwal, A.; Belgrave, D.; and Cho, K., eds., Advances in Neural Information Process-ing Systems .Ma, A.; Luo, D.; and Sha, M. 2026. MixLinear: Extreme Low-Resource Multivariate Time Series Forecasting with 0.1K Parameters. In International Conference on Learning Representations (ICLR) .Nie, Y.; H. Nguyen, N.; Sinthong, P.; and Kalagnanam, J. 2023. A Time Series is Worth 64 Words: Long-term Fore-casting with Transformers. In International Conference on Learning Representations .Niu, Y.; Deng, J.; and Tong, Y. 2026. PhaseFormer: From Patches to Phases for Efficient and Effective Time Series Forecasting. In International Conference on Learning Rep-resentations (ICLR) .Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.; Chanan, G.; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.; Desmaison, A.; Köpf, A.; Yang, E.; DeVito, Z.; Raison, M.; Tejani, A.; Chilamkurthy, S.; Steiner, B.; Fang, L.; Bai, J.; and Chintala, S. 2019. PyTorch: An Imperative Style, High-Performance Deep Learning Library. In Advances in Neural Information Processing Systems (NeurIPS) , 8026–8037. Qiu, X.; Hu, J.; Zhou, L.; Wu, X.; Du, J.; Zhang, B.; Guo, C.; Zhou, A.; Jensen, C. S.; Sheng, Z.; and Yang, B. 2024. TFB: Towards Comprehensive and Fair Benchmarking of Time Series Forecasting Methods. Proc. VLDB Endow. , 17(9): 2363–2377. Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. Attention is all you need. Advances in neural information processing systems , 30. Wang, S.; Wu, H.; Shi, X.; Hu, T.; Luo, H.; Ma, L.; Zhang, J. Y.; and ZHOU, J. 2024. TimeMixer: Decomposable Mul-tiscale Mixing for Time Series Forecasting. In International Conference on Learning Representations (ICLR) .Wu, H.; Hu, T.; Liu, Y.; Zhou, H.; Wang, J.; and Long, M. 2023. TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis. In International Conference on Learning Representations .Zeng, A.; Chen, M.; Zhang, L.; and Xu, Q. 2023. Are Trans-formers Effective for Time Series Forecasting? In Proceed-ings of the AAAI Conference on Artificial Intelligence .Zhang, P.; and Qi, M. 2005. Neural network forecasting for seasonal and trend time series. European Journal of Operational Research , 160: 501–514. Zhang, Y.; and Yan, J. 2023. Crossformer: Transformer Uti-lizing Cross-Dimension Dependency for Multivariate Time Series Forecasting. In The Eleventh International Confer-ence on Learning Representations .Zhou, H.; Zhang, S.; Peng, J.; Zhang, S.; Li, J.; Xiong, H.; and Zhang, W. 2021. Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting. In Thirty-Fifth AAAI Conference on Artificial Intelligence, AAAI 2021, Thirty-Third Conference on Innovative Applications of Arti-ficial Intelligence, IAAI 2021, The Eleventh Symposium on Educational Advances in Artificial Intelligence, EAAI 2021, February 2-9, 2021 , 11106–11115. Virtual Event: AAAI Press. Zhou, T.; Ma, Z.; Wen, Q.; Wang, X.; Sun, L.; and Jin, R. 2022. FEDformer: Frequency Enhanced Decomposed Trans-former for Long-term Series Forecasting. In Chaudhuri, K.; Jegelka, S.; Song, L.; Szepesvari, C.; Niu, G.; and Sabato, S., eds., Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , 27268–27286. PMLR. 
+
+A Theoretical Proofs 
+
+A.1 Proof of Proposition 1 
+
+Write vk := ˆ zk + ck, so that the identity to prove, Eq. (5), reads ˆxL+k = Pk−1 
+
+> m=0
+
+hmvk−m. Throughout we use the con-ventions δj = 0 for j > P and hn = 0 for n < 0, and argue by strong induction on k.
+
+Base case ( k = 1 ). Since L ≥ P , every term ˆxL+1 −j in the reconstruction (3) is an observed value xL+1 −j . Hence 
+
+ˆxL+1 = ˆ z1 +
+
+> P
+
+X
+
+> j=1
+
+δj xL+1 −j = ˆ z1 + c1 = v1 = h0v1,
+
+using c1 = PPj=1 δj xL+1 −j and h0 = 1 , which is Eq. (5) at 
+
+k = 1 .
+
+Inductive step. Fix k ≥ 2 and assume Eq. (5) for all in-dices 1, . . . , k − 1. In (3), the term ˆxL+k−j is a previously reconstructed forecast when k −j ≥ 1 and an observed value 
+
+xL+k−j when k − j ≤ 0. Splitting the sum at j = k, the observed part is PPj=k δj xL+k−j = ck, so 
+
+ˆxL+k = vk +
+
+> k−1
+
+X
+
+> j=1
+
+δj ˆxL+k−j .
+
+Each remaining index satisfies k − j ∈ { 1, . . . , k − 1}, so the induction hypothesis gives ˆxL+k−j = Pk−j−1 
+
+> i=0
+
+hivk−j−i.Substituting and reindexing by m = i + j (so m runs over 
+
+1, . . . , k − 1 and, for each m, j over 1, . . . , m ), 
+
+> k−1
+
+X
+
+> j=1
+
+δjk−j−1X
+
+> i=0
+
+hivk−j−i =
+
+> k−1
+
+X
+
+> m=1
+
+ mX
+
+> j=1
+
+δj hm−j
+
+
+
+vk−m
+
+=
+
+> k−1
+
+X
+
+> m=1
+
+hmvk−m,
+
+the inner sum equaling hm by the recurrence defining h.With h0 = 1 ,
+
+ˆxL+k = vk +
+
+> k−1
+
+X
+
+> m=1
+
+hmvk−m =
+
+> k−1
+
+X
+
+> m=0
+
+hmvk−m,
+
+which is Eq. (5) at index k and completes the induction. 
+
+A.2 Proof of Proposition 2 
+
+Setup. The sequence (hn) with h0 = 1 , hn = 0 for n < 0,and hn = PPj=1 δj hn−j (n ≥ 1) is the fundamental so-lution of a P th-order constant-coefficient linear recurrence, with characteristic polynomial χ(λ) = λP − PPj=1 δj λP −j .Let λ1, . . . , λ r be its distinct roots, m1, . . . , m r their mul-tiplicities, and ρ = max i |λi|; these are the eigenvalues of the companion matrix of δ. By the general solution of such recurrences (Elaydi 2005, Cor. 2.24), 
+
+hn =
+
+> r
+
+X
+
+> i=1
+
+pi(n) λ ni , deg pi ≤ mi − 1. (13) 
+
+(i) Case ρ < 1. Fix ρ′ ∈ (ρ, 1) . Since |λi| ≤ ρ,each term of (13) obeys |pi(n)λ ni | ≤ ci nmi−1ρn, and 
+
+nmi−1(ρ/ρ ′)n → 0 gives C > 0 with |hn| ≤ Cρ ′ n for all n. Hence P 
+
+> n≥0
+
+|hn| ≤ C/ (1 − ρ′) =: Ch < ∞. Using 
+
+max k |ek| ≤ ∥ e∥,
+
+(T ⊤ 
+
+> h
+
+e)t =
+
+> H
+
+X
+
+> k=t
+
+hk−tek ≤
+
+ X 
+
+> m≥0
+
+|hm|
+
+
+
+max  
+
+> k
+
+|ek| ≤ Ch ∥e∥,
+
+uniformly in H; thus |(T ⊤ 
+
+> h
+
+e)t| = O(∥e∥).
+
+(ii) Case ρ = 1 , unit-modulus roots simple. Roots with 
+
+|λi| < 1 contribute vanishing, hence bounded, terms. A root with |λi| = 1 is simple, so mi = 1 and pi is a constant. Summing the finitely many terms of (13) gives C > 0 with 
+
+|hn| ≤ C for all n.
+
+(iii) Case ρ > 1 (or ρ = 1 with a repeated unit-modulus root). Split the roots by modulus, D = {i : |λi| = ρ},
+
+S = {i : |λi| < ρ }, and write hn = hdom  
+
+> n
+
++hsub  
+
+> n
+
+accordingly. Let m = max i∈D mi and D⋆ = {i ∈ D : mi = m}. We show sup n |hn| = ∞ in five steps; the crux (Step 1) is that the specific initialization h0 = 1 , hn = 0 (n < 0) forces the dominant modes to be present. 
+
+Step 1 (every mode is present). Let H(x) := P 
+
+> n≥0
+
+hnxn.Multiplying the recurrence of hn by xn and summing over n ≥ 1, the left side is P 
+
+> n≥1
+
+hnxn = H(x)−h0 = H(x)−1,while on the right, exchanging the finite sum over j with the sum over n and substituting ℓ = n − j,
+
+X
+
+> n≥1
+
+hn−j xn = xj X
+
+> ℓ≥1−j
+
+hℓxℓ = xj H(x),
+
+where the last equality holding because hℓ = 0 for ℓ < 0.Hence H(x) − 1 = H(x) PPj=1 δj xj , i.e. H(x)D(x) = 1 
+
+with D(x) := 1 − PPj=1 δj xj , so H(x) = 1 /D (x). The numerator is the constant 1 exactly because h0 = 1 and 
+
+hℓ = 0 for ℓ < 0; another initialization would leave bound-ary terms xj P−1 
+
+> ℓ=1 −j
+
+hℓxℓ and a nonconstant numerator. As 
+
+D(x) = xP χ(1 /x ), the roots of D are the 1/λ i with multi-plicities mi (λi̸ = 0 since δP̸ = 0 ), and D(0) = 1 fixes the normalization, so H(x) = Q
+
+> i
+
+(1 − λix)−mi . In its partial-fraction expansion H(x) = P
+
+> i
+
+Pmi 
+
+> t=1
+
+Ai,t (1 − λix)−t, we extract the top coefficient Ai,m i by multiplying through by 
+
+(1 − λix)mi . On the product form this cancels the i-th factor, 
+
+(1 − λix)mi H(x) = Y 
+
+> i′̸=i
+
+(1 − λi′ x)−mi′ ,
+
+while on the expansion it gives 
+
+(1 − λix)mi H(x) = 
+
+> mi
+
+X
+
+> t=1
+
+Ai,t (1 − λix)mi−t
+
++ (1 − λix)mi
+
+X 
+
+> i′̸=i
+
+X
+
+> t
+
+Ai′,t (1 − λi′ x)−t.
+
+Evaluating at x = 1 /λ i, every term with mi −t > 0 vanishes and the remainder vanishes through its factor (1 −λix)mi (its poles 1/λ i′ being finite there, as λi′̸ = λi), so only t = mi
+
+survives: 
+
+Ai,m i = Y 
+
+> i′̸=i
+
+(1 − λi′ /λ i)−mi′̸ = 0 ,
+
+a finite product of nonzero factors. Finally, using the negative-binomial expansion (1 −
+
+λix)−t = P
+
+> n≥0
+
+ n+t−1
+
+> t−1
+
+λ ni xn, whose coefficient  n+t−1
+
+> t−1
+
+
+
+is a polynomial in n of degree t − 1, and matching the coefficient of xn across the two forms of H(x) (so that 
+
+hn = P 
+
+> i
+
+pi(n)λ ni ) gives 
+
+pi(n) = 
+
+> mi
+
+X
+
+> t=1
+
+Ai,t 
+
+n + t − 1
+
+t − 1
+
+
+
+,
+
+of degree exactly mi − 1: the t = mi term alone attains that degree, with leading coefficient ai = Ai,m i /(mi − 1)! ̸ = 0 ,and the lower-t terms (degree < m i − 1) cannot cancel it. Thus d := max i∈D deg pi = m − 1 ≥ 0, and ai̸ = 0 for every i ∈ D ⋆.
+
+Step 2 (a lemma on unit-modulus sums). 
+
+Lemma 1. If μ1, . . . , μ s are distinct with |μr | = 1 and 
+
+α1, . . . , α s are not all zero, then g(n) = P 
+
+> r
+
+αr μ nr satisfies 
+
+|g(n)| ≥ ϵ on an infinite set, for some ϵ > 0.Proof. The Cesàro average 1
+
+> N
+
+P 
+
+> n≤N
+
+|g(n)|2 tends to 
+
+P 
+
+> r
+
+|αr |2 > 0: diagonal terms give |αr |2, while for r̸ = r′,
+
+ω = μr μr′ has |ω| = 1 , ω̸ = 1 , so | 1
+
+> N
+
+P 
+
+> n≤N
+
+ωn| ≤ 
+
+2/(N |1 − ω|) → 0. If lim sup n |g(n)| = 0 then |g(n)| → 0
+
+and the average vanishes, a contradiction; the claim fol-lows. (The bound holds only along an infinite set: g may vanish at individual n, e.g. g(n) = 2 cos θn .) 
+
+Step 3 (subdominant part negligible). If S = ∅ this is trivial. Else let ρsub = max i∈S |λi| < ρ . As every pi has degree ≤ P − 1, |hsub  
+
+> n
+
+| ≤ Bn P −1ρn
+
+> sub
+
+, so with n−d ≤ 1
+
+(n ≥ 1), 
+
+|hsub  
+
+> n
+
+|
+
+ndρn ≤ B n P −1 ρsub /ρ n → 0, (14) since nβ qn → 0 for any q ∈ (0 , 1) , β ≥ 0.
+
+Step 4 (dominant rate). With μi = λi/ρ (distinct, unimod-ular), 
+
+hdom 
+
+> n
+
+ndρn = g(n) + η(n), g(n) = X
+
+> i∈D ⋆
+
+aiμ ni ,
+
+where η collects the degree-≤ d−1 remainders of the D⋆
+
+modes and all of D \ D ⋆ (so η ≡ 0 if d = 0 ). Each such term is a polynomial of degree ≤ d − 1 times a unimodular μni ,hence O(n−1) after dividing by nd; so η(n) → 0. By Step 1 the ai (i ∈ D ⋆) are nonzero, so Lemma 1 applies to g.
+
+Step 5 (conclusion). Take ϵ > 0 and infinite N0 with 
+
+|g| ≥ ϵ there. Choose N1 with |η(n)| ≤ ϵ/ 4 (n ≥ N1), giving |hdom  
+
+> n
+
+|/(ndρn) ≥ 3ϵ/ 4 on N0 beyond N1; and N2
+
+with |hsub  
+
+> n
+
+|/(ndρn) ≤ ϵ/ 4 (n ≥ N2) by (14). On N = {n ∈N0 : n ≥ max( N1, N 2)},
+
+|hn|
+
+ndρn ≥ 3ϵ
+
+4 − ϵ
+
+4 = ϵ
+
+2 ,
+
+so |hn| ≥ ϵ 
+
+> 2
+
+ndρn on N . Since ρ ≥ 1 and d ≥ 1 whenever 
+
+ρ = 1 (a repeated unit root has m ≥ 2), the bound diverges along N ; hence sup n |hn| = ∞.
+
+A.3 Proof of Proposition 3 
+
+Convolution identity. Since h0 = 1 does not depend on δ,we have g(j)0 = 0 , and differentiating hn = PPk=1 δkhn−k
+
+with respect to δj gives, for n ≥ 1,
+
+g(j) 
+
+> n
+
+= hn−j +
+
+> P
+
+X
+
+> k=1
+
+δk g(j)
+
+> n−k
+
+, g(j) 
+
+> n
+
+= 0 ( n < 0) ,
+
+so g(j) obeys the same recurrence as h, forced by hn−j .Let G(j)(x) := P 
+
+> n≥0
+
+g(j) 
+
+> n
+
+xn. Multiplying by xn and sum-ming over n ≥ 1, the left side is G(j)(x) − g(j)0 = G(j)(x),while the shift identities P 
+
+> n≥1
+
+hn−j xn = xj H(x) and 
+
+P 
+
+> n≥1
+
+g(j)
+
+> n−k
+
+xn = xkG(j)(x) (both by the substitution used in Step 1, the negative-index terms vanishing) give 
+
+G(j)(x) = xj H(x) + G(j)(x)
+
+> P
+
+X
+
+> k=1
+
+δkxk,
+
+i.e. G(j)(x)D(x) = xj H(x).Dividing by D and substituting 1/D = H,
+
+G(j)(x) = xj H(x)
+
+D(x) = xj H(x)2, (15) i.e. g(j) 
+
+> n
+
+= ( h ∗ h(j))n with h(j) 
+
+> n
+
+= hn−j , since H2 generates 
+
+h ∗ h and multiplication by xj shifts by j. Each item now follows from the corresponding bound on h, using 
+
+|g(j) 
+
+> n
+
+| ≤ 
+
+> n
+
+X
+
+> i=0
+
+|hi| | hn−i−j |. (16) Throughout we use |ϕev (n)| = P 
+
+> k>n
+
+ekvk−n ≤ ∥ e∥ ∥ v∥
+
+(Cauchy–Schwarz). 
+
+(i) Case ρ < 1. Fix ρ′ ∈ (ρ, 1) and pick ρ′′ ∈ (ρ, ρ ′).By Proposition 2(1), |hn| ≤ Cρ ′′ n for some C > 0, so (16) gives |g(j) 
+
+> n
+
+| ≤ C2(n + 1) ρ′′ n−j ≤ Cg ρ′ n, since (n +1)( ρ′′ /ρ ′)n → 0. Hence P 
+
+> n≥0
+
+|g(j) 
+
+> n
+
+| ≤ Cg /(1 − ρ′) =: 
+
+C′ 
+
+> g
+
+< ∞ and 
+
+|Term I | =
+
+> H−1
+
+X
+
+> n=0
+
+g(j) 
+
+> n
+
+ϕev (n) ≤ C′ 
+
+> g
+
+∥e∥ ∥ v∥,
+
+independently of H.
+
+(ii) Case ρ = 1 , unit-modulus roots simple. By Propo-sition 2(ii), |hn| ≤ C, so (16) gives |g(j) 
+
+> n
+
+| ≤ C2(n + 1) = 
+
+O(n) and 
+
+|Term I | ≤ C2
+
+> H−1
+
+X
+
+> n=0
+
+(n + 1) ∥e∥ ∥ v∥ = O H2∥e∥ ∥ v∥.
+
+(iii) Case ρ > 1, or ρ = 1 with a repeated unit-modulus root. By (15), G(j)(x) = xj Qri=1 (1 −λix)−2mi : the poles are those of H, at 1/λ i, with multiplicities doubled to 2mi.The numerator xj vanishes only at x = 0 , and λi̸ = 0 , so no pole is cancelled. The argument of Proposition 2(3) therefore applies verbatim to g(j) with mi replaced by 2mi: every mode is present with nonzero dominant leading coefficients, and Lemma 1 yields c > 0 and an infinite set N with |g(j) 
+
+> n
+
+| ≥ 
+
+c n 2m−1ρn on N , where m is the maximal multiplicity of a root of modulus ρ. This bound diverges along N in both sub-cases: if ρ > 1 the exponential factor diverges, while if 
+
+ρ = 1 a repeated unit root gives m ≥ 2, hence 2m − 1 ≥ 3
+
+and c n 2m−1 → ∞ . Therefore sup n |g(j) 
+
+> n
+
+| = ∞.
+
+A.4 Proof of Theorem 1 
+
+Let λ be any root of the characteristic polynomial χ(λ) = 
+
+λP − PPj=1 δj λP −j , so that λP = PPj=1 δj λP −j . Suppose, for contradiction, that |λ| ≥ 1. Taking moduli and applying the triangle inequality, 
+
+|λ|P ≤
+
+> P
+
+X
+
+> j=1
+
+|δj | | λ|P −j ≤ | λ|P −1
+
+> P
+
+X
+
+> j=1
+
+|δj | = |λ|P −1 ∥δ∥1,
+
+where the second inequality uses |λ|P −j ≤ | λ|P −1 for j ≥ 1,valid since |λ| ≥ 1. As |λ| ≥ 1 implies |λ|P −1 > 0, dividing by |λ|P −1 gives |λ| ≤ ∥ δ∥1 < 1, contradicting |λ| ≥ 1.Hence every root satisfies |λ| < 1, and since ρ is the largest root modulus, ρ < 1.
+
+A.5 Proof of Proposition 4 
+
+Setting. We work at the population level under the data-generating process, taking X := ( x1−P , . . . , x L+H )⊤, so every lagged value required by the differencing operator and by the shifts x(j) is an observation of (xt) and E[xuxv ] = 
+
+γ(u − v) holds throughout. 
+
+Step 1: everything is affine in X. With a linear back-bone, z = AX (from (1)), c = CX and xf = SX
+
+for matrices determined by δ. By (2) and Proposition 1, 
+
+ˆxf = Th(WbAX + b + CX), so e = M X + b′ with 
+
+M := Th(WbA + C) − S and b′ := Thb, both independent of X. Hence 
+
+p⊤ = ( T ⊤ 
+
+> h
+
+e)⊤Wb = X⊤N + q⊤, N := M ⊤ThWb,
+
+(17) whose entries Nv,s are indexed by the coordinates v ∈ { 1 −
+
+P, . . . , L + H} of X and s ∈ { 1, . . . , L − 1} of z.
+
+Step 2: reduction to second moments. Since (x(j)
+
+> 2: L
+
+)s =
+
+xs+1 −j , and s + 1 − j ≥ 2 − P lies in the range of X, we may write x(j) 
+
+> 2: L
+
+= Ej X with (Ej )s,u = 1{u = s + 1 − j}.By (17), 
+
+p⊤x(j) 
+
+> 2: L
+
+= X⊤N E j X + q⊤Ej X.
+
+Taking expectations, the linear term vanishes as E[X] = 0, and E[X⊤BX] = tr( BΓ) for deterministic B gives 
+
+E[p⊤x(j)
+
+> 2: L
+
+] = tr( N E j Γ) , with Γu,v = E[xuxv ] = γ(u − v).
+
+Step 3: extracting the lag. Expanding the trace entrywise and using (Ej )s,u = 1{u = s + 1 − j} to collapse the sum over u:
+
+tr( N E j Γ) = 
+
+> L−1
+
+X
+
+> s=1
+> L+H
+
+X
+
+> v=1 −P
+
+Nv,s Γs+1 −j, v 
+
+= X
+
+> s,v
+
+Nv,s γ(s + 1 − j − v).
+
+Setting m := v − s − 1, so that s + 1 − j − v = −(m + j),and using γ(−k) = γ(k),
+
+Ep⊤x(j)
+
+> 2: L
+
+ =
+
+> L+H−2
+
+X 
+
+> m=1 −P−L
+
+Φ( m) γ(m + j), (18) where Φ( m) := P 
+
+> v−s−1= m
+
+Nv,s , the endpoints of the range being attained at (v, s ) = (1 − P, L − 1) and (L + H, 1) .The weights Φ( m) are sums of entries of N , hence depend on (δ, W b, b) but not on j: the lag enters only through the argument of γ.
+
+B More details of AdaRDiff 
+
+B.1 Implementation Details 
+
+Overview. AdaRDiff wraps a forecasting backbone in two operations that share the same learnable weights δ ∈ RC×P :a causal differencing pass on the input, and a reconstruction pass on the backbone output (Algorithm 1). Both are imple-mented as depthwise conv1d over the channel dimension, so the module adds C×P parameters and no sequential work Algorithm 1: AdaRDiff forward pass 
+
+Require: context x ∈ RC×L, phase ∈ { 1, 2}; target xf ∈
+
+RC×H 
+
+> 1:
+
+initialize differencing weights δ, gain α ← 1, and back-bone parameters θ 
+
+> 2:
+
+if reparam then δ ← α δ/∥δ∥1 {per channel, Eq. (9)}  
+
+> 3:
+
+if RevIN then x ← (x−μ)/σ , with μ, σ the per-channel mean and standard deviation of x 
+
+> 4:
+
+z ← x[: , 1:] − conv1d (x, δ) {differencing, Eq. (1)}  
+
+> 5:
+
+ˆz ← fθ (z) {predicted residuals}  
+
+> 6:
+
+if phase = 1 then  
+
+> 7:
+
+if RevIN then xf ← (xf − μ)/σ {same statistics as 
+
+x} 
+
+> 8:
+
+zf ← xf − conv1d ([ x[: , −P :] , xf ], δ) {difference the target}  
+
+> 9:
+
+return (ˆ z, zf ) {loss ∥ˆz − zf ∥2} 
+
+> 10:
+
+else  
+
+> 11:
+
+h ← Sequence-h(δ, H ) {Alg. 2}  
+
+> 12:
+
+c ← conv1d (x[: , −P :] , δ) {initial conditions}  
+
+> 13:
+
+ˆxf ← conv1d (ˆ z + c, h) {reconstruction, Prop. 1}  
+
+> 14:
+
+if RevIN then ˆxf ← σˆxf + μ 
+
+> 15:
+
+return ˆxf {loss ∥ˆxf − xf ∥2} 
+
+> 16:
+
+end if 
+
+beyond the O(log H) recurrence of Algorithm 2. Training proceeds in two phases (Section 3.3): Phase 1 supervises the backbone in residual space, bypassing reconstruction en-tirely; Phase 2 optimizes the forecast loss through the full pipeline. 
+
+Reconstruction components. Reconstruction needs three ingredients: 
+
+The sequence h. Stacking P consecutive terms into the state sn = ( hn, . . . , h n−P +1 )⊤ turns the recurrence (4) into a one-step linear map sn+1 = F s n, where F is the compan-ion matrix of δ; hence sn = F ns0 with s0 = (1 , 0, . . . , 0) ⊤,and hn = ( sn)1. Computing s0, . . . , s H−1 one at a time costs H sequential steps. Repeated squaring reduces this to ⌈log 2 H⌉: the key identity is that F ℓ advances any state by ℓ positions, F ℓsn = sn+ℓ. So if we have already com-puted the first ℓ states s0, . . . , s ℓ−1 and the matrix G = F ℓ,applying G to all of them at once yields the next ℓ states 
+
+sℓ, . . . , s 2ℓ−1; squaring G then gives F 2ℓ for the follow-ing round. Each round doubles the number of known states, so ⌈log 2 H⌉ rounds cover the whole horizon, and within a round the single matrix product G [s0 · · · sℓ−1] produces all new states in parallel (Algorithm 2). 
+
+The initial conditions c. The terms ck = P 
+
+> j≥k
+
+δj xL+k−j
+
+are a single convolution of the last P context values with δ,zero-padded so that taps reaching past the context contribute nothing. 
+
+The forecast. With v = ˆ z + c, the reconstruction ˆxL+k =P 
+
+> m<k
+
+hmvk−m is the causal convolution of v with h, i.e. the Toeplitz product Thv.
+
+Options. Two components are optional hyperparameters. RevIN normalizes each channel before differencing and in-verts the transform on the forecast, handling distribution Algorithm 2: Sequence-h(δ, H ) by repeated squaring  
+
+> 1:
+
+F ← companion matrix of δ 
+
+> 2:
+
+S ← [ s0 ] with s0 = (1 , 0, . . . , 0) ⊤; G ← F {S holds 
+
+s0, . . . , s |S|− 1; G = F |S|} 
+
+> 3:
+
+while |S| < H do  
+
+> 4:
+
+S ← [ S, G S ] {G s n = sn+|S|: append the next |S|
+
+states}  
+
+> 5:
+
+G ← G2 {F ℓ → F 2ℓ for the next round}  
+
+> 6:
+
+end while  
+
+> 7:
+
+return hn = ( sn)1 for n = 0 , . . . , H − 1
+
+shift. The reparameterization of line 2 constrains ∥δ∥1 = |α|
+
+with α learned per channel. 
+
+C Supplementary Details of the Experiments 
+
+C.1 Experiment Settings 
+
+Datasets. We evaluate on widely adopted LTSF bench-marks: the ETT series (ETTh1, ETTh2, ETTm1, ETTm2) (Zhou et al. 2021), Weather, Traffic, Electricity, and Solar-Energy (Lai et al. 2018). Dataset splitting and normal-ization follow prior work (Liu et al. 2024; Lin et al. 2024a): the ETT datasets use a 6 : 2 : 2 train/validation/test split, and the remaining datasets a 7 : 1 : 2 split. Table 4 summarizes each dataset. All exhibit periodic structure—daily, and ad-ditionally weekly for Electricity and Traffic. Combined with the sampling frequency, this determines the dominant period of each dataset, e.g. 24 steps for the hourly ETTh variants and 168 for Electricity. These periods can be inferred from an autocorrelation (ACF) analysis, following the procedure of CycleNet (Lin et al. 2024a), and we use them to guide the choice of window size P .
+
+Hyperparameter search. All hyperparameters are se-lected per dataset on the validation set, by grid search over the following ranges. The window size P is tuned as de-scribed in the main text ( {4, 24 , 96 } on the ETT datasets, the dominant period elsewhere). The initialization of the differ-encing weights δ is chosen among zero ( δ = 0), uniform (δj = 1 /P ), and first-order ( δ1 = 1 , else 0); RevIN (Kim et al. 2021) and the ℓ1-reparameterization of Eq. (9) are each toggled on or off. Optimization hyperparameters are swept over initial learning rates {1×10 −3, 2×10 −3, 5×10 −3, 1×
+
+10 −2} and batch sizes {32 , 64 , 256 }. For the MLP back-bone, the hidden dimension is additionally selected from 
+
+{128 , 512 , 1024 }.
+
+C.2 More experimental results 
+
+Comparison under the unified TFB evaluation. Table 5 reports a complementary comparison under the unified eval-uation protocol of the Time Series Forecasting Benchmark (TFB) (Qiu et al. 2024), which standardizes datasets, splits, and metrics across methods, with each method is given its best result over look-back lengths {96 , 336 , 512 } rather than a fixed look-back window. This setting favors strong baselines, since each is tuned to its most advantageous context length; we nonetheless evaluate AdaRDiff over the same lengths Dataset ETTh1 ETTh2 ETTm1 ETTm2 Electricity Solar-Energy Traffic Weather Timesteps 17,420 69,680 26,304 52,560 17,544 52,696 Channels 7 7 321 137 862 21 Frequency 1 h 15 min 1 h 10 min 1 h 10 min Periodicity Daily Daily Daily, Weekly Daily Daily, Weekly Daily Dominant Period 24 96 168 144 168 144 Table 4: Dataset information. The dominant period is given in timesteps; for datasets with both daily and weekly cycles it is the longer (weekly) period. and report its best result for a fair comparison. Even so, AdaRDiff attains the best accuracy on the large majority of dataset–horizon pairs: its linear and MLP backbones to-gether take the top MSE on 29 of 35 settings and the top MAE on 22 , dominating the first-place count over every compet-ing method, including the recent PhaseFormer (Niu, Deng, and Tong 2026), MixLinear (Ma, Luo, and Sha 2026), and Amplifier (Fei et al. 2025). On dataset-level average MSE, AdaRDiff improves over the strongest baseline on six of the seven datasets, with the largest margin on ETTh2 ( 0.331 
+
+against 0.347 for MixLinear), followed by Weather ( 0.215 
+
+against 0.222 ) and ETTm2 ( 0.249 against 0.256 ). The sole exception is Traffic, where PatchTST edges ahead ( 0.397 
+
+against 0.399 ). These results show that AdaRDiff performs consistently across look-back lengths and evaluation setups, remaining state-of-the-art with only a lightweight linear or MLP backbone. 
+
+Effect of the look-back length. Figure 5 reports AdaRDiff-Linear’s test MSE as the look-back length L varies over 
+
+{48 , 96 , 192 , 336 , 512 , 720 } at each forecast horizon. Sev-eral consistent trends emerge. First, accuracy improves al-most monotonically with L: a longer history gives the dif-ferencing operator more context to identify the relevant lags, and the shortest window ( L = 48 ) is the weakest on every dataset. Second, these gains saturate quickly at short hori-zons: beyond L ≈ 336 the H = 96 curves are nearly flat, and on ETTh1 the longer L = 512 window is no better than L = 336 . Third, and more notably, the benefit of a longer look-back grows with the forecast horizon: extend-ing L from 48 to 720 reduces MSE far more at H = 720 
+
+than at H = 96 (e.g. a drop of 0.089 versus 0.035 on ETTh1, and 0.081 versus 0.031 on ETTm2), since forecasting further ahead requires more history to anchor the trend and seasonal structure. Datasets with longer periodic structure, such as Electricity and Solar-Energy, continue to benefit from win-dows up to L = 720 , consistent with their weekly and daily cycles. Overall, AdaRDiff extracts most of its short-horizon accuracy from a moderate look-back while making effective use of longer histories precisely where they matter most—at long horizons. 
+
+Qualitative forecasts. Figure 6 shows AdaRDiff-Linear’s forecasts (horizon H = 96 ) against the ground truth on rep-resentative channels from six datasets. The forecasts follow the dominant temporal structure of each series: the sharp re-curring spikes of Traffic, the daily cycles of Electricity and the ETT variants, and the day–night plateaus of Solar-Energy, where AdaRDiff correctly holds the low nighttime level and rises on the daytime ramp. Errors appear mainly at the peaks of the most irregular channels (e.g. Traffic channel 0), where the amplitude of individual spikes is occasionally underes-timated, but the phase and period of the pattern are consis-tently recovered. These examples illustrate how the learned differencing operator reconstructs both periodic and trending behavior directly in the original series space. 48 96 192 336 512 720 
+
+Look-back length L
+
+0.40 0.45 0.50 
+
+> Test MSE
+
+ETTh1 
+
+48 96 192 336 512 720 
+
+Look-back length L
+
+0.3 0.4 0.5 0.6 
+
+ETTh2 
+
+48 96 192 336 512 720 
+
+Look-back length L
+
+0.3 0.4 0.5 0.6 
+
+ETTm1 
+
+48 96 192 336 512 720 
+
+Look-back length L
+
+0.2 0.3 0.4 
+
+ETTm2 
+
+48 96 192 336 512 720 
+
+Look-back length L
+
+0.2 0.3 0.4 
+
+> Test MSE
+
+Weather 
+
+48 96 192 336 512 720 
+
+Look-back length L
+
+0.15 0.20 0.25 
+
+Electricity 
+
+48 96 192 336 512 720 
+
+Look-back length L
+
+0.2 0.3 0.4 0.5 
+
+Solar 
+
+Prediction horizon 
+
+H = 96 H = 192 H = 336 H = 720 Figure 5: Effect of the look-back length L on AdaRDiff-Linear’s test MSE, for each dataset and forecast horizon H ∈{96 , 192 , 336 , 720 }.168 0 96 4
+
+> 2
+> 0
+> value
+
+ETTh1 channel 0   
+
+> 168 096 012
+
+ETTh1 channel 1   
+
+> 168 096 4
+> 2
+> 0
+
+ETTm1 channel 0   
+
+> 168 096 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+
+ETTm2 channel 0   
+
+> 168 096 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> value
+
+Electricity channel 320   
+
+> 168 096 2
+> 024
+
+Electricity channel 64   
+
+> 168 096 0246
+
+Traffic channel 0   
+
+> 168 096 2
+> 024
+
+Traffic channel 689   
+
+> 168 096
+
+t (0 = forecast origin) 
+
+> 1
+> 012
+> value
+
+Solar channel 54   
+
+> 168 096
+
+t (0 = forecast origin) 
+
+> 1
+> 012
+
+Solar channel 27 
+
+observed past ground truth AdarDiff forecast 
+
+Figure 6: Qualitative forecasts of AdaRDiff-Linear (horizon H = 96 ) on representative channels from six datasets. Each panel shows the observed past (blue), the ground-truth future (black), and the AdaRDiff forecast (orange dashed); the shaded region marks the forecast horizon. Models AdaRDiff-Linear 
+
+(2026) 
+
+AdaRDiff-MLP 
+
+(2026) PhaseFormer (2026) MixLinear (2026) Amplifier (2025) iTransformer (2024) TimeMixer (2024) Crossformer (2023) DLinear (2023) PatchTST (2023) TimesNet (2023) stationary (2022) Metrics MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE 96 0.355 0.386 0.360 0.391 0.386 0.397 0.365 0.387 0.376 0.393 0.386 0.405 0.372 0.401 0.411 0.435 0.379 0.403 0.377 0.397 0.389 0.412 0.591 0.524 192 0.393 0.411 0.409 0.423 0.412 0.420 0.397 0.406 0.414 0.420 0.424 0.440 0.413 0.430 0.409 0.438 0.408 0.419 0.409 0.425 0.440 0.443 0.615 0.540 336 0.421 0.426 0.428 0.435 0.442 0.431 0.418 0.421 0.442 0.446 0.449 0.460 0.438 0.450 0.433 0.457 0.440 0.440 0.431 0.444 0.523 0.487 0.632 0.551 720 0.417 0.444 0.454 0.460 0.414 0.440 0.416 0.437 0.480 0.479 0.495 0.487 0.486 0.484 0.501 0.514 0.471 0.493 0.457 0.477 0.521 0.495 0.828 0.658 ETTh1 Avg 0.397 0.417 0.413 0.427 0.413 0.422 0.399 0.413 0.428 0.434 0.439 0.448 0.427 0.441 0.439 0.461 0.424 0.439 0.419 0.436 0.468 0.459 0.666 0.568 96 0.267 0.333 0.268 0.337 0.284 0.350 0.291 0.343 0.291 0.342 0.297 0.348 0.281 0.351 0.728 0.603 0.300 0.364 0.274 0.337 0.334 0.370 0.347 0.387 192 0.325 0.373 0.329 0.375 0.347 0.387 0.344 0.380 0.355 0.400 0.372 0.403 0.349 0.387 0.723 0.607 0.387 0.423 0.348 0.384 0.404 0.413 0.379 0.418 336 0.351 0.396 0.358 0.403 0.374 0.408 0.365 0.400 0.384 0.420 0.388 0.417 0.366 0.413 0.740 0.628 0.490 0.487 0.377 0.416 0.389 0.435 0.358 0.413 720 0.380 0.423 0.388 0.431 0.413 0.439 0.389 0.423 0.422 0.451 0.424 0.444 0.401 0.436 1.386 0.882 0.704 0.597 0.406 0.441 0.434 0.448 0.422 0.457 ETTh2 Avg 0.331 0.381 0.336 0.387 0.354 0.396 0.347 0.387 0.363 0.403 0.370 0.403 0.349 0.397 0.894 0.680 0.470 0.468 0.351 0.395 0.390 0.416 0.377 0.419 96 0.285 0.336 0.289 0.342 0.296 0.349 0.332 0.361 0.293 0.347 0.300 0.353 0.293 0.345 0.314 0.367 0.300 0.345 0.289 0.343 0.340 0.378 0.415 0.410 192 0.325 0.359 0.327 0.368 0.335 0.375 0.346 0.370 0.329 0.367 0.341 0.380 0.335 0.372 0.374 0.410 0.336 0.366 0.329 0.368 0.392 0.404 0.494 0.451 336 0.359 0.380 0.361 0.382 0.364 0.389 0.389 0.392 0.365 0.387 0.374 0.396 0.368 0.386 0.413 0.432 0.367 0.386 0.362 0.390 0.423 0.426 0.577 0.490 720 0.415 0.412 0.426 0.418 0.417 0.419 0.430 0.418 0.429 0.422 0.429 0.430 0.426 0.417 0.753 0.613 0.419 0.416 0.416 0.423 0.475 0.453 0.636 0.535 ETTm1 Avg 0.346 0.372 0.351 0.378 0.353 0.383 0.374 0.385 0.354 0.381 0.361 0.390 0.355 0.380 0.464 0.455 0.356 0.378 0.349 0.381 0.407 0.415 0.530 0.472 96 0.161 0.250 0.161 0.251 0.173 0.259 0.183 0.271 0.168 0.258 0.175 0.266 0.165 0.256 0.296 0.391 0.164 0.255 0.165 0.255 0.189 0.265 0.210 0.294 192 0.217 0.288 0.214 0.288 0.247 0.309 0.247 0.316 0.227 0.298 0.242 0.312 0.225 0.298 0.369 0.416 0.224 0.304 0.221 0.293 0.254 0.310 0.338 0.373 336 0.270 0.326 0.266 0.326 0.292 0.337 0.290 0.338 0.276 0.334 0.282 0.337 0.277 0.332 0.588 0.600 0.277 0.337 0.276 0.327 0.313 0.345 0.432 0.416 720 0.359 0.382 0.353 0.382 0.382 0.391 0.383 0.394 0.364 0.394 0.375 0.394 0.360 0.387 0.750 0.612 0.371 0.401 0.362 0.381 0.413 0.402 0.554 0.476 ETTm2 Avg 0.252 0.311 0.248 0.312 0.273 0.324 0.276 0.330 0.259 0.321 0.268 0.327 0.257 0.318 0.501 0.505 0.259 0.324 0.256 0.314 0.292 0.331 0.384 0.390 96 0.141 0.193 0.141 0.198 0.150 0.202 0.182 0.235 0.147 0.199 0.157 0.207 0.147 0.198 0.143 0.210 0.170 0.230 0.150 0.200 0.168 0.214 0.188 0.242 192 0.183 0.234 0.185 0.236 0.196 0.246 0.251 0.283 0.188 0.238 0.200 0.248 0.192 0.243 0.195 0.261 0.216 0.273 0.191 0.239 0.219 0.262 0.240 0.290 336 0.235 0.291 0.232 0.285 0.247 0.284 0.305 0.320 0.239 0.276 0.252 0.287 0.247 0.284 0.254 0.319 0.258 0.307 0.242 0.279 0.278 0.302 0.322 0.328 720 0.306 0.345 0.303 0.336 0.358 0.349 0.373 0.364 0.316 0.328 0.320 0.336 0.318 0.330 0.335 0.385 0.323 0.362 0.312 0.330 0.353 0.351 0.396 0.378 Weather Avg 0.216 0.266 0.215 0.264 0.238 0.270 0.278 0.300 0.222 0.260 0.232 0.270 0.226 0.264 0.232 0.294 0.242 0.293 0.224 0.262 0.255 0.282 0.286 0.309 96 0.132 0.228 0.129 0.223 0.137 0.228 0.220 0.291 0.132 0.227 0.134 0.230 0.153 0.256 0.134 0.231 0.140 0.237 0.143 0.247 0.169 0.271 0.171 0.274 192 0.148 0.240 0.147 0.240 0.152 0.241 0.216 0.291 0.149 0.241 0.154 0.250 0.168 0.269 0.146 0.243 0.154 0.251 0.158 0.260 0.180 0.280 0.180 0.283 336 0.162 0.260 0.162 0.261 0.166 0.256 0.230 0.307 0.165 0.258 0.169 0.265 0.189 0.291 0.165 0.264 0.169 0.268 0.168 0.267 0.204 0.304 0.204 0.305 720 0.197 0.296 0.199 0.299 0.204 0.291 0.274 0.340 0.203 0.292 0.194 0.288 0.228 0.320 0.237 0.314 0.204 0.301 0.214 0.307 0.205 0.304 0.221 0.319 Electricity Avg 0.160 0.256 0.159 0.256 0.165 0.254 0.235 0.307 0.162 0.255 0.163 0.258 0.184 0.284 0.171 0.263 0.167 0.264 0.171 0.270 0.189 0.290 0.194 0.295 96 0.396 0.276 0.372 0.266 0.394 0.260 0.707 0.433 0.396 0.278 0.363 0.265 0.369 0.257 0.526 0.288 0.395 0.275 0.370 0.262 0.595 0.312 0.603 0.330 192 0.408 0.279 0.389 0.274 0.380 0.250 0.648 0.401 0.413 0.285 0.384 0.273 0.400 0.272 0.503 0.263 0.407 0.280 0.386 0.269 0.613 0.322 0.611 0.338 336 0.417 0.283 0.398 0.279 0.429 0.278 0.668 0.407 0.421 0.291 0.396 0.277 0.407 0.272 0.505 0.276 0.417 0.286 0.396 0.275 0.626 0.332 0.628 0.342 720 0.453 0.302 0.437 0.301 0.440 0.284 0.727 0.431 0.456 0.307 0.445 0.308 0.461 0.316 0.552 0.301 0.454 0.308 0.435 0.295 0.635 0.340 0.646 0.350 Traffic Avg 0.419 0.285 0.399 0.280 0.411 0.268 0.688 0.418 0.421 0.290 0.397 0.281 0.409 0.279 0.521 0.282 0.418 0.287 0.397 0.275 0.617 0.327 0.622 0.340 
+
+1st Count 17 18 12 4 2 5 1 5 0 3 3 1 0 2 1 0 0 0 3 1 0 0 0 0Table 5: Multivariate forecasting comparison across seven datasets with forecast horizons τ ∈ { 96 , 192 , 336 , 720 }, under the TFB protocol (Qiu et al. 2024). Baseline results are taken from TFB, each reported at its best look-back length over 
+
+{96 , 336 , 512 }; AdaRDiff is evaluated identically. Best result in red , second best blue; our method in dark red.

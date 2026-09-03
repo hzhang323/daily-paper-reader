@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-31</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-01 00:14:17 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-03 23:08:10 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读20篇，精读2篇聚焦需求预测与AI硬件设计，速读涉及多语言模型评估校准、贝叶斯趋势过滤和表格基础模型。最值得关注的是精读中的《CEDAR》通过残差分解实现可控事件驱动需求预测，以及《Benchmarking AI Agents》利用MCP工具调用自动化硬件设计，均获9分高分。普通读者可优先浏览这两篇的方向结论，或从速读中关注多语言评判模型的排序偏差校准问题。</p>
+<p>今日速览21篇论文，精读9篇，重点聚焦时间序列预测与LLM应用。</p>
+<p>高分亮点：LLM驱动长期混沌预测（9.0）与ODE不规则时空预测（9.0）最值得深读。</p>
+<p>建议优先关注频率选择神经网络与高效SWE基准测试，拓展时序学习与代码评估视野。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CEDAR: Controlled and Event-Driven Demand Forecasting via Residual Decomposition">CEDAR: Controlled and Event-Driven Demand Forecasting via Residual Decomposition</span></li><li><span class="dpr-home-dashboard-paper-title" title="Benchmarking AI Agents for Hardware Design Automation via MCP Tool Calling">Benchmarking AI Agents for Hardware Design Automation via MCP Tool Calling</span></li><li><span class="dpr-home-dashboard-paper-title" title="Regularized High-Dimensional Additive Tensor Autoregressive Model">Regularized High-Dimensional Additive Tensor Autoregressive Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Predicting the Unpredictable: LLM-powered Long-term Chaotic Time Series Forecasting under Short-term Observations">Predicting the Unpredictable: LLM-powered Long-term Chaotic Time Series Forecasting under Short-term Observations</span></li><li><span class="dpr-home-dashboard-paper-title" title="LLMODE: Aligning ODEs with LLMs via Gated Token Injection for Irregular Spatio-Temporal Forecasting">LLMODE: Aligning ODEs with LLMs via Gated Token Injection for Irregular Spatio-Temporal Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="SwarmBench: Can Large Language Models Act as Agent Swarm Orchestrators?">SwarmBench: Can Large Language Models Act as Agent Swarm Orchestrators?</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +89,7 @@
     <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rank Reversal in Multilingual LLM Judges: A Label-Free Double-Centering Calibrator">Rank Reversal in Multilingual LLM Judges: A Label-Free Double-Centering Calibrator</span></li><li><span class="dpr-home-dashboard-paper-title" title="Graph-dependent shrinkage priors for Bayesian trend filtering">Graph-dependent shrinkage priors for Bayesian trend filtering</span></li><li><span class="dpr-home-dashboard-paper-title" title="Tabular Foundation Models for Multi-View Information Cascade Popularity Prediction">Tabular Foundation Models for Multi-View Information Cascade Popularity Prediction</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Frequency Selective Neural Networks as a Foundation Architecture for Time Series Learning">Frequency Selective Neural Networks as a Foundation Architecture for Time Series Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Efficient SWE Agent Benchmarking via Trajectory-Aware Evaluation">Efficient SWE Agent Benchmarking via Trajectory-Aware Evaluation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DeepAffinity: Long-Term Aspect Preference Prediction in eCommerce using Small Language Models">DeepAffinity: Long-Term Aspect Preference Prediction in eCommerce using Small Language Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>8</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
 </section>

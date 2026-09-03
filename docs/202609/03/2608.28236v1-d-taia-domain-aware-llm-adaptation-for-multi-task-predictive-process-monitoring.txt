@@ -1,0 +1,343 @@
+Title: D-TAIA: Domain-Aware LLM Adaptation for Multi-Task Predictive Process Monitoring
+
+URL Source: https://arxiv.org/pdf/2608.28236v1
+
+Published Time: Mon, 31 Aug 2026 00:53:11 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# D-TAIA: Domain-Aware LLM Adaptation for Multi-Task Predictive Process Monitoring 
+
+Sjoerd van Straten 1, Christine Jacob 1, and Marwan Hassani 1,2 
+
+> 1
+
+Department of Mathematics and Computer Science, Eindhoven University of Technology, The Netherlands 
+
+{h.a.j.v.straten, c.christine.jacob, m.hassani}@tue.nl  
+
+> 2
+
+Department of Mathematics and Computer Science, University of Wuppertal, Germany 
+
+Abstract. Predictive Process Monitoring (PPM) enables organizations to fore-cast future process behavior, such as the next activity and remaining time of ongoing cases. In practice, three conditions cause existing methods to degrade, namely data scarcity, high process entropy and distributional shift. While Foun-dation Models (FMs), especially Large Language Models (LLMs), offer a new paradigm through broad sequential reasoning, adapting them to multi-task PPM under these conditions remains an open challenge. Existing FM-based approaches either lack mechanisms for handling distributional shift or rely on direct regres-sion heads that can be structurally misaligned with continuous time prediction tasks. This paper introduces D-TAIA (Domain-aware Training and Attention-based Inference Architecture), a framework for a joint next activity and remaining time prediction task via parameter-efficient fine-tuning of an FM backbone. Our approach combines domain-aware triplet loss (DATL) pre-training with FAISS-based nearest neighbor retrieval for remaining time prediction, and adopts the TAIA inference strategy to preserve pre-trained sequential reasoning during fine-tuning. Evaluated across four real-world event logs, D-TAIA consistently shows SOTA or competitive performance compared to a fine-tuned LLM and a recurrent neural network baseline. Ablation studies confirm that techniques from NLP and computer vision can be transferred effectively to PPM with only a 10M-parameter backbone, though component contributions vary by dataset entropy. 
+
+Keywords: Predictive Process Monitoring · Foundation Models · Parameter-Efficient Fine-Tuning 
+
+1 Introduction 
+
+Process Mining leverages event logs from business information systems to discover, monitor and optimize workflows [1]. Predictive Process Monitoring (PPM) predicts future attributes of ongoing process instances, primarily in the form of final outcome, next activity (NA) and remaining time (RT) prediction tasks [5]. Accurate multi-task prediction of both NA and RT enables organizations to allocate resources efficiently and intervene proactively in at-risk cases. In practice, three conditions cause existing PPM methods to degrade. First, data scarcity arises when an event log lacks sufficient cases for a model to learn a reliable arXiv:2608.28236v1 [cs.LG] 28 Aug 2026 2 van Straten et al. 
+
+process representation. This problem is compounded by class imbalance across rare activities and cross-validation partitioning effects [17]. Second, high process entropy 
+
+quantifies how difficult it is to predict the next activity given the observed prefix due to high trace variability. Formally, the conditional entropy H(ak+1 | πk) measures the spread of plausible continuations to next activities at location k + 1 from a given prefix πk at location k, where a high value makes prediction inherently harder [3]. Third, distributional shift arises when unseen process variants appear at inference time, violating the i.i.d. assumption that underlies standard supervised learning [14]. Each condition alone is addressed by at least one existing method, yet no approach handles all three simultaneously for a joint NA and RT prediction. Foundation Models (FMs), especially Large Language Models (LLMs), offer a more flexible paradigm than classical deep learning models through broad sequential reasoning pre-trained on text corpora. Oyamada et al. [12] demonstrate that parameter-efficient fine-tuning (PEFT) with task-specific tokenization can adapt LLMs directly to process data for joint NA and RT prediction, bypassing the need for narrative-style for-mulation. However, their approach relies on a direct regression head for RT prediction, which inherits the weakness of autoregressive models trained as next-token classifiers for continuous numeric output. Furthermore, their framework includes no mechanism for handling data scarcity, high process entropy or unseen trace variants at inference time, which are challenges which PPM methods most frequently fail to address in prac-tice. This paper introduces D-TAIA (Domain-aware Training and Attention-based In-ference Architecture), a framework for joint NA and RT prediction using parameter-efficient fine-tuning of FMs. D-TAIA combines an LLM backbone with LoRA [10] fine-tuning to minimize computational overhead. Domain-aware triplet loss (DATL) [8] pre-training with FAISS-based nearest neighbor retrieval [6] is used for improved numerical RT prediction, targeting data scarcity and high process entropy. The TAIA [11] infer-ence strategy preserves pre-trained sequential reasoning during fine-tuning on small logs, addressing distributional shift architecturally. The contributions of this paper are threefold. (i) we show that non-parametric time estimation via FAISS-based nearest neighbor retrieval addresses the regression weak-ness of autoregressive LLMs more than direct prediction, particularly on high-entropy logs; (ii) we combine DATL pre-training with attention-based inference for joint PPM under data scarcity and high process entropy; and (iii) we evaluate our proposed frame-work across four real-world event logs of varying complexity, showing that it matches or improves upon a fine-tuned LLM and recurrent neural network (RNN) baseline, with the clearest margins at short prefix lengths and on the highest entropy log. The remainder of this paper is structured as follows. Section 2 covers preliminar-ies and formally introduces the problem definition. Section 3 explains the related work and defines the research gap. Section 4 describes our framework, while Section 5 out-lines the experimental setup. Section 6 extensively analyzes the results, and Section 7 concludes with a discussion, limitations and avenues for future work. D-TAIA: Domain-Aware LLM Adaptation for MT-PPM 3
+
+2 Preliminaries and Problem Definition 
+
+Let A denote the universe of all process activities. The execution of a process instance yields a trace, defined as a finite sequence σ = ⟨e1, e 2, . . . , e L⟩ of length L, where each event ei = ( ai, t i) consists of an activity label ai ∈ A and a timestamp ti. An event log 
+
+L = {σ1, σ 2, . . . , σ N } is a finite collection of such traces. Given a trace σ, the prefix 
+
+of length k is defined as πk(σ) = ⟨e1, e 2, . . . , e k⟩. At prediction time only πk(σ) is observable, the suffix ⟨ek+1 , . . . , e L⟩ remains unknown. In this work, we address two prediction tasks over such prefixes, namely next activity prediction and remaining time prediction .
+
+Definition 1 (Next Activity Prediction). Given a prefix πk(σ) of length 1 ≤ k < L ,next activity prediction is the task of predicting activity ˆak+1 that should ideally match the ground truth target y = ak+1 .
+
+Definition 2 (Remaining Time Prediction). Given a prefix πk(σ) with final observed event at time tk and a completed trace σ with final event at time tL, remaining time prediction is the task of estimating RT( σ, k ) = tL − tk.
+
+The central objective of this work is the joint prediction of both NA and RT tasks from a single model fθ . Three conditions compound the difficulty of this objective: 
+
+– Data Scarcity. Data scarcity arises when |L| is insufficient for fθ to learn a reli-able process representation, a problem compounded by class imbalance across rare activities a ∈ A and cross-validation partitioning effects [17]. 
+
+– High Process Entropy. Process entropy, formally defined as H(ak+1 | πk) = 
+
+− P 
+
+> a∈A
+
+p(a | πk) log p(a | πk), measures the spread of plausible continuations from a given prefix. A high value makes NA prediction especially difficult [3]. Section 4 uses a computationally efficient proxy for this quantity, based on the entropy of the activity distribution observed within each prefix, for domain binning. 
+
+– Distributional Shift. This arises when the test distribution Ptest (ak+1 | πk)̸ =
+
+Ptrain (ak+1 | πk), violating the i.i.d. assumption underlying standard supervised learning [14]. 
+
+3 Related Work 
+
+Predictive Process Monitoring (PPM) Approaches. Non-FM methods each target a single condition and, in most cases, a single task (cf. Table 1). Weinzierl et al. [21] ad-dress data scarcity via cross-organizational transfer learning, but require a structurally related source log and predict outcome only. High process entropy is targeted separately by two methods. Zare et al. [22] incorporate entropy directly into attention weighting for NA prediction, while the graph-based PGTNet [7] achieves strong RT prediction under high entropy by encoding control-flow as graph structure, at the cost of degraded performance on sparse logs. Online continual learning approaches [20,9] handle con-cept drift for NA prediction in a streaming setup, but omit RT prediction entirely. Within FM-based PPM, two directions dominate. Prompt-based approaches [13] ex-ploit pre-trained semantic knowledge to generalize under data scarcity without gradient 4 van Straten et al. 
+
+Table 1. Overview of related work and the research gap. Axes: LD = Low volume of data; HE =High-Entropy robustness; OOD = Out-of-Distribution generalization within a log; MT = Multi-task NA and RT prediction. ✓ = explicitly addressed with a dedicated mechanism and supporting experiment; ∼ = a mechanism is present or claimed but not directly evaluated.                                                     
+
+> Authors Mechanism Task LD HE OOD MT
+> PPM – non-FM
+> Weinzierl et al. (2025) [21] Cross-organization transfer learning Outcome ∼
+> Amiri Elyasi et al. (2024) [7] Graph-based control-flow encoding RT ✓
+> Zare et al. (2025) [22] Entropy-weighted attention NA ✓
+> van Straten (2026); Hassani et al. (2026) [20,9] Continual learning under concept drift NA ∼
+> Rama-Maneiro et al. (2023) [18] Benchmark of 10 non-FM approaches NA, Suffix, RT ∼
+> PPM – FM-based
+> Padella et al. (2025) [13] Prompting, no gradient update Duration ✓
+> Rebmann et al. (2024) [19] Fine-tuning (ICL found insufficient) NA ∼
+> Oyamada et al. (2025) [12] PEFT with task-specific tokenization NA + RT ∼✓
+> Pasquadibisceglie et al. (2024) [15] Multi-view narrative + one-step suffix Suffix ∼
+> Berti & van der Aalst (2026) [4] MoE + in-context adaptation NA + RT ✓∼✓
+> NLP/CV
+> Jiang et al. (2024) [11] Attention/FFN asymmetry at inference Classification ✓✓
+> Hu et al. (2021) [10] Low-rank fine-tuning adapters Fine-tuning ∼
+> Guo & Lovell (2024) [8] Domain-dispersing triplet loss Classification ✓✓
+> D-TAIA (this work) DATL + FAISS retrieval + TAIA inference NA + RT ✓✓∼✓
+
+updates, but target total case duration rather than the joint NA and RT tasks considered here. Rebmann et al. [19] attribute this limitation to in-context learning itself being in-sufficient for NA prediction. Oyamada et al. [12] instead show that parameter-efficient fine-tuning with task-specific tokenization outperforms both RNN and prompt-based baselines for joint NA and RT prediction, but estimates RT via a single point estimate head rather than a retrieval-weighted approach, and provide no mechanism for high entropy or distributional shift. Berti & van der Aalst [4] propose a mixture-of-experts (MoE) FM with in-context adaptation, providing partial OOD coverage at the cost of vast heterogeneous pre-training data. Narrative text-serialization has also been applied to related PPM tasks such as suffix prediction [15], which reports accuracy gains con-centrated on high-variant logs but does not target data scarcity or distributional shift, and outcome prediction [16], which targets neither condition. 
+
+Computer Vision and NLP Approaches. Addressing the computational cost of fine-tuning large FMs, Low-Rank Adaptation (LoRA) [10] constrains weight updates to a low-rank bypass by replacing a full update matrix with the product BA , where B ∈
+
+Rd×r and A ∈ Rr×m, where d and m are the input and output dimensions of the original weight matrix and r ≪ min( d, m ) is the rank of the decomposition. LoRA re-duces trainable parameters by orders of magnitude with no additional inference latency, which is convenient for FM adaptation. Building on efficient fine-tuning, the TAIA inference strategy [11] identifies a functional asymmetry between Transformer com-ponents. Feed-Forward Network (FFN) layers absorb distribution-specific knowledge during fine-tuning and overwrite pre-trained memory, whereas attention layers encode transferable sequential reasoning that remains stable across domains. Discarding FFN D-TAIA: Domain-Aware LLM Adaptation for MT-PPM 5
+
+updates at inference therefore recovers OOD robustness without additional hyperpa-rameters. For domain-invariant representation learning, IRM [2] provides a theoreti-cal grounding for learning representations stable across training environments, which DATL [8] operationalizes by constructing an embedding space that clusters by semantic behavior rather than domain artifact, making it suitable for retrieval over unseen process variants. Furthermore, FAISS [6] provides an efficient nearest-neighbor index over such embedding spaces, enabling retrieval of the most similar training samples at inference time. 
+
+Research Gap. As summarized in Table 1, no existing method simultaneously ad-dresses data scarcity, high process entropy and OOD generalization for joint NA and RT prediction. PPM-specific approaches either target a subset of these challenges or omit one of the two prediction tasks. FM-based methods that do support joint predic-tion lack mechanisms for handling distributional shift and estimate RT via a single point-estimate head rather than a retrieval-weighted approach. This gap motivates a framework that targets all three conditions. We combine domain-aware representation learning, retrieval-based time estimation and an inference strategy designed for robust-ness under distributional shift. 
+
+4 Method Stage 1: Pre-Training Stage 2: Supervised Fine-Tuning Stage 3: Inference     
+
+> Prefix !
+> DATLEncoder
+> Prefix "Prefix #
+
+…                                     
+
+> $,%,ℓ$,%,ℓ$,%,ℓ
+> SHORT MED. AP
+> LONG N
+> 012345678
+> Domain '(entropy ×prefix length)
+> RT Bucket  ,
+> 0Triplet = mean ; ˆ =), ˆ =*− ; ˆ =), ˆ =++ -,
+> Optimizer
+> Base Weights +
+> Attention Layers FFN Layers
+> LLM Fine-Tuning with LoRA
+> !-./$
+> Activity Head Time Head
+> 001 0231
+> '-./012/0 = ' $% + * ' &3%
+> Triplet Builder
+> Optimizer Base Weights +
+> Attention Layers FFN Layers
+> Δ5 **+ = 0
+> Frozen LLM (TAIA Inference)
+> !-./$
+> Activity Head Time Head Next Activity Prediction '? 4!567$
+> DATLEncoder FAISS IndexFlatL2
+> stores embedding + RT label
+> Gaussian Kernel Regression
+> '? 56$5!6864
+> FusionGate Remaining Time Prediction
+> Text-serialized prefix Test Prefix
+
+Fig. 1. Overview of the D-TAIA framework. 
+
+We propose D-TAIA (Domain-aware Training and Attention-based Inference Ar-chitecture), a three-stage framework for jointly predicting NA and RT given a prefix (cf. Fig. 1). NA is predicted by a fine-tuned LLM with a dedicated activity head. RT is predicted by fusing the LLM’s time head output with a retrieval estimate obtained by querying a FAISS index of domain-aware prefix embeddings from the training data. 
+
+Data Preprocessing. The event logs are filtered to cases with at least two events and sorted chronologically. From each case, every prefix πk(σ) with k ∈ { 2, . . . , L − 1} is 6 van Straten et al. 
+
+paired with the next activity ak+1 and the remaining time RT k = tL − tk. Prefixes are then padded or truncated to Lmax = 20 events. Each event carries F = 19 numerical features. These cover calendar fields, cyclical hour encodings, activity-level duration statistics, workload and case dynamics such as velocity and acceleration. Continuous features and RT k are Z-score normalized, with statistics frozen on the training set and the normalization inverted at inference. 
+
+Prefix Labeling and Input Representations. Each prefix receives two discrete labels used for triplet mining. The domain label d ∈ { 0, . . . , 8} crosses three activity-entropy bins with three prefix-length bins, using quantile binning. This entropy is computed over the distribution of activity labels observed within the prefix itself. The RT bucket 
+
+b ∈ { 0, 1, 2} marks the remaining time as short, medium or long via quantile binning at 
+
+q33 and q66 . All thresholds are computed once on the training set and frozen. The two models consume the same prefix in different forms. DATLEncoder, adapted from [8], receives a tensor triple (a, X ∈ RL×F , ℓ ) of activity indices a, the feature matrix X and the valid length ℓ. Our LLM backbone instead receives a structured text serialization. It contains a domain token followed by per-step activity-feature pairs, tokenized to 1024 tokens. This format reuses the backbone’s tokenizer unchanged and avoids discretizing the numerical features. 
+
+Stage 1: Pre-Training. DATLEncoder maps a prefix into a single fixed-size embedding 
+
+ˆe using a compact Transformer encoder. This embedding summarizes both the control-flow and temporal context of the running case. We adapt the domain-aware triplet loss (DATL) from [8] to this setting. A standard triplet loss would cluster prefixes by class regardless of domain, encoding domain-specific artifacts that hurt retrieval on unseen process variants. DATL reverts this. The positive sample shares the anchor’s RT bucket but comes from a different domain, while the negative sample shares its domain but a different RT bucket. The embedding space therefore clusters by RT behavior rather than domain (Eq. 1): 
+
+LT riplet = 1
+
+|T | 
+
+X 
+
+> (A,P,N )∈T
+
+[D(ˆ eA, ˆeP ) − D(ˆ eA, ˆeN ) + τ ]+ (1) where T is the set of mined triplets with anchor, positive and negative sample in-dices ( A,P ,N ), ˆe the DATLEncoder embeddings, D the cosine distance, and τ the mar-gin. After convergence, all training embeddings are L2-normalized, ˆe ← ˆe/ ∥ˆe∥2 and stored together with their RT i in a FAISS IndexFlatL2 [6], frozen for Stages 2–3. This normalization step makes squared L2 distance rank-equivalent to cosine distance up to a monotonic transform, ˆeA − ˆeB ∥22 = 2 − 2 cos(ˆ eA, ˆeB ) for unit-norm vectors, so retrieval at Stage 3 is consistent with the metric used during triplet training. 
+
+Stage 2: Supervised Fine-Tuning. The LLM is fine-tuned via low-rank adaptation (LoRA) [10], applied to both the attention and FFN sub-layers. This updates only a small fraction of the backbone’s parameters while the base weights stay frozen. The last non-padding hidden state hlast feeds two heads. The activity head is a linear classifier trained via Cross-Entropy Loss ( LCE ). The time head is a gated SiLU FFN, followed D-TAIA: Domain-Aware LLM Adaptation for MT-PPM 7
+
+by a normalized projection to a scalar, trained with Mean Squared Error loss ( LM SE ). This split anticipates the inference-time adaptation of Stage 3, following TAIA’s finding that attention encodes sequential patterns while the FFN encodes task knowledge [11]. Both heads are optimized jointly under a weighted sum LF ineT une = LCE + γLM SE .
+
+Stage 3: Inference. We adapt the TAIA inference strategy of [11] to PPM. TAIA targets the gap between the fine-tuning distribution and the test-time distribution, not the gap between pre-training and fine-tuning. Under this gap, FFN LoRA updates can overwrite pre-trained FFN memory with knowledge specific to the fine-tuning sample, hurting generalization to shifted test prefixes. Attention updates are less prone to this, since they remain bounded by softmax normalization. All FFN LoRA adapters are therefore set to zero before evaluation ( ∆W F F N = 0 ). This reverts each FFN to its pre-trained weights while keeping the attention updates intact. For RT, the same prefix is embedded by DAT-LEncoder and used to query FAISS for its n nearest neighbors. The neighbor distances 
+
+di are converted to Gaussian kernel weights wi = exp( −d2 
+
+> i
+
+), giving the retrieval esti-mate rt retrieved = P 
+
+> i
+
+wiRT i/ P 
+
+> i
+
+wi. The two RT estimates ( rt direct and rt retrieved )are complementary. The direct head generalizes parametrically, while the retrieval esti-mate draws on historically similar cases. A fixed-weight combination, which we term the FusionGate, merges them via rt f inal = β rt direct +(1 −β) rt retrieved . It is inverse-transformed to the original time scale and the weight β is fixed rather than learned. 
+
+5 Experimental Setup 
+
+Datasets and Metrics. This paper uses four publicly available event logs from the BPI Challenges 3 (cf. Table 2), spanning a range of data availability and process complexity. All experiments report three metrics, with 95% confidence intervals computed across five seeds. Macro-F1 is the unweighted average of the per-class F1 scores over the ac-tivity universe A, F 1macro = 1
+
+> |A|
+
+P 
+
+> a∈A
+
+F 1a, where F 1a is the standard F1 score for class a computed from predictions ˆak+1 against ground truth ak+1 (Definition 1). This penalizes models that ignore rare activities. RT error is reported as MAE in days, 
+
+M AE = 1
+
+> N
+
+PNi=1 |dRT i − RT i|. Wall-clock running time, reported in hours, captures the computational cost of scaling to larger backbones.                                
+
+> Table 2. Characteristics of the event logs used for evaluation. Dataset # Cases # Events # Activities Avg. Length Avg. Duration Entropy BPI2012 13,087 262,200 24 20.04 8.62 3.688 BPI2017 31,509 1,202,267 26 38.16 21.90 3.786 BPI2015_2 832 44,354 410 53.31 160.49 7.105 BPI2020_DD 10,500 56,437 17 5.37 11.67 2.827
+
+Baselines. D-TAIA is benchmarked against two baselines. The first, which we refer to as FT-LLM , is an LLM fine-tuned directly with LoRA [10] following Oyamada et al. [12], including their task-specific tokenization rather than D-TAIA’s text serializa-tion. It omits DATL pre-training, FAISS retrieval and TAIA inference. Whenever the  
+
+> 3https://data.4tu.nl
+
+8 van Straten et al. 
+
+backbone is varied in our experiments, FT-LLM is evaluated with the same backbone as D-TAIA in that setting. This isolates the effect of D-TAIA’s added components from the effect of backbone capacity. Any gap between the two is attributable to the archi-tecture, not to a larger or more capable underlying model. The second, MT-RNN , is a multi-task recurrent neural network trained from scratch for joint NA and RT predic-tion, following the multi-task LSTM architecture benchmarked by Rama-Maneiro et al. [18]. It represents he classical deep sequence modeling paradigm in which a shared recurrent encoder feeds task-specific classification and regression heads. 
+
+Implementation Details. Code is available on GitHub 4. The train-validation-test split is temporal by case start time and fixed across all seeds ( 65 /15 /20 ), which affect only weight initialization and mini-batch order. No case appears in more than one split to prevent data leakage. Each experiment is repeated five times over different seeds with mean and 95% confidence interval over runs reported. Architectural hyperparameters are fixed across all datasets. LoRA r=16 , α=32 ; DATLEncoder dmodel =256 , 8 heads, 4 layers; domain bins 3×3 (entropy × length, quantile); RT buckets at q33 , q66 ; re-trieval n=10 ; FusionGate β=0 .5. The fine-tuning learning rate and loss weight γ are instead selected per dataset via grid search on the validation set, over {1e-4, 5e-4, 1e-3}
+
+and {1.0, 2.0, 5.0} respectively. Experiments have been run on an HPC cluster with NVIDIA Tesla V100 (16GB) GPUs. 
+
+6 Evaluation Results .69 .72 .75 .78               
+
+> NA Macro-F1
+> BPI2012
+> .81 .82 .84 .85
+> BPI2017
+> .40 .44 .48 .52
+> BPI2015_2
+> .78 .80 .82 .84
+> BPI2020_DD
+> 12345
+> Runtime (hours)
+> 810
+> RT MAE (days)
+> 24
+> Runtime (hours)
+> 6712345
+> Runtime (hours)
+> 45 50 55 24
+> Runtime (hours)
+> 67
+> D-TAIA FT-LLM TinyLLM (10M) Qwen2.5 (500M) Llama3.2 (1B)
+
+Fig. 2. D-TAIA achieves higher Macro-F1 score and lower MAE than FT-LLM [12] across all backbones and datasets. 
+
+Backbone Sensitivity. We compare our framework against Oyamada et al. [12] us-ing three backbones: Tiny-LLM 5 (10M parameters), Qwen2.5 6 (500M parameters) and Llama3.2 7 (1B parameters). From the graphs in Fig. 2 two trends emerge. Scaling  
+
+> 4
+
+https://github.com/SvStraten/D-TAIA  
+
+> 5
+
+https://huggingface.co/arnir0/Tiny-LLM  
+
+> 6
+
+https://huggingface.co/Qwen/Qwen2.5-0.5B  
+
+> 7
+
+https://huggingface.co/meta-llama/Llama-3.2-1B D-TAIA: Domain-Aware LLM Adaptation for MT-PPM 9.60 .65 .70 .75                   
+
+> NA Macro-F1
+> BPI2012
+> .68 .72 .76 .80
+> BPI2017
+> .24 .30 .36 .42 .48
+> BPI2015_2
+> .69 .72 .75 .78 .81
+> BPI2020_DD
+> 20 40 60 80 100
+> Training Data Size (%)
+> 7.5 10.0 12.5 15.0 17.5
+> RT MAE (days)
+> 20 40 60 80 100
+> Training Data Size (%)
+> 6810 12 14
+> 20 40 60 80 100
+> Training Data Size (%)
+> 60 70 80
+> 20 40 60 80 100
+> Training Data Size (%)
+> 6810 12
+> D-TAIA FT-LLM MT-RNN
+
+Fig. 3. D-TAIA attains the best point estimate for Macro-F1 and RT MAE at every training-data budget across all four logs. The advantage over FT-LLM is clearest and most persistent at full data on the high-entropy BPI2015_2, while the three models converge most closely on BPI2017 and the near-deterministic BPI2020_DD. 
+
+the backbone improves both metrics at the cost of runtime. D-TAIA’s MAE is consis-tently lower than FT-LLM’s at comparable runtime, with non-overlapping confidence intervals on BPI2012 and BPI2020_DD across all three backbones. The two models are closer on BPI2017 and BPI2015_2, where MAE intervals overlap throughout. D-TAIA’s Macro-F1 score exceeds FT-LLM’s at every backbone and dataset, though confidence intervals overlap at each individual comparison, so this should be read as a consistent small edge rather than a backbone-by-backbone win. The clearest scaling effect is on BPI2015_2. Macro-F1 rises by 13.7% from Tiny-LLM to Llama3.2, roughly two to three times the relative gain seen on the other three logs ( 3–6% ). This suggests that backbone capacity matters most on the highest-entropy log, while the gains from D-TAIA’s architecture over FT-LLM stem from the added components rather than from added compute. 
+
+Training Data Sensitivity. D-TAIA attains the best point estimate for both Macro-F1 and RT MAE at every training-data budget across all four logs (cf. Fig. 3). At 20% training data, confidence intervals for D-TAIA, FT-LLM, and MT-RNN overlap on each log, reflecting the greater estimation uncertainty at small sample sizes rather than an absence of effect. D-TAIA’s advantage over FT-LLM is clearest and most persistent at full data on the high-entropy BPI2015_2, while the three models converge most closely on BPI2017 and the near-deterministic BPI2020_DD. 
+
+Prefix Length Sensitivity. Prefixes are grouped into five equal-width buckets by com-pletion fraction, from bucket 1 (shortest) to bucket 5 (longest) (cf. Fig. 4). D-TAIA’s advantage over FT-LLM is largest at bucket 1, by 3.0–6.0 percentage points in Macro-F1, and narrows through bucket 5. The residual gap at bucket 5 remains proportionally largest on the high-entropy BPI2015_2. RT MAE follows the same pattern. D-TAIA is 10 van Straten et al. .60 .65 .70 .75                   
+
+> NA Macro-F1
+> BPI2012
+> .65 .70 .75 .80 .85
+> BPI2017
+> .16 .24 .32 .40 .48
+> BPI2015_2
+> .65 .70 .75 .80 .85
+> BPI2020_DD
+> 12345
+> Prefix Bucket
+> 10 15
+> RT MAE (days)
+> 12345
+> Prefix Bucket
+> 510 15
+> 12345
+> Prefix Bucket
+> 60 80
+> 12345
+> Prefix Bucket
+> 2.5 5.0 7.5 10.0 12.5
+> D-TAIA FT-LLM MT-RNN
+
+Fig. 4. D-TAIA’s advantage over FT-LLM and MT-RNN in macro-F1 and RT MAE is largest at short prefixes (bucket 1) and narrows toward longer prefixes (bucket 5) across all four logs. The residual gap at bucket 5 remains proportionally largest on the high-entropy BPI2015_2. 
+
+Table 3. Ablation results of the framework’s components. Bold marks the best value per column.  
+
+> ∗
+
+marks a variant whose 95% CI does not overlap the full model’s (D-TAIA) on that metric. 
+
+High Entropy (BPI2015_2) Low Entropy (BPI2020_DD) Variant Macro-F1 MAE Macro-F1 MAE D-TAIA (full) .445 ± .032 53 .85 ± 2.18 .811 ± .011 6.52 ± 0.48 
+
+– DATL .352 ± .048 ∗ 68 .45 ± 3.95 ∗ .783 ± .018 7.85 ± 0.68 ∗
+
+– Domain ID .385 ± .042 58 .22 ± 2.65 .790 ± .016 6.92 ± 0.55 
+
+– FAISS .418 ± .036 61 .85 ± 2.88 ∗ .807 ± .012 6.68 ± 0.52 
+
+– TAIA .425 ± .034 55 .28 ± 2.35 .806 ± .013 6.72 ± 0.50 
+
+lower than FT-LLM at every bucket, with the largest gap at bucket 1 and the smallest at bucket 5. 
+
+Ablation Study. To isolate the contribution of each architectural component, four vari-ants of D-TAIA are evaluated, each removing exactly one design decision while holding all others constant. BPI2020_DD and BPI2015_2 are used for their contrast in entropy. Table 3 reports Macro-F1 and MAE for each variant against the full model, with 95% CIs and significance markers. Removing DATL produces the largest point-estimate drop on every metric and is the only variant whose 95% CI is distinguishable from the full model on both Macro-F1 and MAE in the high-entropy setting, and on MAE in the low-entropy setting. However, this effect is not purely attributable to the loss of pre-trained structure. FAISS retrieval is not disabled when DATL is removed, but queries an encoder left at random initialization. This means that part of the degradation reflects retrieval against noise rather than the absence of retrieval itself. Removing FAISS shows the reverse pattern, hurting MAE more than Macro-F1 and is itself significant on high-entropy MAE. This indicates retrieval’s contribution is concentrated in the harder, more data-scarce setting. Removing TAIA produces the smallest point-estimate effect of the four. This ablation contrasts entropy, not the distributional shift TAIA is designed to address. We leave a direct evaluation of TAIA under distributional shift to future work. D-TAIA: Domain-Aware LLM Adaptation for MT-PPM 11 
+
+7 Conclusion and Future Work 
+
+This paper presented D-TAIA, a framework for joint NA and RT prediction under data scarcity and high process entropy. Three findings follow. First, FAISS-based retrieval addresses the regression weakness of autoregressive LLMs more effectively than with direct prediction. Second, combining DATL pre-training with attention-based inference is viable for joint PPM using only a 10M-parameter backbone. Third, D-TAIA matches or improves upon a fine-tuned LLM and an RNN baseline across four event logs, with the clearest margins at short prefix lengths and on the highest-entropy log. TAIA’s infer-ence strategy targets robustness to distributional shift by design, but we do not evaluate this directly and treat this as open. These findings suggest three directions for future work. TAIA’s small ablation effect motivates testing it on a backbone where structural adaptation may matter more, such as a GNN encoding process topology directly. The FusionGate weight β is fixed rather than learned. A gate conditioned on prefix entropy and retrieval confidence could shift the balance as information accumulates over a case. Finally, retrieval under a removed DATL stage still executes, only against an untrained embedding space. Injecting re-trieved neighbor prefixes directly into the context window would test whether retrieval quality depends more on the backbone’s pre-trained representations than on DATL it-self. 
+
+References 
+
+1. van der Aalst, W., Weijters, A.: Process mining: a research agenda. Computers in Industry 
+
+53 (3), 231–244 (2004) 2. Arjovsky, M., Bottou, L., Gulrajani, I., Lopez-Paz, D.: Invariant risk minimization. arXiv:1907.02893 (2020) 3. Back, C.O., Debois, S., Slaats, T.: Entropy as a measure of log variability. Journal on Data Semantics 8(2), 129–156 (2019) 4. Berti, A., van der Aalst, W.M.P.: An in-context foundation model for predictive process monitoring on event logs. IEEE Access 14 , 16959–16983 (2026) 5. Ceravolo, P., Comuzzi, M., Weerdt, J.D., Francescomarino, C.D., Maggi, F.M.: Predictive process monitoring: concepts, challenges, and future research directions. Process Science (2024) 6. Douze, M., Guzhva, A., Deng, C., Johnson, J., Szilvasy, G., Mazaré, P.E., Lomeli, M., Hos-seini, L., Jégou, H.: The faiss library. IEEE Transactions on Big Data (2025) 7. Elyasi, K.A., van der Aa, H., Stuckenschmidt, H.: PGTNet: A process graph transformer network for remaining time prediction of business process instances. In: Conference on Ad-vanced Information Systems Engineering. vol. 14663, pp. 124–140 (2024) 8. Guo, K., Lovell, B.C.: Domain-aware triplet loss in domain generalization. Computer Vision and Image Understanding 243 , 103979 (2024) 9. Hassani, M., Verbeek, T., van Straten, S.: Chameleons do not forget: Prompt–based online continual learning for next activity prediction. International Journal of Cooperative Informa-tion Systems 35 (01), 2650003 (2026) 10. Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, I., Li, Y., Wang, S., Wang, L., Chen, W.: Lora: Low-rank adaptation of large language models. arXiv: 2106.09685 (2021) 12 van Straten et al. 11. Jiang, S., Liao, Y., Zhang, Y., Wang, Y., Wang, Y.: Taia: Large language models are out-of-distribution data learners. In: Advances in Neural Information Processing Systems. vol. 37, pp. 105200–105235 (2024) 12. Oyamada, R.S., Peeperkorn, J., Weerdt, J.D., Smedt, J.D.: Domain adaptation of llms for process data. arXiv:2509.03161 (2025) 13. Padella, A., Frazzetto, P., Navarin, N., de Leoni, M.: Enhancing predictive process mon-itoring on small-scale event logs using LLMs. In: Business Process Management Forum. vol. 564 (2025) 14. Pasquadibisceglie, V., Appice, A., Castellano, G., Malerba, D.: Darwin: An online deep learning approach to handle concept drifts in predictive process monitoring. Engineering Applications of Artificial Intelligence 123 , 106461 (2023) 15. Pasquadibisceglie, V., Appice, A., Malerba, D.: Lupin: A llm approach for activity suffix prediction in business process event logs. In: International Conference on Process Mining. pp. 1–8 (2024) 16. Pasquadibisceglie, V., Appice, A., Malerba, D., Fiameni, G.: Leveraging a large language model (llm) to predict hospital admissions of emergency department patients. Expert Sys-tems with Applications 287 , 128224 (2025) 17. Peeperkorn, J., vanden Broucke, S., Weerdt, J.D.: Validation set sampling strategies for pre-dictive process monitoring. Information Systems 121 , 102330 (2024) 18. Rama-Maneiro, E., Vidal, J.C., Lama, M.: Deep learning for predictive business process monitoring: Review and benchmark. IEEE Transactions on Service Computing 16 (1), 739– 756 (2023) 19. Rebmann, A., Schmidt, F.D., Glavaš, G., van Der Aa, H.: Evaluating the ability of llms to solve semantics-aware process mining tasks. In: International Conference on Process Min-ing. pp. 9–16 (2024) 20. van Straten, S., Yao, R., Hassani, M.: Task-free diversity-aware continual learning for online next activity prediction. Process Science (2026) 21. Weinzierl, S., Zilker, S., Liessmann, A., Käppel, M., Wang, W., Matzner, M.: From source to target: Leveraging transfer learning for predictive process monitoring in organizations. Business & Information Systems Engineering pp. 1–33 (2025) 22. Zare, H., Abbasi, M., Ahang, M., Najjaran, H.: An innovative next activity prediction us-ing process entropy and dynamic attribute-wise-transformer in predictive business process monitoring. arXiv preprint arXiv:2502.10573 (2025)

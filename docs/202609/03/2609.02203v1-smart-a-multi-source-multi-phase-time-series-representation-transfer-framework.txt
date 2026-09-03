@@ -1,0 +1,889 @@
+Title: SMart: A Multi-source Multi-phase Time Series Representation Transfer Framework
+
+URL Source: https://arxiv.org/pdf/2609.02203v1
+
+Published Time: Thu, 03 Sep 2026 00:40:40 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# SMart: A Multi-source Multi-phase Time Series Representation Transfer Framework 
+
+# Fang He, Wang-chien Lee 
+
+Department of Computer Science and Engineering, The Pennsylvania State University, PA, USA Emails:wh27hf@gmail.com,wlee@cse.psu.edu 
+
+## ABSTRACT 
+
+Time series representation learning (TSRL) has attracted grow-ing research interests in recent years. Two recent explorations in TSRL are: i) exploiting a transformer-based framework to learn time series; ii) instead of using only the targeted dataset, borrow-ing time series from other datasets to to facilitate representation transfer. While these two explorations are shown effective, the self-supervised time series recovery task in (i) and the single-source dataset used in (ii) are technically simple and thus can be enhanced with new ideas. In this work, we propose a new TSRL framework, namely multi-source multi-phase time series representation transfer (SMart) , which has two novel mechanisms to address the afore-mentioned deficiencies: 1) a multi-phase recurrence plots recovery task , in three alternative modes, for guiding the encoder to embed 
+
+time series dynamics into the time series representation; and 2) a 
+
+source dataset selector to select multiple suitable source datasets to supplement the original target dataset for pre-training the TSRL encoder. Experimental results show that SMart outperforms sev-eral state-of-the-art models for time series representation learning, classification and regression on both uni-variate and multi-variate time series datasets, reducing mean absolute error up to 19.5% for time series regression, and increasing average accuracy up to 1.34% for time series classification. 
+
+## 1 INTRODUCTION 
+
+A time series is a sequence of observations over time, where each ob-servation consists of the values of one or multiple variables at a time point. Time series data is ubiquitous in the real world, e.g., water levels, human activities and stock prices over time, which may be mined by data mining tasks such as time series classification [6, 36], regression [40], forecasting [13, 15] and clustering [14, 22]. To pro-vide general support for various downstream applications, time series representation learning (TSRL) , aiming to learn representa-tions of input time series for use as general-purpose features, has been widely studied. Among them, some works focus on learning time series representations for time series of specific types [31–33], while others target on general time series without being limited to certain types [27, 28, 40], which is also the target of our work. Recently, Zerveas et al. propose a state-of-the-art TSRL framework, 
+
+called Time Series Transformer (TST) , to learn representations for general-type time series with a self-supervised time series recovery task (self-recovery task in short) [40]. Specifically, the self-recovery task challenges an encoder in TST to extract features from a masked input time series as its representation, which in turn is fed into a decoder to recover the masked part of the input time series. While the self-recovery task is shown effective for TSRL, we suggest that Step 1: Pre -train TM with  each Dataset Separately 
+
+> Pre -trained
+> TM #N
+> Pre -trained
+> Target TM
+> Pre -trained
+> TM #1
+> Pre -trained
+> TM #2
+
+…
+
+…   
+
+> Dataset #1 Dataset #2 Dataset #N Target Dataset
+> Step 2: Learn a Source Selector
+> Step 3: Source Selection for Representation Transfer
+
+…    
+
+> Selected
+> Sources
+> Target Dataset
+> Step 4: Pre -train TM with all selected Datasets
+> Step 6: Fine -tune the Encoder and Decoder for each Task
+> Pre -trained Encoder Decoder 1
+> TS Representation
+> Step 5: Transfer the
+> Encoder in TM &
+> Build Ap pDecoder
+> T1
+
+… 
+
+> Decoder 2 T2
+
+… 
+
+> Candidate S ource Datasets
+
+Figure 1: SMart Framework 
+
+adding some useful decoding tasks may further challenge the en-coder to enrich the learned representations. Thus, in this paper, we explore additional self-supervised tasks for TSRL. Another aspect explored in this work is the issue of data sparsity. Many TSRL frameworks (including TST) face this issue in training the encoder, due to the limited number of time series in a target dataset. To address the issue, some works exploit the idea of repre-sentation transfer , i.e., borrowing time series in additional source datasets to pre-train an encoder for use in TSRL on a target dataset. Recently, Fawaz et al. propose DTW-FCN, where a DTW-based sim-ilarity metric is designed to find a source dataset most similar with the target dataset to facilitate representation transfer. However, the manually designed DTW-based similarity metric may not pick a beneficial source dataset for a target dataset. Moreover, these exist-ing works do not explore multiple source datasets which we believe may further benefit representation transfer to improve TSRL. Based on the observations above, we aim to explore the ideas of incorporating new self-supervised tasks for TSRL and using multi-source datasets for pre-training in TSRL. To realize these ideas in a coherent TSRL framework, two research problems arise: 1) the design of a TSRL model with new and complementary self-supervised tasks. Our approach is to challenge our proposed model to recover the time series dynamics, in addition to the time series itself. We notice the ability of recurrence plots (RP) to reveal the time series dynamics in terms of how time series status at different time points are correlated with each other, and thus propose the Recurrence Plot (RP) Recovery Task to decode the time series representation to RPs arXiv:2609.02203v1 [cs.LG] 2 Sep 2026 in order to supplement the self-recovery task. Owing to the rich multi-granularity time series dynamics embedded in the RPs con-structed in different phases, we design three alternative decoding modes to regularize the learned representations in order for them to recover RPs in different phase spaces in different ways; and 2) the selection of (multiple) source datasets which are beneficial to time series representation transfer. Our approach is to formulate the selection of source datasets as a binary classification problem: given a target dataset T and a candidate dataset C to serve as a source of representation transfer, we train a classifier to predict whether C as a source dataset benefits TSRL for T or not, i.e., in-crease the performance on downstream time series applications (e.g., classification and regression) or not. Specifically, we propose to learn a neural-network-based Source Selector as the classifier. As such, we can feed each pair of candidate source dataset and the target dataset to the Source Selector to decide whether to select this candidate source dataset for representation transfer. One issue here is how to represent a (whole) dataset as an input to the Source Selector. Some works use the most representative time series in the dataset as the representation. However, time series in a dataset may vary (e.g., the water level time series recorded in four seasons), making it difficult to find one most representative time series. To address the issue, we propose a novel idea, i.e., use the encoder pa-rameters obtained by pre-training an encoder with the time series dataset as the representation of the whole dataset. The idea aims to explore the relevance between the ways of extracting meaning-ful features (represented by the encoder parameters) from target dataset T and the candidate dataset C in order to decide whether to use C as a source dataset in representation transfer for T. We design a cross-attention mechanism in the Source Selector to capture the relevance between the encoder parameters. To realize the aforementioned ideas for TSRL, we propose the 
+
+Multi-Source Multi-Phase representation transfer (SMart) framework, which follows the pipeline in Figure 1: 1) Build a self-supervised Time Series Model (TM) which consists of an encoder and several decoders corresponding to the self-recovery and RP-recovery tasks. In TM, there are three alternative decoding modes to recover various RPs in order to capture multi-granularity time series dynamics; 2) Learn a cross-attention based Source Selector that captures the relevance between encoder parameters of TMs for source selection; 1
+
+3) Exploit the learned Source Selector to select multiple source datasets for the target dataset; 4) Pre-train a TM with all the selected source datasets and the target dataset; 5) Transfer the encoder in the pre-trained TM in Step 4 to generate representations for each time series in the target dataset and build tailored application decoders to decode these representations to support downstream tasks; 2 and 6) Fine-tune the encoder and train the application decoder together, for each downstream application. We evaluate SMart against the state-of-the-art i) unsupervised TSRL frameworks, e.g., TST, DTW-FCN and TS2Vec; and ii) time series classifiers and regressors, such as ROCKET, Rel-CNN and TimeNet. Experimental results show that SMart outperforms all these baselines in both time series classification and regression. The major contributions made in this work are as follows. 
+
+> 1Encoder parameters of a dataset is obtained by pre-training the TM built in step 1.
+> 2The application decoder may be a linear layer with a softmax function for time series classification or a linear layer for regression.
+
+• We propose a novel framework, SMart, for TSRL by integrat-ing the ideas of challenging its encoder to enrich the time series representation in order to recover the dynamics in time series and pre-training encoders with multiple selected source datasets for representation transfer. 
+
+• We exploit recurrence plots in multiple phase spaces as addi-tional decoding targets to embed the multi-granularity time series dynamics into time series representations. 
+
+• We propose a novel cross-attention based Source Selector to select multiple beneficial source datasets to pre-train the time series encoder for use on the target dataset. We explore the use of encoder parameters as the dataset representation. 
+
+• Empirical evaluations show that SMart outperforms the state of the arts by significantly reducing the mean absolute error (MAE) by 19.5% for regression, while competitively improv-ing the accuracy by 1.34% for classification. 
+
+## 2 RELATED WORK 
+
+In this section, we discuss the existing works for time series classi-fication, regression, and representation learning. 
+
+## 2.1 Time Series Classification and Regression 
+
+We classify existing works on time series classification and regres-sion in two folds: i) non-deep learning methods, including elastic en-semble (EE) [24], shapelet transform ensemble (STC) [18], random interval spectral ensemble (RISE) [12], time series forest (TSF) [5], proximity forest (PF) [26], HIVE-COTE [25], TS-CHIEF [34] and ROCKET [4], which design features (e.g., elastic similarity measures, shapelet-based features and interval-based features) and ensemble a set of models for time series classification and regression; and ii) deep learning models, including InceptionTime [19], ResNet [10] and Rel-CNN [16], which mostly stack convolutional layers to auto-matically extract features for time series mining tasks. These works, however, are complex and hard to scale to datasets with many time series samples and long time series. Moreover, it is not easy to adapt these works for other time series applications. 
+
+## 2.2 Time Series Representation Learning 
+
+Time Series Representation learning (TSRL) has attracted growing research interests in recent years [9, 22, 23, 32, 37, 39, 40]. Many works focus on learning representations for time series for a specific task, e.g., human activity recognition [32], emotion recognition [33] and speech time series [31]. However, these works are not designed for general-type time series. In addition, Lei et al. propose to learn similarity-preserving representations for time series by captur-ing the similarity between two time series in terms of Dynamic Time Warping (DTW) in their representations [22]. However, these similarity-preserving representations do not show advantages for time series applications such as classification and regression. Recently, several general-type TSRL frameworks are proposed based on Recurrent Neural Networks, dilated CNN or Transform-ers. Among them, Malhotra et al. propose a multi-layered RNN based time series autoencoder, to reconstruct the time series in a sequence-to-sequence manner [28]. Lyu et al. propose a multi-layered LSTM with an attention mechanism for unsupervised time series representation learning [27]. Yue et al. propose a dilated CNN 
+
+> 2
+
+based TS2Vec framework via contrastive learning for TSRL [39]. Owing to the strength of Transformer in extracting long-term fea-tures, Zerveas et al. propose TST, a transformer-based model that encodes a masked input time series to its representation and then decodes the representation to recover the masked part of the input time series in order to capture useful features in the representa-tion [40]. However, these SOTA TSRL frameworks train the encoder using the target dataset only, without exploiting additional datasets to learn more knowledge for representation transfer. In this trend, Fawaz et al. propose a DTW-based similarity measurement between two datasets, aiming to select a source dataset similar to the target dataset to pre-train a fully convolutional network, which in turn is fine-tuned for applications on the target dataset [11]. However, it does not exploit the potential of multiple source datasets for TSRL. 
+
+## 3 PRELIMINARIES 
+
+In this section, we first formulate the research problem. Next, we provide the background on recurrence plots and the idea of source selection, which lead to two main improvements in this research. Finally, we analyze issues in realizing our approaches. 
+
+## 3.1 Problem Formulation 
+
+Definition 1. Time series . A time series 𝑇 𝑆 consists of a series of values sampled in a fixed time gap, i.e., 𝑇 𝑆 = [ ® 𝑣 1, ®𝑣 2, ..., ®𝑣 𝑙 ] where 𝑙 is the time series length, ®𝑣 𝑖 = (𝑣 1 
+
+> 𝑖
+
+, ..., 𝑣 𝑛 𝑖 )𝑇 is a vector of values recording the variables observed at the time point 𝑖 , 𝑛 is the number of variables, and 𝑣 𝑗 𝑖 is the value of the 𝑗 -th variable at time point 𝑖 .
+
+Next, we define the task of time series representation learning (TSRL) which is the ultimate problem we aim to tackle in this work. Definition 2. Time Series Representation Learning (TSRL) .Given a time series dataset D = {𝑇 𝑆 𝑖 }|𝐷 | 
+
+> 𝑖 =1
+
+, the time series representation learning task is to learn an encoder that maps a time series, e.g., 𝑇 𝑆 𝑖 ,to its latent representation 𝑧 𝑖 ∈ R𝑑 in support of downstream tasks in time series applications (e.g., classification and regression). 
+
+In this paper, we design a novel framework, called SMart for TSRL, with the ideas behind the tasks of recurrent plots recovery and source selection. We introduce recurrence plots in Section 3.2, which serves as the foundation for the proposed recurrent plot recovery task. We discuss source selection in Section 3.3. 
+
+## 3.2 Recurrence Plots 
+
+Recurrence plots, in classical phase space reconstruction theory, describe time series dynamics [8, 20, 29]. Basically, a phase point in a multi-dimensional phase space denotes the status of time series at a time point, and a recurrence plot records how the phase points (i.e., the time series status) at different time points correlate with each other (i.e., the time series dynamics). Phase space reconstruction is controlled by two hyper-parameters, the phase space dimension factor 𝑑 and a time delay 𝜏 . Given 
+
+𝑑 , 𝜏 and a time series 𝑇 𝑆 = [ ® 𝑣 1, ®𝑣 2, ..., ®𝑣 𝑙 ], for each time point 𝑡 
+
+(𝑡 = 1, 2, ..., 𝑙 − ( 𝑑 − 1)𝜏 ), we generate a phase point, 𝑝 𝑡 = ( ®𝑣 𝑡 𝑇 , ®𝑣 𝑇 𝑡 +𝜏 ,..., ®𝑣 𝑇 𝑡 +( 𝑑 −1)𝜏 )𝑇 ∈ 𝑅 𝑑 ·𝑛 , where 𝑛 is the number of variables in 𝑇 𝑆 . By linking the phase points of 𝑡 = 1, 2, ..., (𝑙 − ( 𝑑 − 1)) 𝜏 one by one, we gain a trajectory in the phase space starting from 𝑝 1, going through 9                         
+
+> 10
+> 11
+> 12
+> 80123456789910 11 12
+> 9
+> 10
+> 11
+> 12
+> 𝒑 𝟎 , 𝒑 𝟑 , 𝒑 𝟖
+> 𝒑 𝟒
+> 𝒑 𝟓
+> 𝒑 𝟏 , 𝒑 𝟔
+> 8
+> 𝒑 𝟐 , 𝒑 𝟕
+> 012345678
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 80.0
+> 3.0
+> 2.4
+> 1.8
+> 1.2
+> 0.6
+> (a) Raw Time Series (b) Phase Space (c) Recurrence Plot
+
+Figure 2: Recurrence Plot Construction 
+
+𝑝 2, 𝑝 3, etc., and ending with 𝑝 𝑙 − ( 𝑑 −1)𝜏 . Based on the phase space reconstruction theory, the phase space preserves the topology of the system of variables in the time series, and the reconstructed trajectory shows similar dynamics as the raw time series [30]. Thus, a recurrence plot 𝑅𝑃 𝑑,𝜏 (a two-dimensional matrix) is derived from the trajectory to describe, for each phase point 𝑝 𝑡 , how other phase points are far away from 𝑝 𝑡 . Specifically, the value in the 𝑖 -th row and the 𝑗 -th column of 𝑅𝑃 𝑑,𝜏 is derived by 𝑅𝑃 𝑑,𝜏 (𝑖, 𝑗 ) = 𝑓 (𝑝 𝑖 , 𝑝 𝑗 ),where 𝑓 is the Euclidean distance in the phase space. As an example, Figure 2(a) shows a uni-variate time series 𝑇 𝑆 =
+
+[𝑣 0 = 10 , 𝑣 1 = 11 , ..., 𝑣 9 = 11 ]. Figure 2(b) shows the two-dimension phase space reconstructed from 𝑇 𝑆 with 𝑑 = 2 and 𝜏 = 1, where the phase point 𝑝 𝑖 is ( 𝑣 𝑖 , 𝑣 𝑖 +1) and the trajectory (linked by the arrows) goes through all the phase points in the temporal order. Figure 2(c) shows the recurrence plot 𝑅𝑃 2,1 generated from Figure 2(b), where 
+
+𝑅𝑃 2,1 (𝑖, 𝑗 ) = 𝐸𝑢𝑐𝑙𝑖𝑑𝑒𝑎𝑛 (𝑝 𝑖 , 𝑝 𝑗 ) capturing how the phase point 𝑝 𝑖 
+
+correlates to 𝑝 𝑗 . For example, in 2(c), the value in the 0-row and 8-column is close to 0, i.e., the time series status at time point 8 is similar to that at time point 0, suggesting a potential periodicity. 
+
+## 3.3 Source Selection 
+
+Inspired by advances on transfer learning in natural language pro-cessing [3, 7, 38] and computer vision [17, 21, 35] that exploits huge amount of data for pre-training an encoder which can be transferred to serve as an initial encoder and fine-tuned along with tailored decoders in relevant applications, SMart follows this trans-fer learning paradigm to address the issue of training data sparsity. Accordingly, we define time series representation transfer as follows. Definition 3. Time Series Representation Transfer (TSRT) .Given a set of time series datasets, i.e., 𝑆𝑒𝑡 (𝐷 ) = {𝐷 1, 𝐷 2, ..., 𝐷 𝑁 } and a target dataset 𝐷 𝑡𝑎𝑟𝑔𝑒𝑡 , time series representation transfer explores some source datasets in 𝑆𝑒𝑡 (𝐷 ) to pre-train an encoder that is trans-ferred as the initial encoder to assist TSRL in 𝐷 𝑡𝑎𝑟𝑔𝑒𝑡 .
+
+It is challenging to decide which datasets in 𝑆𝑒𝑡 (𝐷 ) may help pre-train the encoder. We define the source selection as follows. Definition 4. Source Selection . Datasets in 𝑆𝑒𝑡 (𝐷 ) are called candidate source datasets. In TSRT, the datasets selected from 𝑆𝑒𝑡 (𝐷 )
+
+for encoder pre-training are called source datasets. Source selection is the process of selecting source datasets from candidate source datasets. 
+
+## 3.4 Problem Analysis 
+
+As mentioned earlier, the SMart incorporates two tasks: recurrence plots recovery (i.e., RP-recovery ) and source selection for TSRL. The 
+
+> 3
+
+goal of RP-recovery is to exploit additional decoders to recover mul-tiple recurrence plots in order to challenge/guide the encoder to cap-ture time series dynamics of different granularity. However, given recurrent plots of different granularity, what kinds of decoder de-signs in SMart is able to effectively achieve the goal of RP-recovery? Recent TSRL frameworks based on transformer architecture usually have multiple layers of encoders, which thus generate multiple sets of time series representations, correspondingly. Should we focus on training the representations generated in the last encoding layer for RP-recovery or taking into account the representations in dif-ferent layers? To address this issue, we propose three alternative designs, namely Recover-At-The End (Rate) , Recover-in-Sequence(RS) 
+
+and Recover-in-Progressive-Way (RPW) , which along with our ap-proach for decoding, are detailed in Section 4.3. On the other hand, source selection is a key issue in TSRT. Not all the candidate source datasets are useful for pre-training the encoder. Existing works actually show that transfer learning from some specific time series dataset may be harmful [11]. To tackle the issue of source selection, our idea is to treat it as a binary classification problem, and learn a neural-network based source selector as the classifier to predict the feasibility (i.e., positive or negative) of pre-training the encoder for TSRL with a certain source dataset, given a target dataset. As such, we can feed a candidate source dataset and the target dataset to the source selector for source selection. We detail our ideas and implementations Section 4.4. 
+
+## 4 FRAMEWORK DESIGN 
+
+In this section, we present the design of the SMart framework. We first briefly recall the time series transformer, which is used as the backbone model in SMart. Then we extend it by adding a recurrence plots recovery module. Finally, we discuss the multi-source transfer learning in SMart, with the design of Source Selector detailed. 
+
+## 4.1 SMart Framework 
+
+In this paper, we propose new framework, namely Multi-Source Multi-Phase represen-tation transfer (SMart) for time series repre-sentation learning. As shown in Figure 1, given a target dataset and a set of candidate source datasets, SMart learns representations of the time series in the target datasets in the following steps: 1) Build a Time Series Model (TM) which follows an encoding-decoding paradigm, and train it with each dataset (including candidate and target datasets), respectively. To embed time series dynamics into time series representations, TM (shown in Figure 3) combines the base time series model (to be introduced in Section 4.2, with only the self-recovery module) and the recurrence plot recovery module (to be introduced in Section 4.3). Both the self-recovery module and the RP-recovery module (in yellow) are decoders in TM, aiming to challenge the encoder (layers in white, including the input time series transformation layer and the transformer encoding layers) to encode essential information and synamics in time series. 2) Learns a Source Selector (to be introduced in Section 4.4) for source selec-tion, using the (target, candidate) pairs of TMs trained in step 1 as the training data. 3) Use the learned Source Selector to decide source datasets suitable for the target dataset from the candidate datasets. More specifically, we pair each candidate source dataset and the target dataset as input to the Source Selector to decide whether the 𝒗 𝟏  𝒗 𝟐  𝒗 𝟑  𝒗 𝒍 𝒗 𝟒  𝒗 𝒍−𝟏     
+
+> Input Time Series Transformation Layer
+> Transformer Encoding Layer #1
+> Masked Input Time Series
+> 𝒛 𝟏 𝟏 𝒛 𝟐 𝟏 𝒛 𝟑 𝟏 𝒛 𝒍 𝟏
+> 𝒛 𝟒 𝟏 𝒛 𝒍−𝟏 𝟏
+
+## …      
+
+> 𝒗′ 𝟐 𝒗′ 𝟑 𝒗′ 𝒍 𝒗′ 𝟒
+> 𝒛 𝟏 𝒌 𝒛 𝟐 𝒌 𝒛 𝟑 𝒌 𝒛 𝒍 𝒌
+> 𝒛 𝟒 𝒌 𝒛 𝒍−𝟏 𝒌
+> 𝑹𝑷′ 𝟏
+> 𝑹𝑷′ 𝒌
+
+## …    
+
+> 𝑹𝑷′ 𝑲 𝒛 𝟏
+> 𝑲 𝒛 𝟐
+> 𝑲 𝒛 𝟑
+> 𝑲 𝒛 𝒍
+> 𝑲
+> 𝒛 𝟒
+> 𝑲 𝒛 𝒍−𝟏
+> 𝑲
+
+## …
+
+> Transformer Encoding Layer #k
+> Transformer Encoding Layer #K
+> Self -recovery Module
+
+## …
+
+> RP -recovery Module
+> 𝒗′ 𝒍−𝟐 𝒗′ 𝒍−𝟑
+> 𝒗 𝒍−𝟐 𝒗 𝒍−𝟑
+> 𝒛 𝒍−𝟐 𝟏
+> 𝒛 𝒍−𝟑 𝟏
+> 𝒛 𝒍−𝟐
+> 𝒌
+> 𝒛 𝒍−𝟑
+> 𝒌
+> 𝒛 𝒍−𝟐 𝑲
+> 𝒛 𝒍−𝟑 𝑲
+
+Figure 3: Time Series Model with both Self and RP Recovery 
+
+candidate source dataset is good to use for the target dataset; 4) Pre-train a TM with all the selected source datasets and the target dataset; 5) Transfer the encoder parameters in the TM trained in step 4 to serve as the initial encoder for various applications. The output of the encoder is fed to task decoders (e.g., a classifier or a regressor) for downstream applications. and 6) Fine-tune the en-coder while training the application decoders with the training set of the target dataset, and evaluate the applications on the test set. 
+
+## 4.2 Backbone: Time Series Transformer 
+
+SMart adopts time series transformer [40] as its backbone time series model (TM). 3 First, time series data is normalized and masked. A time series 𝑇 𝑆 = [ ® 𝑣 1, ®𝑣 2, ..., ®𝑣 𝑙 ], where ®𝑣 𝑡 = (𝑣 1 
+
+> 𝑡
+
+, ..., 𝑣 𝑛 𝑡 )𝑇 , is masked via 𝑇 𝑆 ⊙ M where M is a binary mask matrix ∈ { 0, 1}𝑛 ×𝑙 created independently for each 𝑇 𝑆 and epoch. We denote the masked input time series as 𝑉 = 𝑇 𝑆 ⊙ M = [𝑣 1, 𝑣 2, ..., 𝑣 𝑙 ] ∈ R𝑛 ×𝑙 , where 𝑣 𝑡 ∈
+
+R𝑛 is the input vector at time point 𝑡 . As shown in Figure 3 (but without the RP-recovery module), each value vector 𝑣 𝑡 is fed to an input time series transformation layer (with a projection and positional encodings added) to form the initial representation of that time point, i.e., 𝑥 𝑡 ∈ R𝑑 0 , where 𝑑 0 is the transformer model dimension. {𝑥 𝑡 } are then fed to 𝐾 stacked transformer encoding layers to generate the time series representation. We denote the output representation at time point 𝑡 by the encoding layer # 𝑖 as 
+
+𝑧 𝑖 𝑡 (as shown in the blue boxes). The representations output by the last (# 𝐾 ) encoding layer, i.e., {𝑧 𝐾  
+
+> 1
+
+, 𝑧 𝐾  
+
+> 2
+
+, ..., 𝑧 𝐾 𝑙 }, are concatenated as the representation of the whole time series, denoted as 𝑧 ∈
+
+R𝑑 0 ·𝑙 = [𝑧 𝐾  
+
+> 1
+
+|| 𝑧 𝐾  
+
+> 2
+
+|| ... || 𝑧 𝐾 𝑙 ]. To train the encoder, a self-recovery task is exploited to enforce the learned representation of each time point to capture information needed for recovering the raw value vector at the same time point (only the losses of the recovered masked parts are considered). More specifically, we recover 𝑣 𝑡 by 𝑣 ′ 
+
+> 𝑡
+
+= 𝑊 𝑜 𝑧 𝐾 𝑡 + 𝑏 𝑜 ,where 𝑊 𝑜 and 𝑏 𝑜 are learnable parameters, and measure the loss by mean square error of the masked part between {𝑣 ′ 
+
+> 𝑡
+
+} and {® 𝑣 𝑡 } as 
+
+> 3We exploit transformer as the backbone model since it is reported to outperform other encoder structures such as ResNet, LSTM and dilated CNN [40].
+> 4
+
+follows. 
+
+L𝑠𝑒𝑙 𝑓 = 1
+
+𝑁 M
+
+> 𝑙
+
+∑︁ 
+
+> 𝑡 =1
+> 𝑛
+
+∑︁ 
+
+> 𝑞 =1
+
+(𝑣 ′ 
+
+> 𝑡 𝑞
+
+− 𝑣 𝑞 𝑡 )2 · ( 1 − M𝑞,𝑡 ) (1) where M𝑞,𝑡 is the mask value for the 𝑞 -th variable at the time point 𝑡 ,and 𝑁 M is the number of 0’s in the mask matrix M (i.e., the number of values that are masked). The self-recovery task is to train the encoder by minimizing the sum of L𝑠𝑒𝑙 𝑓 for all time series. 
+
+## 4.3 Recurrence Plot (RP) Recovery 
+
+In this section, we propose the recurrence plot recovery (RP-recovery) task to further enrich the time series representation by adding de-coders to recover the RPs additionally. As introduced earlier, a RP is generated from a phase space with the pre-set 𝑑 and 𝜏 ; RPs with different 𝑑 reveal the time series dynamics in different granularity. Let a RP with parameter 𝑑 be denoted as 𝑅𝑃 𝑑 (i.e., 𝑅𝑃 𝑑,𝜏 =1). 4 The goal of the RP-recovery task is to decode the representation to recover 𝑅𝑃 1, ..., 𝑅𝑃 𝐾 to capture dynamics described in those plots. Here we first analyze some interesting characteristics of {𝑅𝑃 𝑑 |𝑑 =
+
+1, 2, ..., 𝐾 }. i) 𝑅𝑃 𝑑 of a larger 𝑑 is more challenging to recover than one with a smaller 𝑑 , because the encoder may lack information of intermediate RPs to generate the representation of a phase point w.r.t. a larger 𝑑 so as to recover 𝑅𝑃 𝑑 . ii) RPs of smaller 𝑑 s provide hints to recover the RPs of larger 𝑑 s. For example, when we ob-serve that in 𝑅𝑃 1, the phase point at time point 𝑡 1 (i.e., 𝑝 𝑑 =1 
+
+> 𝑡 1
+
+) is shown to be close to 𝑝 𝑑 =1 
+
+> 𝑡 2
+
+at 𝑡 2 and meanwhile 𝑝 𝑑 =1 
+
+> 𝑡 1+1
+
+is close to 𝑝 𝑑 =1
+
+> 𝑡 2+1
+
+,we can infer that in 𝑅𝑃 2, 𝑝 𝑑 =2 
+
+> 𝑡 1
+
+= (𝑝 𝑑 =1 
+
+> 𝑡 1
+
+|| 𝑝 𝑑 =1
+
+> 𝑡 1+1
+
+) should be close to 
+
+𝑝 𝑑 =2 
+
+> 𝑡 2
+
+= (𝑝 𝑑 =1 
+
+> 𝑡 2
+
+|| 𝑝 𝑑 =1
+
+> 𝑡 2+1
+
+). iii) the representations output by different en-coding layers, i.e., {𝑧 𝑘  
+
+> 1
+
+, ..., 𝑧 𝑘 𝑙 |𝑘 = 1, 2, ..., 𝐾 } have similar character-istics with {𝑅𝑃 𝑑 }. Inspired by these observations, the RP-recovery module is designed to decode the representations generated by dif-ferent encoding layers to recover the RPs in multiple phase spaces (shown in Figure 3). We first discuss how we decode the representations output by the encoding layer # 𝑘 (i.e., 𝑧 𝑘  
+
+> 1
+
+, 𝑧 𝑘  
+
+> 2
+
+, ..., 𝑧 𝑘 𝑙 ) to 𝑅𝑃 𝑑 . The idea is to first general phase point representations from representations of dif-ferent time points, and then generate the RP from phase point representations. As shown in Figure 4, {𝑧 𝑘  
+
+> 1
+
+, 𝑧 𝑘  
+
+> 2
+
+, ..., 𝑧 𝑘 𝑙 } are first fed to a convolution layer to aggregate the representations of time points as the representations of phase points. Specifically, we generate the phase point representation at 𝑡 by 𝑠 𝑘 𝑡 = 𝑐𝑜𝑛𝑣 𝑑 (𝑧 𝑘 𝑡 , 𝑧 𝑘 𝑡 +1, ..., 𝑧 𝑘 𝑡 +𝑑 −1),where 𝑐𝑜𝑛𝑣 𝑑 (·) represents a 1D-convolution operation with kernel size as 𝑑 . Next, we feed the pair of phase point representations at time point 𝑖 and 𝑗 to a recurrence plot generation layer to predict the distance between the two phase points in 𝑅𝑃 𝑑 as follows. 
+
+𝑅𝑃 𝑘 𝑑 (𝑖, 𝑗 ) = || 𝑊 𝑑  
+
+> 1
+
+𝑠 𝑘 𝑖 − 𝑊 𝑑  
+
+> 2
+
+𝑠 𝑘 𝑗 + 𝑏 𝑑 || 22, 1 ≤ 𝑖, 𝑗 ≤ 𝑙 − 𝑑 + 1 (2) where 𝑊 𝑑  
+
+> 1
+
+, 𝑊 𝑑  
+
+> 2
+
+and 𝑏 𝑑 are the learnable matrices and bias, and 
+
+𝑅𝑃 𝑘 𝑑 (𝑖, 𝑗 ) is the predicted value in the 𝑖 -th row and 𝑗 -th column in 
+
+𝑅𝑃 𝑑 . To facilitate training, we use the mean square error between 
+
+𝑅𝑃 𝑘 𝑑 and 𝑅𝑃 𝑑 as the loss function, but we only count the error for the masked values (in grey color) in 𝑅𝑃 𝑑 (i.e., to calculate the value in 𝑅𝑃 𝑑 , we must know some masked values in the raw time series).              
+
+> 4For simplicity, we only explore the fundamental recurrence plots with 𝜏 =1in this paper. The exploration of other recurrence plots are left to the future work. 𝒛 𝟏 𝒌 𝒛 𝟐 𝒌 𝒛 𝟑 𝒌 𝒛 𝒍 𝒌
+> 𝒛 𝟒 𝒌 𝒛 𝒍−𝟏 𝒌
+> 𝒛 𝒍−𝟐 𝒌
+> 𝒛 𝒍−𝟑 𝒌
+> 𝒔 𝟏
+> 𝒌 𝒔 𝟐
+> 𝒌 𝒔 𝟑
+> 𝒌 𝒔 𝟒
+> 𝒌 𝒔 𝒍−𝒅+𝟏 𝒌
+> 𝒔 𝒍−𝒅 𝒌
+> Conv (d=3) Conv (d=3)
+
+…
+
+…        
+
+> 𝑹𝑷 𝒅 𝒌 ∶ 𝑹𝑷 𝒅 𝒌 𝒊, 𝒋 = ||𝑾 𝟏 𝒅 𝒔 𝒊 𝒌 − 𝑾 𝟐 𝒅 𝒔 𝒋 𝒌 + 𝒃 𝒅 || 𝟐 𝟐
+> Process to Recover 𝑹𝑷 𝒅 from {𝒛 𝒊 𝒌 }
+> {𝒛 𝒕 𝟏 }
+
+…
+
+> {𝒛 𝒕 𝒌 }
+
+…
+
+> {𝒛 𝒕
+> 𝑲 }
+> RATE
+> 𝑹𝑷′ 𝟏
+> 𝑹𝑷′ 𝑲
+> 𝑹𝑷′ 𝒌
+> {𝒛 𝒕
+> 𝟏 }
+
+…
+
+> {𝒛 𝒕 𝒌 }
+
+…
+
+> {𝒛 𝒕 𝑲 }
+> RS
+> 𝑹𝑷′ 𝟏
+> 𝑹𝑷′ 𝑲
+> 𝑹𝑷′ 𝒌
+> {𝒛 𝒕 𝟏 }
+
+…
+
+> {𝒛 𝒕 𝒌 }
+
+…
+
+> {𝒛 𝒕
+> 𝑲 }
+> RPW
+> 𝑹𝑷′ 𝟏
+> 𝑹𝑷′ 𝑲
+> 𝑹𝑷′ 𝒌
+> Recurrence Plot Generation
+
+Figure 4: RP-recovery Module in alternative modes 
+
+Formally, the loss w.r.t. the encoding layer 𝑘 and 𝑅𝑃 𝑑 is as follows. 
+
+L𝑘,𝑑 𝑟 𝑝 =∑︁ 
+
+> 𝑖
+
+∑︁ 𝑗 
+
+(𝑅𝑃 𝑘 𝑑 (𝑖, 𝑗 ) − 𝑅𝑃 𝑑 (𝑖, 𝑗 ) ) 2
+
+𝑁 𝑑 𝑚𝑎𝑠𝑘𝑒𝑑 
+
+(1 −
+
+> 𝑛
+
+Ö
+
+> 𝑞 =1
+
+( 
+
+> 𝑖 +𝑑 −1
+
+Ö 
+
+> 𝑡 =𝑖
+
+M𝑞,𝑡 𝑗 +𝑑 −1Ö 
+
+> 𝑡 =𝑗
+
+M𝑞,𝑡 ) ) 
+
+(3) 
+
+where M is the mask and 𝑁 𝑑 𝑚𝑎𝑠𝑘𝑒𝑑 is No. of masked values in 𝑅𝑃 𝑑 .Once L𝑘,𝑑 𝑟𝑝 is defined, the next step is to design how to select the (𝑘, 𝑑 ) pairs, i.e., decode which layer’s representations to which recurrence plots, for the RP-recovery module. We classify all RP-recovery tasks (each indicated by a (𝑘, 𝑑 ) pair) into two categories: i) 
+
+challenging recovery, i.e., (𝑘, 𝑘 ) for 𝑘 = 1, 2, ..., 𝐾 , to decode represen-tations output by the encoding layer # 𝑘 to the currently most chal-lenging RP (shown as red arrows in Figure 4); and ii) comprehensive recovery , i.e., (𝑘, 𝑑 ) for 1 ≤ 𝑑 < 𝑘 ≤ 𝐾 , to decode representations output by encoding layer # 𝑘 to comprehensively recover all lower RPs (shown as blue arrows in Figure 4) in order to capture multi-granularity time series dynamics. Note that challenging recovery from bottom encoding layers (with smaller 𝑘 s) may regularize the representations and provide guidance (due to the aforementioned characteristics) to assist the challenging recovery from upper en-coding layers to capture RPs of larger 𝑑 (which provide more precise time series dynamics [30]). In SMart, we propose three alternative modes as described below (also see Figure 4). 
+
+Recover-At-The-End (RATE). An intuitive idea is to decode the time series representations output by the encoding layer # 𝐾 to re-cover all the 𝑅𝑃 s in order to capture time series dynamics of differ-ent granularity. The total loss is calculated as L𝑅𝐴𝑇 𝐸 = Í𝐾 𝑑 =1 L𝐾,𝑑 𝑟𝑝 .
+
+Recover-in-Sequence (RS). Inspired by the observed character-istics of {𝑅𝑃 𝑑 }, we recover the 𝑅𝑃 s of different 𝑑 s sequentially from the easiest to the most difficult one. Specifically, we decode representations output by each encoding layer with a challenging recovery. As such, RS divides the encoding process of 𝑅𝑃 𝐾 into several steps to reduce the difficulty in each step, which makes the encoder training easier. We have the total loss L𝑅𝑆 = Í𝐾 𝑑 =1 L𝑑,𝑑 𝑟𝑝 .
+
+Recover-in-Progressive-Way (RPW). To explore ideas in both 
+
+RATE and RS , we decode representations output by each encod-ing layers with both challenging and comprehensive recovery. As such, the final representations encode information in the RPs of all 𝑑 s with comprehensive recovery, while the earlier challenging recovery tasks on lower encoding layers provide guidance for later challenging recovery tasks and regularize the encoding process. For-mally, we have the total RP-recovery loss L𝑅𝑃𝑊 = Í𝐾 𝑘 =1
+
+Í𝑘 𝑑 =1 L𝑘,𝑑 𝑟𝑝 .       
+
+> 5Pre -train TM (Self -recovery + RP -recovery)
+> Pre -trained TM A
+> Sorted Heads in A’s
+> Encoder Layer #1
+> Pre -trained TM B
+> Sorted Heads in B’s
+> Encoder Layer #1
+> Head 1 Head 2 Head 𝑯
+> 𝑸 𝟏 𝑨 ,
+> 𝑲 𝟏 𝑨 ,
+> 𝑽 𝟏
+> 𝑨
+> 𝑸 𝟐 𝑨 ,
+> 𝑲 𝟐
+> 𝑨 ,
+> 𝑽 𝟐 𝑨
+> 𝑸 𝑯 𝑨 ,
+> 𝑲 𝑯 𝑨 ,
+> 𝑽 𝑯
+> 𝑨
+> 𝑸 𝟏 𝑩 ,
+> 𝑲 𝟏
+> 𝑩 ,
+> 𝑽 𝟏 𝑩
+> 𝑸 𝟐 𝑩 ,
+> 𝑲 𝟐
+> 𝑩 ,
+> 𝑽 𝟐 𝑩
+> 𝑸 𝑯 𝑩 ,
+> 𝑲 𝑯 𝑩 ,
+> 𝑽 𝑯 𝑩
+
+## …
+
+## … …   
+
+> Head 1 Head 2 Head 𝑯
+
+## …  
+
+> 𝒆 ′𝟏 𝑩 𝒆 ′𝟐 𝑩 𝒆 ′𝑯 𝑩
+
+## ……𝒆 ′𝟏 𝑨  𝒆 ′𝟐 𝑨  𝒆 ′𝑯 𝑨         
+
+> A Binary Classifier: Concat + FFN +SoftMax
+> Dataset B Dataset A
+> 𝒆 𝟏 𝑨 𝒆 𝟐 𝑨 𝒆 𝑯 𝑨 𝒆 𝟏
+> 𝑩 𝒆 𝟐 𝑩 𝒆 𝑯 𝑩
+> Multi -head Self -Attention for all heads
+
+## … …
+
+> Whether dataset A is a proper source for dataset B?
+> Cross -dataset Multi -
+> head Attention
+> Multi -head Self -
+> Attention for A’s heads
+
+Figure 5: Source Selector 
+
+By adding the RP-recovery loss to L𝑠𝑒𝑙 𝑓 , SMart exploits both the self-recovery and RP-recovery task to train a TM. Experimentally, we evaluate SMart in all these three modes and compare the impacts of challenging and comprehensive recovery in Section 5. 
+
+## 4.4 Source Selection 
+
+A remaining issue in SMart is the design of the Source Selector, which selects multiple source datasets to facilitate time series rep-resentation transfer. The function of the Source Selector can be reduced to predicting the feasibility (positive or negative) of using a given candidate source dataset to supplement the target dataset. Intuitively, we model the Source Selector as a binary classifier. Instead of directly feeding the candidate and targeted datasets to Source Selector, we explore an interesting idea — use parameters of the first transformer encoding layer in the TM pre-trained with the dataset. We argue that these parameters capture information regarding how to extract meaningful features from the dataset, and thus may serve as a good representation of the whole dataset. Therefore, datasets are pre-processed to obtain encoder parameters as their dataset representation for use in source selection. 5
+
+To train a Source Selector, we assume a pool of datasets available for training and prepare training entries in the form of (A, B, label), where A and B are datasets from the training pool. 6 Let A and B be properly split into a training set and a testing set, respectively. We prepare the label by: a) train the time series model (TM) using only the training set of B to get 𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐵 ; and b) train the TM using both training sets of A and B to get 𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐴𝐵 . We then evaluate 
+
+𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐵 and 𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐴𝐵 (by further fine tuning and appropriate decoding; to be introduced later) on the testing set of dataset B for time series classification and regression. By comparing the performance of 𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐵 and 𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐴𝐵 , we set the label as 1 if 
+
+𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐴𝐵 outperforms 𝑒𝑛𝑐𝑜𝑑𝑒𝑟 𝐵 on both tasks of classification and regression, and 0 otherwise. Accordingly, we enumerate pairs of datasets in the training pool for different roles to prepare the training data for Source Selector. 
+
+> 5We empirically examine and validate this idea in Section 5.2.3.
+> 6Note that A and B serve the roles of candidate and target, respectively. We use these symbols under the context within Source selector to avoid confusion with C and T used under general context of SMart.
+
+Design of the Source Selector is illustrated in Figure 5. First, we pre-train the TM with dataset A (to get 𝑇 𝑀 𝐴 ) and dataset B (to get 𝑇 𝑀 𝐵 ), respectively. As discussed, we use the multiple heads in the self-attention layer of the encoding layer #1 as the dataset representation. We denote the number of heads by 𝐻 . For the ℎ-th head in 𝑇 𝑀 𝐴 , the parameters include three projection matrices, i.e., 
+
+𝑄 𝐴 ℎ , 𝐾 𝐴 ℎ and 𝑉 𝐴 ℎ for generating the query, key and value vectors, respectively. Thus, we represent dataset A by {𝑄 𝐴 ℎ }, {𝐾 𝐴 ℎ }, and 
+
+{𝑉 𝐴 ℎ } ( ℎ = 1, 2, ..., 𝐻 ) and represent dataset B similarly. However, when we train the TM with a dataset, we do not specify the order of heads, i.e., we may get another 𝑇 𝑀 ′ 
+
+> 𝐴
+
+when training TM with A, whose heads are in a permuted order of 𝑇 𝑀 𝐴 . To address this issue, for each head, we concatenate its flattened three projection matrices to produce its initial embedding, and sort the heads by the l2-norm of its embedding in increasing order. As such, we fix an order for different heads to train Source Selector consistently. We denote the sorted initial head embedding of the ℎ-th head for dataset A as 𝑒 𝐴 ℎ and denote that for dataset B as 𝑒 𝐵 ℎ . We first project these embeddings into a latent space, with three projection matrics (denoted as 𝑄 , 𝐾 and 𝑉 ) as follows. 
+
+𝑞 𝐷 ℎ = 𝑄𝑒 𝐷 ℎ , 𝑘 𝐷 ℎ = 𝐾𝑒 𝐷 ℎ , 𝑣 𝐷 ℎ = 𝑉 𝑒 𝐷 ℎ , ℎ = 1, 2, ..., 𝐻 &𝐷 ∈ { 𝐴, 𝐵 } (4) To generate the new head embedding for a head in 𝑇 𝑀 𝐴 , we follow the basic self-attention mechanism to capture the impact of other heads on that head with attention scores to aggregate head embed-dings with the normalized attention scores as weights. Formally, for Head ℎ in 𝑇 𝑀 𝐴 , we generate its new embedding 𝑒 ′𝐴 ℎ as follows. 
+
+𝛼 𝐴 𝑗,ℎ = 𝑞 𝐴 ℎ 𝑊 𝐴 𝛼 𝑘 𝐴 𝑗 , 𝛽 𝐴 𝑗,ℎ = 𝑒𝑥𝑝 (𝛼 𝐴 𝑗,ℎ )
+
+Í𝐻 𝑗 =1 𝑒𝑥𝑝 (𝛼 𝐴 𝑗,ℎ ) , 𝑒 ′𝐴 ℎ =
+
+> 𝐻
+
+∑︁ 
+
+> 𝑗 =1
+
+𝛽 𝐴 𝑗,ℎ 𝑣 𝐴 𝑗 (5) where 𝑊 𝛼 is the learnable transformation matrix to calculate the attention score 𝛼 𝐴 𝑗,ℎ , and 𝛽 𝐴 𝑗,ℎ is the normalized attention score from head 𝑗 to head ℎ. To generate the new embedding of Head h for dataset B, we exploit a cross-attention mechanism to let the heads for dataset B to "observe" the heads for dataset A to capture their correlations. More specifically, we capture the impact of Head 𝑗 in 
+
+𝑇 𝑀 𝐴 to the Head ℎ in 𝑇 𝑀 𝐵 to be 𝛼 𝐵 𝑗,ℎ , normalize the impacts, and generate the new embedding of Head ℎ in 𝑇 𝑀 𝐵 , i.e., 𝑒 ′𝐵 ℎ , by aggre-gating the head embeddings with normalized impacts as follows. 
+
+𝛼 𝐵 𝑗,ℎ = 𝑞 𝐵 ℎ𝑊 𝐵 𝛼 𝑘 𝐴 𝑗 , 𝛽 𝐵 𝑗,ℎ = 𝑒𝑥𝑝 (𝛼 𝐵 𝑗,ℎ )
+
+Í𝐻 𝑗 =1 𝑒𝑥𝑝 (𝛼 𝐵 𝑗,ℎ ) , 𝑒 ′𝐵 ℎ =
+
+> 𝐻
+
+∑︁ 
+
+> 𝑗 =1
+
+𝛽 𝐵 𝑗,ℎ 𝑣 𝐵 𝑗 (6) Next, we feed both {𝑒 ′𝐴 ℎ } and {𝑒 ′𝐵 ℎ } to another multi-head self-attention layer to derive the new embedding for each head, denoted as {𝑒 ∗𝐴 ℎ } and {𝑒 ∗𝐵 ℎ }, respectively. Finally, we concatenate these embeddings to feed to a two-layer feed forward network with a softmax layer for binary classification to predict whether to select dataset A as a source dataset for dataset B or not. 
+
+## 5 PERFORMANCE EVALUATION 
+
+In this section, we first evaluate the proposed cross-attention based Source Selector and then evaluate the SMart framework for both time series classification and regression. 
+
+Research questions. We attempt to answer the following research questions through the experiments and analyses: 
+
+> 6
+
+• RQ1 . What about the effectiveness of the Source Selector design? Do the first-layer encoder parameters serve well as the representation of a time series dataset, comparing against conventional representatives of datasets? (Sect. 5.2) 
+
+• RQ2 . What about the effectiveness and efficiency of SMart against the baseline methods? (Sect. 5.3.2) 
+
+• RQ3 . How do various components in SMart, such as the different pre-training tasks and source selection strategies affect the performance of SMart for TSRL? (Sect. 5.3.3) 
+
+• RQ4 . How about different RP recovery modes? (Sect. 5.3.4) 
+
+• RQ5 . How about adapting SMart trained with uni-variate time series datasets for multi-variate datasets? (Sect. 5.4) 
+
+## 5.1 Datasets 
+
+Here we introduce the time series datasets used in the evaluation. 
+
+Bake-off uni-variate datasets . We collect the 85 bake-off uni-variate datasets [2] that are commonly used for time series clas-sification evaluation. For time series regression, we modify those datasets by removing the value at the last time point from each time series. The removed value serves as the ground truth for regression. 
+
+UEA multi-variate datasets . We collect 9 labelled multi-variate datasets from the UEA archive [1] with for evaluation of time series classification. For evaluation of time series regression, we remove the value of the last variable (consistent in each dataset) at the last time point from each raw time series and use it as the ground truth. 
+
+## 5.2 Evaluation of Source Selector 
+
+We evaluate the Source Selector on Bake-off uni-variate datasets. 
+
+5.2.1 Experiment Setup. We randomly split the 85 bake-off datasets into 17 groups, each of which has 5 datasets. Then we randomly pick 2 groups as the testing groups, 2 groups as the validation groups, and the rest 13 groups as the training groups (forming the pool of training datasets for the Source Selector). To train the Source Selector, we enumerate all combined pairs of datasets from the training groups and obtain the corresponding label as discussed in Section 4.4. We adopt the Adam optimizer for training, with the learning rate = 0.001. For validation, we pair each dataset from the training groups with each dataset from the validation groups to generate 65 ×10 dataset pairs. Then, we select the optimal Source Selector which performs the best (in terms of accuracy for the binary classification) on these pairs. Finally, for each dataset in the testing group, we evaluate the Source Selector on the dataset pairs formed by pairing each training group dataset with the testing group dataset, in terms of accuracy. We denote the source selector in Smart as Default . We evaluate Default against various baselines in the following sections to reveal different insights. 
+
+5.2.2 Is the cross attention useful? To answer the question, we evaluate two variants of Default , i) MLP which replaces all the at-tention layers with a two-layer MLP and ii) SelfAtt which replaces the cross-attention layer with a self-attention layer. Table 1 shows the performance of the three Source Selectors on the pairs formed with each dataset in the testing groups. As shown, MLP performs the worst, which suggests the advantage of applying attention mecha-nisms in Source Selector. Also, Default consistently outperforms                                  
+
+> Method Default MLP SelfAtt
+> WormsTwoClass 0.723(47/65) 0.554(36/65) 0.692(45/65) ItalyPowerDemand 0.815(53/65) 0.600(39/65) 0.785(51/65) Lightning2 0.646(42/65) 0.600(39/65) 0.615(40/65) StarLightCurves 0.769(50/65) 0.708(46/65) 0.754(49/65) Mallat 0.800(52/65) 0.692(45/65) 0.754(49/65) Beef 0.923(60/65) 0.738(48/65) 0.892(58/65) Ham 0.846(55/65) 0.754(49/65) 0.846(55/65) Meat 0.692(45/65) 0.615(40/65) 0.662(43/65) InsectWingbeatSound 0.754(49/65) 0.600(39/65) 0.738(48/65) Strawberry 0.815(53/65) 0.769(50/65) 0.785(51/65)
+
+Table 1: Performance of Source Selectors       
+
+> Method Default MLP SelfAtt Avg. Acc. 0.780(272.8/350) 0.573(200.7/350) 0.709(248.2/350)
+
+Table 2: Different Attention Designs in Source Selector                         
+
+> Method Def. RTS-L RTS-S EL-2 EL-3 EL-4 EL-5 EL-6 Indiv. 0.780 0.598 0.637 0.762 0.754 0.727 0.704 0.699 Accum. 0.780 N/A N/A 0.775 0.761 0.746 0.734 0.718
+
+Table 3: Different Dataset Representatives in Source Selector 
+
+(or at least match) both MLP and SelfAtt , which validates the ben-efits of the cross-attention mechanism to capture the correlations among the heads of both datasets for source selection. In addition, we conduct a 17-fold cross-validation for source selection (in terms of the average accuracy), where we randomly divide all the datasets into 17 groups, pick one group as the testing group, two groups for validation, and the rest for training in each fold. Table 1 show that 
+
+Default outperforms the other two, validating our insights above. 
+
+5.2.3 Are the first-layer encoder parameters a good repre-sentation of a time series dataset? By default in SMart, the first layer encoder parameters in the pre-trained TM are used as the rep-resentative of each time series dataset. One intuitive alternative is to exploit a representative time series (RTS) in a dataset to represent the dataset, as introduced by [11]. To exploit the RTS as the input of source selector, the source selector need to adapt accordingly. We explore the following two adaptions: i) RTS-L with an LSTM structure as the source selector. Given the 𝑅𝑇 𝑆 1 for a candidate source dataset and 𝑅𝑇 𝑆 2 for the target dataset, LSTM takes the following as the input: ["Source-start" token, 𝑅𝑇 𝑆 1, "Target-start" token, 𝑅𝑇 𝑆 2], and feed the output in the last time point to a FFN (with a softmax activation) to predict whether the candidate source dataset (that generates 𝑅𝑇 𝑆 1) is beneficial for the representation learning for the target dataset (that generates 𝑅𝑇 𝑆 2). ii) RTS-S with two multi-head self-attention layers, a concatenation layer and a 2-layer FFN (with a softmax activation) as the source selector. Ta-ble 3 shows the average accuracy achieved by RTS-L and RTS-S, both lower than 0.780 (by Default ), suggesting that exploiting only a representative time series as the representation of a time series does not work as well as the first-layer encoder parameters. Following the idea of using encoder parameters as the dataset representation, other layers’ parameters may also work well. Thus, we evaluate the following variants of Default , by using parameters of other encoding layers (ELs), denoted by EL-𝑘 where 𝑘 refers to 
+
+> 7
+
+the 𝑘 -th layer. To be comprehensive, we test two versions: a) an individual version EL-𝑘 that uses exactly the 𝑘 -th layer’s parameters to represent the dataset and b) accumulated version EL-𝑘 that uses all the first 𝑘 layers’ parameters as the dataset representation. The corresponding results are shown in Table 3. We observe that as 𝑘 
+
+increases, the individual version EL-𝑘 performs worse, suggesting that the later layer’s parameters is worse than early layers when serving as the dataset representation. In addition, the accumulated version of EL-𝑘 performs worse when 𝑘 increases, which suggests that the parameters in the later encoder layers do not improve over the first-layer parameters to form better dataset representation. 
+
+## 5.3 SMart on Uni-variate Time Seires 
+
+In this section, we evaluate the SMart framework on uni-variate time series datasets against the state of the arts for classification and regression. Moreover, we conduct an ablation study to show the impacts of different components in SMart. Finally, we detail the impacts of challenging recovery and comprehensive recovery. 
+
+5.3.1 Experiment Setup. To evaluate SMart, we divide all 85 bake-off datasets into 17 groups as discussed earlier and train a Source Selector using only the training groups. Then, for each target dataset in the testing group, we select its source datasets with the learned Source Selector to pre-train the time series model (TM; see Section 4.1). Note that different datasets may have time series of different lengths, leading to different lengths of the attention layer. To address the issue, we extend all the time series to the maximum length of all time series data, and use a padding mask (introduced in [40]) to mask the extended part of the time series. After then, for each downstream time series application, we connect the pre-trained encoder to an application decoder, i.e., a two-layer feed-forward net with a softmax layer for classification and a linear layer for regression, and fine-tune the model with the training set of the target dataset (the learning rate of the encoder is 0.00001 and that of the application decoder is 0.001). Finally, we evaluate the models on the testing set of the target dataset. For the optimal parameter setting of TM, we have the number of encoding layers ( 𝐾 ) be 6, the model dimensionality in the trans-former encoding layers be 64, and the number of heads 𝐻 be 8. For the Source Selector, we set the dimensionality of head embeddings (i.e., {𝑒 ′𝐴 ℎ } and {𝑒 ′𝐵 ℎ }) as 64, the model dimensionality as 128, the number of heads of the multi-head self-attention layer as 8, and the output dimensionalities of the two-layer feed-forward network as 64 and 2 (for binary classification), respectively. 
+
+Baselines . We evaluate SMart against a number of state-of-the-art models for time series classification and regression (includ-ing ROCKET [4], Rel-CNN [16], TimeNet [28]) and time se-ries representation learning and transfer (including TS-TCC [9], 
+
+TS2Vec [39], DTW-FCN [11] and TST [40]). We evaluate the proposed SMart framework which uses the cross-attention based Source Selector and recovers recurrence plots in the RPW mode (which performs the best among all three modes). We evaluate the SMarts which recover recurrence plots in RATE and RS modes in ablation study later. 
+
+5.3.2 Evaluation against the state of the arts. Figure 6(a) shows the performance of all the frameworks in terms of accuracy for                 
+
+> Method ROCKET Rel-CNN TimeNet TS-TCC Time(h) 24.5 21.7 15.1 2.9 Method TS2Vec TST DTW-FCN SMart Time(h) 1.4 22.5 28.4 26.6
+
+Table 4: Total Training Time for Compared Models 86.35 86.47 74.02 82.38 86.66 86.19 86.68 87.84 65                    
+
+> 75 85 95 ROCKET Rel-CNN TimeNet TS-TCC TS2Vec DTW-FCN TST Smart-RPW
+> AVG. ACC
+> 0.491 0.477 0.481 0.401 0.389 0.484 0.465 0.313 00.2 0.4 0.6 ROCKET Rel-CNN TimeNet TS-TCC TS2Vec DTW-FCN TST Smart-RPW ACC. MAE
+> (a) Evaluation for Time Series Classification
+> (b) Evaluation for Time Series Regression
+
+Figure 6: Evaluation on Uni-variate Time series 
+
+time series classification. First, we observe that TimeNet performs the worst among all the models which may suggest that RNN is not a good choice of the backbone model for TSRL. By comparing the supervised end-to-end models (i.e., ROCKET and Rel-CNN) and rep-resentation learning based frameworks (TS-TCC, TS2Vec, TST and DTW-FCN), we observe that TS2Vec and TST perform better, which suggests the effectiveness of learning time series representations for time series classification. Besides, we observe that DTW-FCN performs worse than ROCKET and Rel-CNN, which may be due to the base model used in DTW-FCN (i.e., a fully convolution net of fixed kernel sizes) is not competitive against ROCKET (with ran-dom kernels) and Rel-CNN (with relationship features captured). By comparing SMart with the two most competitive baseline models (i.e., TST and TS2Vec), we observe that SMart-RPW (87.84%) out-performs TST (86.68%) and TS-2Vec (86.66%), which validates the ideas of RP-recovery task and multi-source representation transfer for time series classification. In addition, Figure 6(b) shows the performance of all the frameworks in terms of mean absolute error (MAE) for regression. We have similar observations as those for classification, validating our insights again. Finally, although we do not target on improving the training efficiency in SMart, the training time spent for each compared methods are listed in Table 4. We observe that the training time of SMart, ROCKET, TST and Rel-CNN are in the same order of magnitude. 
+
+5.3.3 Ablation Study . Here we perform an ablaton study to an-alyze the impacts of different components in SMart. We charac-terize the compared variants of SMart in two aspects: A) which pre-training tasks are used? In this aspect, a framework may be i) 
+
+SELF with self-recovery task only; ii) RATE that additionally recov-ers the recurrence plots (RPs) in the Recover-At-The-End mode; iii) 
+
+RS that additionally recovers RPs in the Recover-in-Sequence mode; iv) RPW , which additionally recovers RPs in the RPW mode. B) how to select the source datasets? In this aspect, a framework may be i) 
+
+NoS that only uses the target dataset to pre-train the encoder; ii) All 
+
+that exploits all the 65 datasets in the training groups to pre-train the encoder; iii) Type that uses the datasets with the same data                                                            
+
+> 8Variants Metric SELF(w/o RP) RATE RS RPW NoS ACC. 86.68 86.76 86.87 87.15 MAE 0.465 0.460 0.462 0.461
+> All ACC. 83.20 84.27 84.55 85.63 MAE 0.439 0.410 0.413 0.405
+> Type ACC. 86.53 86.85 86.89 86.98 MAE 0.420 0.401 0.408 0.399
+> DTW ACC. 86.71 86.99 87.02 87.20 MAE 0.416 0.388 0.395 0.385
+> RTS-S ACC. 87.14 87.40 87.50 87.55 MAE 0.374 0.332 0.336 0.328
+> CrossAtt ACC. 87.35 87.65 87.66 87.84
+> MAE 0.357 0.315 0.326 0.313
+
+Table 5: Ablation Study of SMart 
+
+type (a tag provided by the UCR/UEA archive) as the target dataset to pre-train the encoder; iv) DTW that exploits the DTW distance between two datasets (defined in [11]) to select the dataset most similar with the target dataset to pre-train the encoder; v) RTS-S 
+
+that exploits a self-attention based Source Selector with the repre-sentative time series (RTS) as the input for source selection; and vi) 
+
+CrossAtt that exploits a cross-attention based Source Selector for source selection. Finally, we build variants of SMart by combining the design of pre-training task and the design of source selection. With CrossAtt as the default Source Selector, we use SMart-RATE, SMart-RS and Smart-RPW to refer to the combination of RATE, RS and RPW with CrossAtt, respectively. Table 5 show the evaluation results for all the variants on clas-sification and regression, respectively. As shown, combining RPW 
+
+and CrossAtt (i.e., SMart-RPW) outperforms all the variants con-sistently, validating the effectiveness of the RPW mode for RP-recovery and the cross-attention in Source Selector. Especially, by comparing “CrossAtt+RPW” and “NoS+RPW”, we can tell the im-portance of exploiting the cross-attention based Source Selector for representation transfer in SMart. Between “CrossAtt+RPW” and “CrossAtt+SELF”, we observe the positive impact brought by the RP-recovery tasks on SMart. In addition, we observe that All 
+
+performs the worst among all the source selection methods, sug-gesting that it is not a good idea to simply exploit all the time series data to pre-train the encoder. Besides, we observe that Type 
+
+performs better than All , indicating that the same type with the target dataset is a good heuristic for source selection. We can also compare “DTW+SELF” with “DTW-FCN” to validate the superiority of the transformer over FCN as a backbone. Finally, we observe that 
+
+CrossAtt outperforms RTS-S in both time series classification and regression tasks, re-validating that the encoder parameters perform better than the representative time series when serving as the input to source selection for TSRL. 
+
+5.3.4 Impacts of Challenging Recovery (CHR) and Compre-hensive Recovery (COR) in RP-Recovery. From Table 5, we observe that RS (with only CHR) outperforms RATE for classifica-tion, while RATE (where the last representation has both CHR and COR) outperforms RS for regression no matter which source selec-tion method is adopted. To explain this phenomenon, we propose a hypothesis: COR help representations to embed detailed time series status recurrence in RPs with higher granularity to benefit RATE for regression, while CHR in RS guide the representations produced 87.65                           
+
+> 87.67 87.68 87.69 87.72 87.75
+> 0.315
+> 0.316 0.315 0.314 0.313 0.314
+> 0.3
+> 0.305 0.31
+> 0.315 0.32
+> 0.325 0.33
+> 0.335
+> 0.34
+> 87.6
+> 87.62 87.64
+> 87.66 87.68
+> 87.7 87.72
+> 87.74
+> 87.76 012345AVG. MAE AVG. ACC.
+> RATE(cla) RATE(reg)
+> 87.66
+> 87.68 87.71 87.72 87.74 87.75
+> 0.326 0.325
+> 0.322 0.32 0.317 0.314
+> 0.3
+> 0.305 0.31 0.315 0.32 0.325 0.33 0.335 0.34
+> 87.6
+> 87.62 87.64 87.66 87.68 87.7 87.72 87.74 87.76 012345
+> AVG. MAE
+> AVG. ACC.
+> RS(cla) RS(reg)
+> (a) N o. of Arrows added for CHR (𝑘 ℎ)(b) No. of Arrows added for COR (𝑘 o)
+
+Figure 7: Evaluation for Impacts of CHR and COR 
+
+by higher encoding layers to gradually learn the larger-scale and more precise time series dynamics better for classification. To validate the hypothesis, we control the addition of arrows (see Figure 4) to the RP-recovery module to show the impacts of CHR and COR. Specifically, starting from RATE , we add red arrows for CHR, i.e., the arrow from {𝑧 𝐾 −1 
+
+> 𝑡
+
+} to 𝑅𝑃 ′ 
+
+> 𝐾 −1
+
+, the arrow from {𝑧 𝐾 −2 
+
+> 𝑡
+
+} to 
+
+𝑅𝑃 ′ 
+
+> 𝐾 −2
+
+, ..., till the red arrow from {𝑧 1 
+
+> 𝑡
+
+} to 𝑅𝑃 ′
+
+> 1
+
+, one by one. We denote the number of added CHRs as 𝑘 ℎ (RATE is the case with 𝑘 ℎ = 0) and we set 𝐾 = 6. Figure 7(a) shows the performance for classification (orange line) and regression (blue line) with different 𝑘 ℎ . We observe that as 𝑘 ℎ increases, the accuracy increases from 87.65% to 87.75% (this is not small compared to the baselines). Meanwhile, the MAE for regression drops from 0.315 to 0.314, which is not obvious. The results suggest that CHRs, which guide the final representations to capture the lower-granularity (but more precise) time series dynamics better, mainly benefit time series classification. Similarly, starting from RS, we add (𝐾 − 1) blue arrows for COR one by one, i.e., the arrow from {𝑧 𝐾 𝑡 } to 𝑅𝑃 ′ 
+
+> 𝐾 −1
+
+, the arrow from {𝑧 𝐾 𝑡 } to 𝑅𝑃 ′ 
+
+> 𝐾 −2
+
+,..., till the arrow from {𝑧 𝐾 𝑡 } to 𝑅𝑃 ′
+
+> 1
+
+. We use 𝑘 𝑜 to denote the number of arrows added. As shown in Figure 7(b), a larger 𝑘 𝑜 increases the accuracy for classification and decreases the MAE for regression, suggesting that COR helps representations to capture more detailed higher-granularity time series dynamics in lower RPs to benefit both classification and regression. 
+
+## 5.4 Smart for Multi-variate Time Series 
+
+In this section, we collect 9 UEA multi-variate time series datasets to evaluate SMart. Considering that 9 datasets may not be sufficient to learn a good Source Selector, we borrow the 85 uni-variate datasets to train the Source Selector. An intuitive question is “whether the Source Selector learned with only uni-variate time series suitable for representation transfer among multi-variate datasets?” If not, how to improve it? To answer the question, we randomly divide the 9 multi-variate datasets into 3 groups, each of which includes 3 datasets, for potential training, validation and testing, respectively. Specifically, we have three plans to train the Source Selector: 1) we learn the Source Selector with uni-variate datasets only; 2) we also exploit the validation group of multi-variate datasets for validation to select the Source Selector; and 3) in addition to plan 2, we exploit the training group multi-variate time series datasets to form dataset pairs as well to train the Source Selector. Finally, we evaluate the SMart with the Source Selector trained in the three plans, respectively, on the testing group of multi-variate datasets for classification and regression, respectively. As shown in Figure 8(a), plan 3 performs the best (79.07% in terms of accuracy for classification and 0.26 in terms of MAE for                     
+
+> 976.3 78.65 79.07
+> 0.32 0.28 0.26
+> 00.05
+> 0.1
+> 0.15 0.2
+> 0.25
+> 0.3 0.35
+> 0.4
+> 0.45
+> 0.5
+> 70 72
+> 74
+> 76 78 80
+> 82 84
+> Plan 1 Plan 2 Plan 3 AVG. MAE AVG. ACC.
+> classification regression
+> 76.96 77.34 76.8 78.45 79.07 0.30 0.31 0.33 0.29 0.26 0.00
+> 0.05 0.10
+> 0.15
+> 0.20 0.25
+> 0.30
+> 0.35
+> 0.40 0.45
+> 0.50
+> 70
+> 72
+> 74
+> 76
+> 78
+> 80
+> 82
+> 84
+> ROCKET Rel-CNN DTW-FCN TST SMart AVG. MAE AVG. ACC.
+> classification regression
+> (a) Different Plans (b) Performance on Multi -variate Time Series
+
+Figure 8: Evaluation for Multi-variate Time Series 
+
+regression) among all the three plans, which supports the idea of including the multi-variate time series in the training group. In addi-tion, we observe that SMart in plan 2 outperforms that in plan 1 for both two tasks, suggesting that including multi-variate time series for validation also benefits the source selection. Finally, Figure 8(b) shows the comparison among SMart and the baseline frameworks on the multi-variate time series datasets for classification and re-gression. The experimental results show that SMart outperforms the baselines consistently in both downstream tasks, validating the effectiveness of the representations learned by SMart. 
+
+## 6 CONCLUSION 
+
+In this paper, we study the problem of time series representation learning and transfer. We propose the SMart framework which in-corporates 1) an RP-recovery task as part of encoder pre-training to improve the quality of time series representation learning; and 2) a Source Selector to select proper source datasets for pre-training the time series encoder for representation transfer. We empirically eval-uate the SMart framework on both uni-variate and multi-variate datasets to validate its effectiveness. As for the next step, we plan to explore more neural network structures for Source Selector to elim-inate the time complexity without compromising the performance. Also, we plan to train Source Selector with more multi-variate time series datasets. 
+
+## REFERENCES 
+
+[1] Anthony Bagnall, Hoang Anh Dau, Jason Lines, Michael Flynn, James Large, Aaron Bostrom, Paul Southam, and Eamonn Keogh. 2018. The UEA multivariate time series classification archive, 2018. arXiv preprint arXiv:1811.00075 (2018). [2] Anthony Bagnall, Jason Lines, Aaron Bostrom, James Large, and Eamonn Keogh. 2017. The great time series classification bake off: a review and experimental evaluation of recent algorithmic advances. Data mining and knowledge discovery 
+
+31 (2017), 606–660. [3] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. 2020. Language models are few-shot learners. Advances in neural information processing systems 33 (2020), 1877–1901. [4] Angus Dempster, François Petitjean, and Geoffrey I Webb. 2020. ROCKET: excep-tionally fast and accurate time series classification using random convolutional kernels. Data Mining and Knowledge Discovery 34, 5 (2020), 1454–1495. [5] Houtao Deng, George Runger, Eugene Tuv, and Martyanov Vladimir. 2013. A time series forest for classification and feature extraction. Information Sciences 
+
+239 (2013), 142–153. [6] Emily L Denton et al. 2017. Unsupervised learning of disentangled representations from video. In Advances in neural information processing systems . 4414–4423. [7] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2018. Bert: Pre-training of deep bidirectional transformers for language understanding. arXiv preprint arXiv:1810.04805 (2018). [8] JP Eckmann, S Oliffson Kamphorst, D Ruelle, et al. 1995. Recurrence plots of dynamical systems. World Scientific Series on Nonlinear Science Series A 16 (1995), 441–446. [9] Emadeldeen Eldele, Mohamed Ragab, Zhenghua Chen, Min Wu, Chee Keong Kwoh, Xiaoli Li, and Cuntai Guan. 2021. Time-series representation learning via temporal and contextual contrasting. arXiv preprint arXiv:2106.14112 (2021). [10] Hassan Ismail Fawaz, Germain Forestier, Jonathan Weber, Lhassane Idoumghar, and Pierre-Alain Muller. 2018. Data augmentation using synthetic data for time series classification with deep residual networks. arXiv preprint arXiv:1808.02455 
+
+(2018). [11] Hassan Ismail Fawaz, Germain Forestier, Jonathan Weber, Lhassane Idoumghar, and Pierre-Alain Muller. 2018. Transfer learning for time series classification. In 
+
+2018 IEEE international conference on big data (Big Data) . IEEE, 1367–1376. [12] Michael Flynn, James Large, and Tony Bagnall. 2019. The contract random inter-val spectral ensemble (c-RISE): the effect of contracting a classifier on accuracy. In International Conference on Hybrid Artificial Intelligence Systems . Springer, 381–392. [13] Vincent Fortuin, Matthias Hüser, Francesco Locatello, Heiko Strathmann, and Gunnar Rätsch. 2018. SOM-VAE: Interpretable Discrete Representation Learning on Time Series. arXiv preprint arXiv:1806.02199 (2018). [14] Jean-Yves Franceschi, Aymeric Dieuleveut, and Martin Jaggi. 2019. Unsupervised Scalable Representation Learning for Multivariate Time Series. arXiv preprint arXiv:1901.10738 (2019). [15] André Gensler, Janosch Henze, Bernhard Sick, and Nils Raabe. 2016. Deep Learning for solar power forecasting—An approach using AutoEncoder and LSTM Neural Networks. In 2016 IEEE international conference on systems, man, and cybernetics (SMC) . IEEE, 002858–002865. [16] Fang He, Tao-yang Fu, and Wang-Chien Lee. 2022. Rel-CNN: Learning Relation-ship Features in Time Series for Classification. IEEE Transactions on Knowledge and Data Engineering (2022), 1–14. https://doi.org/10.1109/TKDE.2022.3186963 [17] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition . 770–778. [18] Jon Hills, Jason Lines, Edgaras Baranauskas, James Mapp, and Anthony Bagnall. 2014. Classification of time series by shapelet transformation. Data mining and knowledge discovery 28, 4 (2014), 851–881. [19] Hassan Ismail Fawaz, Benjamin Lucas, Germain Forestier, Charlotte Pelletier, Daniel F Schmidt, Jonathan Weber, Geoffrey I Webb, Lhassane Idoumghar, Pierre-Alain Muller, and François Petitjean. 2020. Inceptiontime: Finding alexnet for time series classification. Data Mining and Knowledge Discovery 34, 6 (2020), 1936–1962. [20] Matthew B Kennel, Reggie Brown, and Henry DI Abarbanel. 1992. Determin-ing embedding dimension for phase-space reconstruction using a geometrical construction. Physical review A 45, 6 (1992), 3403. [21] Alex Krizhevsky, Ilya Sutskever, and Geoffrey E Hinton. 2017. Imagenet classi-fication with deep convolutional neural networks. Commun. ACM 60, 6 (2017), 84–90. [22] Qi Lei, Jinfeng Yi, Roman Vaculin, Lingfei Wu, and Inderjit S Dhillon. 2017. Similarity preserving representation learning for time series analysis. arXiv preprint arXiv:1702.03584 (2017). [23] Yuening Li, Zhengzhang Chen, Daochen Zha, Mengnan Du, Jingchao Ni, Denghui Zhang, Haifeng Chen, and Xia Hu. 2022. Towards Learning Disentangled Repre-sentations for Time Series. In Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . 3270–3278. [24] Jason Lines and Anthony Bagnall. 2015. Time series classification with ensembles of elastic distance measures. Data Mining and Knowledge Discovery 29, 3 (2015), 565–592. [25] Jason Lines, Sarah Taylor, and Anthony Bagnall. 2016. Hive-cote: The hierarchical vote collective of transformation-based ensembles for time series classification. In 
+
+2016 IEEE 16th international conference on data mining (ICDM) . IEEE, 1041–1046. [26] Benjamin Lucas, Ahmed Shifaz, Charlotte Pelletier, Lachlan O’Neill, Nayyar Zaidi, Bart Goethals, François Petitjean, and Geoffrey I Webb. 2019. Proximity forest: an effective and scalable distance-based classifier for time series. Data Mining and Knowledge Discovery 33, 3 (2019), 607–635. [27] Xinrui Lyu, Matthias Hüser, Stephanie L Hyland, George Zerveas, and Gunnar Rätsch. 2018. Improving clinical predictions through unsupervised time series representation learning. arXiv preprint arXiv:1812.00490 (2018). [28] Pankaj Malhotra, Vishnu TV, Lovekesh Vig, Puneet Agarwal, and Gautam Shroff. 2017. TimeNet: Pre-trained deep recurrent neural network for time series classi-fication. arXiv preprint arXiv:1706.08838 (2017). [29] Norbert Marwan, M Carmen Romano, Marco Thiel, and Jürgen Kurths. 2007. Recurrence plots for the analysis of complex systems. Physics reports 438, 5-6 (2007), 237–329. [30] Gary McGuire, Nabeel B Azar, and Mark Shelhamer. 1997. Recurrence matrices and the preservation of dynamical properties. Physics Letters A 237, 1-2 (1997), 43–47. [31] Aaron van den Oord, Yazhe Li, and Oriol Vinyals. 2018. Representation learning with contrastive predictive coding. arXiv preprint arXiv:1807.03748 (2018). [32] Aaqib Saeed, Tanir Ozcelebi, and Johan Lukkien. 2019. Multi-task self-supervised learning for human activity detection. Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies 3, 2 (2019), 1–30. [33] Pritam Sarkar and Ali Etemad. 2020. Self-supervised ECG representation learning for emotion recognition. IEEE Transactions on Affective Computing (2020). 
+
+> 10
+
+[34] Ahmed Shifaz, Charlotte Pelletier, François Petitjean, and Geoffrey I Webb. 2020. TS-CHIEF: a scalable and accurate forest algorithm for time series classification. 
+
+Data Mining and Knowledge Discovery 34, 3 (2020), 742–775. [35] Karen Simonyan and Andrew Zisserman. 2014. Very deep convolutional networks for large-scale image recognition. arXiv preprint arXiv:1409.1556 (2014). [36] Ruben Villegas, Jimei Yang, Seunghoon Hong, Xunyu Lin, and Honglak Lee. 2017. Decomposing motion and content for natural video sequence prediction. arXiv preprint arXiv:1706.08033 (2017). [37] Gerald Woo, Chenghao Liu, Doyen Sahoo, Akshat Kumar, and Steven Hoi. 2022. CoST: Contrastive learning of disentangled seasonal-trend representations for time series forecasting. arXiv preprint arXiv:2202.01575 (2022). [38] Zhilin Yang, Zihang Dai, Yiming Yang, Jaime Carbonell, Russ R Salakhutdinov, and Quoc V Le. 2019. Xlnet: Generalized autoregressive pretraining for language understanding. Advances in neural information processing systems 32 (2019). [39] Zhihan Yue, Yujing Wang, Juanyong Duan, Tianmeng Yang, Congrui Huang, Yunhai Tong, and Bixiong Xu. 2022. Ts2vec: Towards universal representation of time series. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 36. 8980–8987. [40] George Zerveas, Srideepika Jayaraman, Dhaval Patel, Anuradha Bhamidipaty, and Carsten Eickhoff. 2021. A transformer-based framework for multivariate time series representation learning. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining . 2114–2124.

@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-03</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-04</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 13 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>6</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-03 23:08:10 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-04 22:51:15 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日速览21篇论文，精读9篇，重点聚焦时间序列预测与LLM应用。</p>
-<p>高分亮点：LLM驱动长期混沌预测（9.0）与ODE不规则时空预测（9.0）最值得深读。</p>
-<p>建议优先关注频率选择神经网络与高效SWE基准测试，拓展时序学习与代码评估视野。</p>
+<p>今日更新13篇论文，其中7篇精读、6篇速读。最值得关注的是两篇9.0分精读：结合Butterworth滤波与Mamba的交通流预测模型，以及解耦观测与模型贡献的端到端不确定感知AI天气预报。若想快速拓展视野，可留意8.0分的物理感知大模型纳米光子设计框架；建议优先阅读两篇高分精读并顺览速读摘要。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Predicting the Unpredictable: LLM-powered Long-term Chaotic Time Series Forecasting under Short-term Observations">Predicting the Unpredictable: LLM-powered Long-term Chaotic Time Series Forecasting under Short-term Observations</span></li><li><span class="dpr-home-dashboard-paper-title" title="LLMODE: Aligning ODEs with LLMs via Gated Token Injection for Irregular Spatio-Temporal Forecasting">LLMODE: Aligning ODEs with LLMs via Gated Token Injection for Irregular Spatio-Temporal Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="SwarmBench: Can Large Language Models Act as Agent Swarm Orchestrators?">SwarmBench: Can Large Language Models Act as Agent Swarm Orchestrators?</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ButterMamba: Butterworth-Enhanced Spatial-Temporal Mamba for Efficient Traffic Flow Prediction">ButterMamba: Butterworth-Enhanced Spatial-Temporal Mamba for Efficient Traffic Flow Prediction</span></li><li><span class="dpr-home-dashboard-paper-title" title="Uncertainty-Aware End-to-End AI Weather Forecasting: Disentangling Observation and Model Contributions">Uncertainty-Aware End-to-End AI Weather Forecasting: Disentangling Observation and Model Contributions</span></li><li><span class="dpr-home-dashboard-paper-title" title="Poisson-Gamma Dynamical Systems with Time-varying Transition Dynamics">Poisson-Gamma Dynamical Systems with Time-varying Transition Dynamics</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>5</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Frequency Selective Neural Networks as a Foundation Architecture for Time Series Learning">Frequency Selective Neural Networks as a Foundation Architecture for Time Series Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Efficient SWE Agent Benchmarking via Trajectory-Aware Evaluation">Efficient SWE Agent Benchmarking via Trajectory-Aware Evaluation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DeepAffinity: Long-Term Aspect Preference Prediction in eCommerce using Small Language Models">DeepAffinity: Long-Term Aspect Preference Prediction in eCommerce using Small Language Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="HALO: A Physics-Aware LLM Agent Framework for Nanophotonic Design">HALO: A Physics-Aware LLM Agent Framework for Nanophotonic Design</span></li><li><span class="dpr-home-dashboard-paper-title" title="Resource Constraints and Performance in Agentic AI Systems">Resource Constraints and Performance in Agentic AI Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="PersonaForge: Realistic Multi-Turn User Simulation for Agentic Systems">PersonaForge: Realistic Multi-Turn User Simulation for Agentic Systems</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>8</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>2</strong></span></div>
 </section>
 </div>
 

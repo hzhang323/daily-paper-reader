@@ -1,0 +1,1315 @@
+Season-Aware Hybrid Convolutional-Transformer for
+Antarctic Sea Ice Concentration Forecasting
+Danyang Li1
+John Taylor1,∗
+Thang Bui1
+Quanling Deng1,2,∗
+1School of Computer Science, Australian National University, Canberra, ACT 2601, Australia
+2Yau Mathematical Sciences Center, Tsinghua University, Beijing, China
+danyang.li@anu.edu.au, john.taylor@anu.edu.au,
+thang.bui@anu.edu.au, quanling.deng@anu.edu.au, quanling.deng@anu.edu.au
+∗Corresponding authors
+Abstract
+Antarctic sea ice concentration (SIC) forecasting is an important yet challenging task due
+to the coexistence of complex spatial structure, long-range temporal dependencies, and strong
+seasonal variability. Conventional convolution-based models are effective at capturing local
+spatial patterns, but often have limited ability to model long-term temporal evolution. To
+address these challenges, we build on a hybrid Convolutional-Transformer forecasting framework
+for monthly Antarctic SIC forecasting. This framework combines convolutional encoding for
+spatial feature extraction with factorised self-attention for spatio-temporal dependency modelling.
+We further introduce two seasonal prior mechanisms: a month-aware positional encoding that
+injects calendar-month information into the token representation, and a seasonal temporal bias
+that encourages attention to periodically related historical states. Experimental results show that
+the proposed framework achieves better performance than convolutional and recurrent baselines
+across both classification and regression metrics. Ablation studies further indicate that the
+seasonal prior mechanisms provide consistent additional gains in both short- and long-horizon
+prediction. These results demonstrate the value of combining convolutional structures, attention
+mechanisms, and periodic prior information for Antarctic SIC forecasting.
+1
+Introduction
+Antarctic sea ice is a critical component of the Earth’s climate system, modulating global energy
+balance, ocean circulation, and polar ecosystems [28, 20]. Unlike the Arctic, Antarctic sea ice
+exhibits pronounced interannual variability and strong regional heterogeneity, with record lows
+and partial recoveries observed in recent decades [21, 12]. Reliable prediction of Antarctic sea
+ice concentration (SIC) on seasonal (multi-month) timescales is therefore important for climate
+monitoring and downstream applications such as polar logistics and marine operations. Yet Antarctic
+SIC forecasting remains challenging due to coupled thermodynamic processes, sharp gradients at the
+ice edge, and a strong but non-stationary seasonal cycle [10], making it a difficult spatio-temporal
+sequence-to-sequence learning problem.
+Sea ice forecasting has traditionally relied on coupled numerical models that explicitly simulate
+thermodynamic and dynamic processes, including ocean-ice interactions, wind forcing, and heat
+exchange [18, 5, 31]. Representative systems such as Global Sea Ice 6.0, a CICE-based sea-ice model
+configuration developed for the Met Office Global Coupled model, form the backbone of many
+operational forecasting frameworks [22]. While these physics-based approaches provide physically
+1
+arXiv:2608.30654v1  [cs.LG]  31 Aug 2026
+
+
+consistent predictions, they are computationally expensive and often require substantial effort for
+calibration and data assimilation, which limit their flexibility for rapid or high-frequency forecasting.
+As computationally efficient alternatives, statistical and empirical methods have also been
+explored for sea-ice prediction based on historical observations and climate predictors, these
+approaches typically exploit temporal correlations and large-scale climate indices [7, 11, 33, 15, 23].
+However, despite their computational efficiency, many traditional statistical models rely on simplified
+linear or probabilistic assumptions, which may limit their ability to represent complex nonlinear
+interactions within the sea-ice system, particularly under extreme or rapidly changing conditions
+[35].
+Recent advances in machine learning have introduced data-driven alternatives for sea ice
+prediction. Convolutional neural networks (CNNs) and their variants have demonstrated promising
+skill by learning spatial features directly from gridded SIC fields [24, 1, 16]. Notably, IceNet [1]
+showed that deep CNN architectures can leverage multi-source climate inputs to achieve competitive
+seasonal forecasting performance. However, CNN-based approaches primarily operate as spatial
+pattern recognisers and lack explicit mechanisms to model long-range temporal dependencies, which
+are critical for multi-month prediction. To incorporate temporal dynamics, other models with spatio-
+temporal recurrent architectures such as Convolutional Long Short-Term Memory (ConvLSTM) and
+Predictive Recurrent Neural Networks (PredRNN) introduce temporal memory [26, 27, 14, 30]. By
+embedding convolutional operations within recurrent units, these models preserve spatial structure
+while evolving temporal states. Nevertheless, their reliance on local convolutional kernels may
+limit their ability to capture spatial interactions across the polar domain, and training can become
+increasingly challenging for longer forecasting horizons.
+More recently, attention-based models and Transformers have emerged as a promising alternative
+for modelling long-range dependencies in spatio-temporal systems [29, 6]. Self-attention mechanisms
+enable global information exchange across both space and time, which is particularly advantageous
+for capturing large-scale climate teleconnections [9, 19]. However, directly applying Transformer
+architectures to high-resolution geophysical fields remains computationally challenging due to the
+quadratic complexity of self-attention with respect to the number of spatial tokens. Notably, works
+such as TimeSformer [4] demonstrated that factorizing global self-attention into separate spatial and
+temporal operations drastically reduces computational complexity while maintaining state-of-the-art
+performance. Similar divided space-time attention paradigms have since been widely adopted across
+video vision transformers [2, 17]. However, directly applying these generic video architectures
+to high-resolution geophysical fields remains computationally challenging and physically agnostic,
+necessitating domain-specific adaptations to manage the spatial token scale and respect the seasonal
+cycles.
+To address these challenges, we propose a Convolutional-Transformer framework for Antarctic
+SIC forecasting that combines convolutional spatial feature extraction with Transformer-based
+spatio-temporal dependency modeling. Our main contributions are as following:
+1. Convolutional-Transformer architecture with bottleneck attention: We develop
+a Convolutional encoder-decoder for high-resolution spatial reconstruction, and insert a
+Transformer bottleneck that performs global spatio-temporal mixing only at a compressed
+resolution, enabling multi-month forecasting at feasible GPU cost.
+2. Month-aware Positional Encoding (MonthPE): To avoid an intractable 3D positional
+lookup table, we factorize physical priors into three distinct embeddings. This includes a
+standard spatial encoding, standard temporal encoding, and a Fourier-based seasonal encoding
+that encodes the strong seasonal periodicity of monthly sea ice.
+2
+
+
+3. Periodicity-Aware Temporal Attention Bias (SeasonBias): We implement a divided
+space-time attention scheme to manage computational complexity. We augment the temporal
+attention logits with a learnable seasonal bias based on the circular distance of the annual
+cycle, directly modulating query-key interactions to respect seasonal states.
+2
+Problem Statement and Data
+We frame Antarctic SIC forecasting as a deterministic spatio-temporal sequence-to-sequence predic-
+tion problem, where the model produces point forecasts of future monthly SIC fields. Let the polar
+environment at a given time step t be represented by a 3D spatial grid Xt ∈RCin×H×W denote the
+monthly SIC input field, where Cin is the input channel, in this study Cin = 1 because only SIC
+is used as input, H and W denote the spatial height and width. Given a historical observation
+window of T contiguous time steps, X = {Xt−T+1, Xt−T+2, . . . , Xt} ∈RT×Cin×H×W , the objective
+is to learn a mapping function Fθ, parameterized by a neural network, to predict the future states
+over the next K forecast time steps:
+ˆY = { ˆYt+1, ˆYt+2, . . . , ˆYt+K} = Fθ(X)
+(1)
+Unlike standard video prediction tasks, Earth system modeling is strictly bounded by static
+geographical topologies. Consequently, the prediction space is constrained by a binary land mask
+M ∈{0, 1}H×W , requiring the model to learn SIC state changes exclusively within valid ocean
+pixels (Mi,j = 1).
+To train and evaluate our framework, we utilize the authoritative Sea Ice Index, Version 3 dataset
+provided by the National Snow and Ice Data Center (NSIDC)[8]. This dataset is derived from
+a continuous, multi-decadal satellite record of passive microwave observations (including SMMR,
+SSM/I, and SSMIS sensors), providing a highly consistent benchmark for climatological machine
+learning. The dataset provides monthly observations mapped to a polar stereographic projection at
+a spatial resolution of 25×25km2 per pixel. For our network architecture, the raw Antarctic gridded
+data is uniformly cropped and padded to yield a native spatial tensor of H = 352 and W = 352.
+The dataset is divided into training, validation, and testing periods in chronological order. We use
+data from 1978 to 2011 for training, data from 2012 to 2018 for validation, and data from 2019 to
+2024 for testing. All input-output windows are also constructed chronologically, and target months
+from the validation and test periods are excluded from training.
+In this study, we formulate Antarctic sea-ice forecasting as a dual-output prediction problem.
+For each step k ∈{1, . . . , K}, the model predicts both a continuous SIC field and a discrete sea-ice
+state map:
+ˆYt+k =
+
+ˆY reg
+t+k, ˆY cls
+t+k
+
+,
+(2)
+where
+1. Regression Target ˆY reg
+t+k ∈RH×W : The raw SIC values (normalized to a scale of [0, 1]) is the
+continuous prediction. It is used to evaluate concentration forecasting skill and to support
+autoregressive rollout, where the predicted SIC field is fed back into the model for next forecast
+step.
+2. Classification Target ˆY cls
+t+k ∈R3×H×W : We derive the same SIC field by assigning each valid
+pixel to one of three physical states: Open Water(SIC < 15%), Marginal Ice(15% ≤SIC ≤80%)
+and Full Ice(SIC > 80%) [1, 3, 34]. This discrete formulation provides a complementary
+supervision signal that reduces sensitivity to small uncertainties in the continuous SIC values,
+particularly near the ice-water border and within the marginal ice zone.
+3
+
+
+Figure 1: Overall structure.
+Our models are trained using a historical input window of T = 12 monthly Antarctic SIC maps to
+autoregressively predict up to K = 12 future months. During evaluation, we additionally compute
+a binary ice-extent metric by merging the Marginal Ice and Full Ice classes and applying the
+conventional 15% threshold [3, 34].
+3
+Transformer and Overall Framework
+To address the compounding errors and spatial blurring inherent in long-horizon polar forecasting,
+we propose a hybrid spatio-temporal architecture that combines convolutional feature extraction
+with a factorized self-attention bottleneck. The convolutional encoder-decoder learns local spatial
+representations of SIC fields, while the temporal and spatial attention modules capture long-range
+dependencies and seasonally varying evolution patterns. The model further uses dual prediction
+heads to jointly produce continuous SIC forecasts for autoregressive rollout and discrete sea-ice
+state predictions for classification-based evaluation.
+3.1
+Spatio-Temporal Tokenization
+Let X ∈RB×T×Cin×H×W denote a batch of historical SIC sequences, where B is the batch size. We
+first apply a frame-wise CNN encoder, denoted as E(·), with a downsampling depth 3 to extract
+local morphological features and obtain a compact bottleneck representation. The encoder is applied
+independently to each monthly frame with shared weights:
+Fb,t = E(Xb,t),
+Fb,t ∈RC′×H′×W ′.
+(3)
+where C′ is the bottleneck channel dimension, H′, W ′ are bottleneck spatial resolution. We flatten
+the spatial dimensions of F into S = H′W ′ tokens:
+U = reshape(F) ∈RB×T×C′×S.
+(4)
+This convolutional tokenization reduces the full spatio-temporal token length from THW at the
+image resolution to TS at the bottleneck resolution, where S ≪HW. The resulting token sequence
+4
+
+
+enables efficient factorized spatio-temporal attention, while the convolutional encoder-decoder retains
+local spatial structure for dense sea-ice prediction.
+3.2
+Month-Aware Positional Encoding
+Monthly sea ice exhibits strong seasonal periodicity; months with the same calendar index across
+different years share similar large-scale seasonal conditions. To inject strict geographic, relative
+temporal, and calendar-seasonal information into the token sequence without relying on an intractable
+3D positional lookup table, we introduce a factorized spatio-temporal positional encoding:
+Zb,t,n = Ub,t,n + ps
+n + pt
+t + pm
+mt,
+Zb,t,n ∈RC,
+(5)
+where b, t, and n index the batch element, input timestep, and spatial token, respectively; mt ∈
+{0, . . . , 11} denotes the calendar month associated with timestep t; and Zb,t,n is the position-
+augmented token passed to the Transformer.
+Rather than a generic sequence identifier, this factorization separates physical priors into
+three distinct embeddings: (i) Let Ps ∈RS×C represent the full spatial embedding table, and
+ps
+n = Ps[n] ∈RC is the embedding for spatial token n.
+The spatial positional encoding is
+implemented as a learnable tensor which is added to the bottleneck feature map and shared across
+all time steps. (ii) Pt ∈RT×C denotes the fixed sinusoidal temporal positional encoding, and
+pt
+t = Pt[t] ∈RC. (iii) pm
+mt ∈RC denotes the Fourier-based calendar-month embedding, referred to
+MonthPE in the following. For each month index m ∈0, . . . , 11, we define a fixed Fourier basis:
+Φ(m) =
+
+sin
+2πm
+12
+
+, cos
+2πm
+12
+
+, . . . , sin
+2πKfm
+12
+
+, cos
+2πKfm
+12
+⊤
+∈R2Kf ,
+(6)
+where Kf denotes the number of Fourier modes. In our implementation, we set Kf = 4, which
+allows the month encoding to retain the annual, semiannual, and several higher-order seasonal
+harmonics. This choice provides a balance between expressiveness and simplicity: it is sufficiently
+rich to represent non-sinusoidal seasonal patterns in monthly sea-ice evolution, while avoiding
+unnecessarily high-frequency components for a 12-month calendar. The Fourier basis is then mapped
+into the token space by a learnable projection Wm,
+pm
+mt = WmΦ(mt),
+Wm ∈RC×2Kf .
+(7)
+The resulting MonthPE is added to every spatial token at time step t, allowing the model to use an
+explicit 12-month periodic prior while learning how to mix different seasonal harmonics.
+3.3
+Separable Spatio-Temporal Attention
+Computing global self-attention over the full spatio-temporal token sequence of length TS incurs
+a computational cost of O((TS)2C′), which becomes prohibitive for high-resolution inputs and
+long temporal contexts. Following [4], we therefore adopt a divided space-time attention scheme,
+where attention is factorized into a temporal operator and a spatial operator applied sequentially.
+Specifically, temporal attention is performed independently for each spatial token, and spatial
+attention is then performed independently for each time step. This mechanism reduces the attention
+complexity to O(T 2SC′ + S2TC′), where the first term corresponds to temporal attention and the
+second to spatial attention.
+5
+
+
+On top of this factorized attention, we introduce a seasonal bias in the temporal attention logits
+to encode month-level periodic structure. Let mq, mk ∈{0, . . . , 11} denote the indices associated
+with query timestep q and key timestep k. We define their circular distance on the annual cycle as
+δqk = min (|mq −mk|, 12 −|mq −mk|) ,
+δqk ∈{0, . . . , 6}.
+(8)
+Using this distance, we construct a pairwise bias
+bqk = α cos
+2πδqk
+12
+
+,
+α ∈R,
+(9)
+where α is a learnable scalar controlling the strength of the seasonal attention bias, it is learned
+separately for each temporal attention layer. Positive values of α encourage attention between
+seasonally aligned months, whereas negative values allow the model to reverse this preference if
+supported by the data. The resulting b ∈RT×T is layer-specific across batch elements, spatial
+tokens, and attention heads.
+Temporal attention is applied independently for each spatial token n. For each batch element,
+layer, and attention head, the temporal query, key, and value matrices satisfy Qt
+b,n, Kt
+b,n, V t
+b,n ∈RT×dh,
+where dh is the per-head feature dimension. The attention is then computed as
+Attnt(Qt, Kt, V t) = Softmax
+QtKt⊤
+√dh
++ b
+
+V t,
+(10)
+This bias acts as an additive prior over pairwise temporal interactions: timesteps from seasonally
+aligned months receive larger logits, whereas seasonally opposite months are relatively suppressed.
+Unlike positional encodings, which are injected into token representations, the proposed seasonal
+bias directly modulates the attention scores, thereby shaping the temporal dependency structure at
+the level of query-key interactions. The cosine form provides a simple and smooth periodic prior over
+the annual cycle, making it a natural choice for monthly geophysical data with strong seasonality.
+Since α is learned jointly with the rest of the network, the model can adaptively determine how
+strongly this seasonal prior should influence attention.
+For spatial attention, each timestep is processed independently across the S spatial tokens:
+Qs
+b,t, Ks
+b,t, V s
+b,t ∈RS×dh, and use standard scaled dot-product attention
+Attns(Qs, Ks, V s) = Softmax
+QsKs⊤
+√dh
+
+V s.
+(11)
+This allows the model to globally route information and capture long-range spatial dynamic
+dependencies across the grid, complementing the local patterns captured by the convolutional
+encoder.
+3.4
+Decoder and Autoregressive Forecasting
+To project the spatio-temporal tokens back into the physical domain, we apply a convolutional
+decoder, denoted as D(·). Following the attention bottleneck, the latent sequence is reshaped
+from TS back to the spatial grid RB×T×C′×H′×W ′. We utilize both U-Net and CNN backbone
+to get next-step prediction. For the UNet-based variant, skip connections from the encoder are
+used to inject high-resolution spatial features into the decoder. For the CNN-based variant, the
+decoder reconstructs the output directly from the bottleneck representation without multi-scale
+skip connections.
+6
+
+
+The one-step model can be written as
+
+ˆY reg
+t+1, ˆY cls
+t+1
+
+= Fθ (Xt−T+1:t) .
+(12)
+To achieve long-horizon polar forecasting, we employ an autoregressive loop. For forecast month
+ℓ= 1, . . . , K, the model is rolled out autoregressively as
+
+ˆY reg
+t+ℓ, ˆY cls
+t+ℓ
+
+= Fθ
+
+˜Xt+ℓ−T:t+ℓ−1
+
+,
+(13)
+where
+˜Xτ =
+(
+Xτ,
+τ ≤t,
+ˆY reg
+τ
+,
+τ > t. ,
+τ ∈[t −T + 1, t + K −1]
+(14)
+To mitigate the compounding errors inherent in autoregressive generation, we optimize the model
+using a multi-step forecasting loss. During training, we unroll the autoregressive loop for Ktrain = 2
+steps. During evaluation, the model is rolled out autoregressively for up to Keval = 12 months.
+4
+Experiments
+We evaluate the proposed hybrid framework through ablation studies and comparisons with several
+baseline models, including CNN, UNet, ConvLSTM, PredRNN and Transformer-based variants
+[25, 26, 30, 4]. The experimental setup and key hyperparameters are summarized in Table 5. For
+training, the classification branch uses Focal Loss to address class imbalance, with class weights
+set to [0.2, 0.3, 0.5] for open water, marginal ice, and full ice, respectively. The regression branch
+is optimized using mean squared error (MSE) loss. The two losses are combined with weights of
+0.1 and 0.9 for the classification and regression objectives. Performance is evaluated from both
+classification and regression perspectives using Accuracy, F1 score, mean F1 (mF1), and RMSE.
+Both the loss computation and the evaluation metrics are masked using a land-ocean mask, such
+that only valid ocean grid cells are included while land regions are excluded. All experiments are
+conducted on machines with single NVIDIA V100 GPUs.
+4.1
+Overall Performance Comparison
+We first compare the proposed model with several representative baseline methods to assess its overall
+forecasting performance. Figure 2 presents the multi-horizon forecasting performance of different
+models over a 12-month autoregressive prediction horizon. For continuous SIC prediction, the RMSE
+generally increases as the forecast horizon extends, reflecting the accumulation of uncertainty and
+error propagation during autoregressive rollout. Nevertheless, the Transformer-based hybrid models
+with seasonal priors achieve lower RMSE than the conventional convolutional and recurrent baselines
+across most forecast months. In particular, the proposed CNN+Trans+MonthPE+SeasonBias model
+maintains the lowest or near-lowest RMSE over the full prediction horizon, indicating improved
+long-range regression stability. For categorical SIC prediction, classification accuracy also decreases
+gradually with increasing forecast lead time. This trend is expected because later predictions rely
+increasingly on previously predicted states rather than ground-truth inputs. Despite this degradation,
+the proposed Convolutional-Transformer models with seasonal prior remain competitive across the
+12-month horizon and generally outperform the baselines. These results suggest that combining
+convolutional spatial encoding with Transformer-based temporal modelling and explicit seasonal
+prior information is beneficial for both continuous and categorical Antarctic SIC forecasting.
+7
+
+
+Figure 2: Comparison of multi-horizon forecasting performance across baseline and Transformer-
+based models over a 12-month autoregressive prediction horizon. The left panel shows the RMSE
+for continuous SIC prediction, while the right panel shows the classification accuracy for categorical
+SIC prediction. Markers denote the mean over repeated runs, and error bars represent the standard
+error.
+To further examine the spatial characteristics of the forecasts, Figure 3 provides a qualitative
+comparison of SIC classification maps for the 2023 prediction period. All models capture the
+dominant seasonal expansion and retreat of Antarctic sea ice, but visible differences appear near
+the marginal ice zone, where classification is more difficult due to stronger spatial variability. The
+recurrent and convolutional baselines tend to produce smoother or less accurate ice-edge structures,
+whereas the Transformer-based models with MonthPE and SeasonBias better preserve the seasonal
+evolution of the ice boundary. This visual comparison is consistent with the quantitative results in
+Figure 2, showing that explicit seasonal priors improve the model’s ability to represent both the
+timing and spatial structure of SIC evolution.
+4.2
+Ablation at Short- and Long-Horizon Forecast Steps
+Table 1: Step-1 test performance of different methods.
+Backbone
+Add on
+Cls3 Acc
+Cls3 mF1
+Cls2 Acc
+Cls2 F1
+Reg RMSE
+CNN+Trans
+-
+0.9371±0.0039
+0.8166±0.0060
+0.9727±0.0012
+0.9148±0.0081
+0.0679±0.0020
++MonthPE
+0.9392±0.0041
+0.8216±0.0062
+0.9745±0.0012
+0.9209±0.0071
+0.0658±0.0022
++SeasonBias
+0.9378±0.0040
+0.8182±0.0062
+0.9738±0.0011
+0.9173±0.0078
+0.0672±0.0022
++MonthPE+SeasonBias
+0.9420±0.0037
+0.8280±0.0063
+0.9751±0.0012
+0.9234±0.0069
+0.0653±0.0022
+UNet+Trans
+-
+0.9353±0.0036
+0.8087±0.0066
+0.9703±0.0013
+0.9046±0.0094
+0.0714±0.0021
++MonthPE
+0.9256±0.0044
+0.7827±0.0086
+0.9682±0.0017
+0.9011±0.0109
+0.0724±0.0024
++SeasonBias
+0.9340±0.0038
+0.8035±0.0067
+0.9712±0.0013
+0.9073±0.0092
+0.0710±0.0021
++MonthPE+SeasonBias
+0.9379±0.0039
+0.8119±0.0067
+0.9739±0.0013
+0.9190±0.0073
+0.0666±0.0021
+To further examine the effect of MonthPE and SeasonBias, we compare model performance
+at both the first and the last autoregressive prediction steps, as reported in Tables 1 and 2. This
+comparison allows us to assess the contribution of the proposed seasonal priors in both short-range
+prediction and long-horizon autoregressive forecasting.
+At step 1, the combined use of MonthPE and SeasonBias achieves the best performance for
+8
+
+
+Figure 3: Qualitative comparison of SIC classification forecasts for 2023. The first row shows the
+12-month input sequence from 2022, and the second row shows the corresponding ground-truth SIC
+classes for 2023. The remaining rows compare the predicted SIC class maps generated by different
+forecasting models. Grey regions indicate masked land or invalid areas.
+both CNN+Trans and UNet+Trans across all reported metrics. For CNN+Trans, adding MonthPE
+alone improves all metrics over the baseline, while SeasonBias also brings moderate gains. Their
+combination further improves the results, reducing the regression RMSE from 0.0679 to 0.0653 and
+increasing the Cls3 accuracy from 0.9371 to 0.9420. A similar trend is observed for UNet+Trans,
+where the combined setting achieves the best classification and regression performance, with the
+RMSE reduced from 0.0714 to 0.0666. These results suggest that the two seasonal components
+provide complementary short-range benefits by injecting calendar-month information into the token
+representation and guiding temporal attention toward seasonally related historical states.
+At step 12, the benefit of explicit seasonal priors becomes more evident under long-horizon
+autoregressive rollout. For CNN+Trans, the combination of MonthPE and SeasonBias consistently
+achieves the best performance across all metrics, improving Cls3 accuracy from 0.9036 to 0.9155
+and reducing RMSE from 0.1169 to 0.1058. This indicates that the proposed seasonal priors help
+stabilize long-range prediction when forecast errors accumulate over multiple autoregressive steps.
+For UNet+Trans, the combined setting achieves the best Cls3 accuracy, Cls2 accuracy, and Cls2 F1,
+while MonthPE alone gives slightly better Cls3 mF1 and RMSE. Therefore, unlike the CNN-based
+backbone where the full combination is consistently optimal, the UNet-based backbone shows a
+more metric-dependent response at the final rollout step. This may be because the UNet backbone
+already provides stronger multi-scale spatial representations through skip connections, making the
+additional seasonal constraints less uniformly beneficial for all metrics. Nevertheless, both MonthPE
+and SeasonBias generally improve long-horizon performance over the baseline, demonstrating the
+usefulness of seasonal prior information for monthly Antarctic SIC forecasting.
+9
+
+
+Table 2: Step-12 test performance of different methods.
+Backbone
+Add on
+Cls3 Acc
+Cls3 mF1
+Cls2 Acc
+Cls2 F1
+Reg RMSE
+CNN+Trans
+-
+0.9036±0.0047
+0.6995±0.0123
+0.9486±0.0020
+0.8159±0.0192
+0.1169±0.0035
++MonthPE
+0.9067±0.0052
+0.7239±0.0089
+0.9522±0.0019
+0.8395±0.0151
+0.1125±0.0034
++SeasonBias
+0.9098±0.0046
+0.7119±0.0112
+0.9511±0.0019
+0.8063±0.0206
+0.1194±0.0046
++MonthPE+SeasonBias
+0.9155±0.0046
+0.7490±0.0086
+0.9561±0.0019
+0.8583±0.0129
+0.1058±0.0034
+UNet+Trans
+-
+0.9080±0.0049
+0.7223±0.0101
+0.9531±0.0020
+0.8486±0.0135
+0.1114±0.0038
++MonthPE
+0.9123±0.0043
+0.7510±0.0077
+0.9551±0.0015
+0.8571±0.0141
+0.1026±0.0028
++SeasonBias
+0.9089±0.0048
+0.7288±0.0096
+0.9538±0.0018
+0.8543±0.0128
+0.1063±0.0036
++MonthPE+SeasonBias
+0.9147±0.0047
+0.7476±0.0077
+0.9576±0.0017
+0.8615±0.0127
+0.1033±0.0031
+Figure 4: Temporal attention heatmaps of UNet+Trans variants for representative forecast cases.
+Columns correspond to the baseline model, the model with MonthPE, the model with SeasonBias,
+and the model with both MonthPE and SeasonBias. Rows show predictions for June and December
+2023 at the first autoregressive step.
+4.3
+Temporal Attention
+To better understand how MonthPE and SeasonBias affect the temporal behaviour of the Transformer
+bottleneck, we visualise the temporal attention maps of different UNet+Trans variants in Figure
+4. The baseline UNet+Trans model produces relatively diffuse attention patterns, with only weak
+preference for particular key months. Adding MonthPE changes the attention distribution and
+introduces clearer month-dependent variation, suggesting that explicit calendar-month information
+affects how the model organises temporal memory. However, the attention remains comparatively
+smooth and does not impose a strong structural preference. In contrast, the models with SeasonBias
+show much clearer diagonal and banded structures. This indicates that the temporal attention is
+no longer distributed uniformly over the input sequence, but is guided towards seasonally related
+query-key pairs. The combined MonthPE+SeasonBias model preserves this periodic structure while
+also allowing the attention weights to vary with the target month. This behaviour is consistent with
+the design of SeasonBias, which directly modulates the temporal attention logits according to the
+circular distance between calendar months.
+Overall, these visualisations provide qualitative evidence that the proposed seasonal prior
+mechanisms affect the internal temporal routing of the Transformer bottleneck. MonthPE injects
+calendar information into the token representation, whereas SeasonBias more directly reshapes
+10
+
+
+the query-key attention pattern. Together, they encourage more seasonally structured temporal
+dependencies, which is consistent with the improved forecasting performance observed in the
+quantitative results.
+5
+Conclusions
+In this paper, we presented a hybrid Convolutional-Transformer framework for Antarctic SIC
+forecasting.
+The proposed model combines convolutional spatial representation learning with
+Transformer-based spatio-temporal dependency modeling, and further incorporates seasonal informa-
+tion through Fourier-based positional encoding and seasonal temporal bias attention. Experimental
+results showed that the architecture achieves competitive forecasting performance across both classi-
+fication and regression metrics. The ablation study further indicated that Fourier-based positional
+encoding and seasonal bias provides consistent benefits in both short- and long-range prediction.
+Overall, these results demonstrate the potential of hybrid convolutional and attention-based models
+for Antarctic SIC forecasting, especially when seasonal information is incorporated appropriately.
+Our work has certain limitations. The current framework is primarily data-driven and does
+not explicitly use physical knowledge of the Earth system, such as thermodynamic constraints,
+sea-ice dynamics, or coupled ocean-atmosphere information. Prior studies suggest that incorporat-
+ing physical constraints or scientific knowledge into learning-based models can improve physical
+consistency and robustness [13, 32]. Such information may help improve the prediction of fine-scale
+regions, including sharp ice-edge structures and local heterogeneous patterns. In addition, since
+the experiments are conducted on historical Antarctic SIC data, the robustness of the model under
+rare extreme events and future climate regimes remains uncertain. Future work will investigate
+physics-guided extensions and evaluate the proposed design across broader geophysical prediction
+settings.
+Beyond this scenario, the proposed design may also be applicable to a broader range of Earth
+science prediction problems with strong seasonal or cyclic behavior, and more generally to time-series
+forecasting tasks with known periodic patterns. Another direction is to develop more systematic
+interpretability analyses for attention-based SIC forecasting models. While the attention maps in
+this work provide a qualitative view of the learned temporal and spatial dependencies, future studies
+could compare these patterns across seasons, regions, and forecast horizons to assess whether the
+model consistently relies on physically meaningful information. Such analyses may help identify
+when the model captures stable seasonal relationships and when it relies on spurious correlations.
+References
+[1] Tom R Andersson, J Scott Hosking, Mar´ıa P´erez-Ortiz, Brooks Paige, Andrew Elliott, Chris
+Russell, Stephen Law, Daniel C Jones, Jeremy Wilkinson, Tony Phillips, et al. Seasonal Arctic
+sea ice forecasting with probabilistic deep learning. Nature communications, 12(1):5124, 2021.
+[2] Anurag Arnab, Mostafa Dehghani, Georg Heigold, Chen Sun, Mario Luˇci´c, and Cordelia
+Schmid. ViViT: A Video Vision Transformer. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision, pages 6836–6846, 2021.
+[3] Lauriane Batt´e, Ilona V¨alisuo, Matthieu Chevallier, Juan C Acosta Navarro, Pablo Ortega, and
+Doug Smith. Summer predictions of Arctic sea ice edge in multi-model seasonal re-forecasts.
+Climate Dynamics, 54(11):5013–5029, 2020.
+11
+
+
+[4] Gedas Bertasius, Heng Wang, and Lorenzo Torresani. Is Space-Time Attention All You Need
+for Video Understanding? In Proceedings of the International Conference on Machine Learning
+(ICML), July 2021.
+[5] E Blanchard-Wrigglesworth, RI Cullather, W Wang, J Zhang, and CM Bitz. Model forecast
+skill and sensitivity to initial conditions in the seasonal Sea Ice Outlook. Geophysical Research
+Letters, 42(19):8042–8048, 2015.
+[6] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,
+Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly,
+Jakob Uszkoreit, and Neil Houlsby. An Image is Worth 16x16 Words: Transformers for Image
+Recognition at Scale. In International Conference on Learning Representations, 2021.
+[7] Sheldon D Drobot, James A Maslanik, and Charles Fowler. A long-range forecast of Arctic
+summer sea-ice minimum extent. Geophysical Research Letters, 33(10), 2006.
+[8] F Fetterer, K Knowles, W N Meier, M Savoie, and A K Windnagel. Sea Ice Index, Version 3,
+2017.
+[9] Zhihan Gao, Xingjian Shi, Hao Wang, Yi Zhu, Yuyang Bernie Wang, Mu Li, and Dit-Yan
+Yeung. Earthformer: Exploring space-time transformers for earth system forecasting. Advances
+in Neural Information Processing Systems, 35:25390–25403, 2022.
+[10] William R Hobbs, Rob Massom, Sharon Stammerjohn, Phillip Reid, Guy Williams, and Walter
+Meier. A review of recent changes in Southern Ocean sea ice, their drivers and forcings. Global
+and Planetary Change, 143:228–250, 2016.
+[11] Sean Horvath, Julienne Stroeve, Balaji Rajagopalan, and William Kleiber. A Bayesian logistic
+regression for probabilistic forecasts of the minimum September Arctic sea ice cover. Earth
+and Space Science, 7(10):e2020EA001176, 2020.
+[12] Simon A Josey, Andrew JS Meijers, Adam T Blaker, Jeremy P Grist, Jenny Mecking, and
+Holly C Ayres. Record-low Antarctic sea ice in 2023 increased ocean heat loss and storms.
+Nature, 636(8043):635–639, 2024.
+[13] George Em Karniadakis, Ioannis G Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu
+Yang. Physics-informed machine learning. Nature Reviews Physics, 3(6):422–440, 2021.
+[14] Zhihui Lin, Maomao Li, Zhuobin Zheng, Yangyang Cheng, and Chun Yuan. Self-attention
+ConvLSTM for Spatiotemporal Prediction. In Proceedings of the AAAI conference on artificial
+intelligence, volume 34, pages 11531–11538, 2020.
+[15] RW Lindsay, Jinlun Zhang, AJ Schweiger, and MA Steele. Seasonal predictions of ice extent in
+the Arctic Ocean. Journal of Geophysical Research: Oceans, 113(C2), 2008.
+[16] Yang Liu, Laurens Bogaardt, Jisk Attema, and Wilco Hazeleger. Extended-range arctic sea
+ice forecast with convolutional long short-term memory networks. Monthly Weather Review,
+149(6):1673–1693, 2021.
+[17] Ze Liu, Jia Ning, Yue Cao, Yixuan Wei, Zheng Zhang, Stephen Lin, and Han Hu. Video swin
+transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 3202–3211, 2022.
+12
+
+
+[18] George L Mellor and Lakshmi Kantha. An Ice-Ocean Coupled Model. Journal of Geophysical
+Research: Oceans, 94(C8):10937–10954, 1989.
+[19] Tung Nguyen, Johannes Brandstetter, Ashish Kapoor, Jayesh K Gupta, and Aditya Grover.
+ClimaX: A Foundation Model for Weather and Climate. In 1st Workshop on the Synergy of
+Scientific and Machine Learning Modeling @ ICML2023, 2023.
+[20] Claire L Parkinson. A 40-y record reveals gradual Antarctic sea ice increases followed by
+decreases at rates far exceeding the rates seen in the Arctic. Proceedings of the National
+Academy of Sciences, 116(29):14414–14423, 2019.
+[21] Ariaan Purich and Edward W Doddridge. Record low Antarctic sea ice coverage indicates a
+new sea ice state. Communications Earth & Environment, 4(1):314, 2023.
+[22] JGL Rae, HT Hewitt, AB Keen, JK Ridley, AE West, CM Harris, Elizabeth Clare Hunke,
+and DN Walters. Development of the global sea ice 6.0 CICE configuration for the Met Office
+global coupled model. Geoscientific Model Development, 8(7):2221–2230, 2015.
+[23] Pierre Rampal, J´erˆome Weiss, and David Marsan. Positive trend in the mean speed and
+deformation rate of Arctic sea ice, 1979–2007. Journal of Geophysical Research: Oceans,
+114(C5), 2009.
+[24] Yibin Ren, Xiaofeng Li, and Wenhao Zhang. A data-driven deep learning model for weekly sea
+ice concentration prediction of the pan-arctic during the melting season. IEEE Transactions
+on Geoscience and Remote Sensing, 60:1–19, 2022.
+[25] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for
+biomedical image segmentation. In International Conference on Medical image computing and
+computer-assisted intervention, pages 234–241. Springer, 2015.
+[26] Xingjian Shi, Zhourong Chen, Hao Wang, Dit-Yan Yeung, Wai-Kin Wong, and Wang-chun
+Woo. Convolutional LSTM network: A machine learning approach for precipitation nowcasting.
+Advances in neural information processing systems, 28, 2015.
+[27] John Taylor and Ming Feng. A deep learning model for forecasting global monthly mean sea
+surface temperature anomalies. Frontiers in Climate, 4:932932, 2022.
+[28] John Turner, J Scott Hosking, Thomas J Bracegirdle, Gareth J Marshall, and Tony Phillips.
+Recent changes in Antarctic sea ice.
+Philosophical Transactions of the Royal Society A:
+Mathematical, Physical and Engineering Sciences, 373(2045), 2015.
+[29] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+ Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information
+processing systems, 30, 2017.
+[30] Yunbo Wang, Haixu Wu, Jianjin Zhang, Zhifeng Gao, Jianmin Wang, Philip S Yu, and
+Mingsheng Long. Predrnn: A recurrent neural network for spatiotemporal predictive learning.
+IEEE Transactions on Pattern Analysis and Machine Intelligence, 45(2):2208–2225, 2022.
+[31] NE Wayand, CM Bitz, and E Blanchard-Wrigglesworth. A Year-Round Subseasonal-to-Seasonal
+Sea Ice Prediction Portal. Geophysical Research Letters, 46(6):3298–3307, 2019.
+13
+
+
+[32] Jared Willard, Xiaowei Jia, Shaoming Xu, Michael Steinbach, and Vipin Kumar. Integrating
+scientific knowledge with machine learning for engineering and environmental systems. ACM
+Computing Surveys, 55(4):1–37, 2022.
+[33] Xiaojun Yuan, Dake Chen, Cuihua Li, Lei Wang, and Wanqiu Wang. Arctic sea ice seasonal
+prediction by a linear Markov model. Journal of Climate, 29(22):8151–8173, 2016.
+[34] Lorenzo Zampieri, Helge F Goessling, and Thomas Jung. Bright prospects for Arctic sea ice
+prediction on subseasonal time scales. Geophysical Research Letters, 45(18):9731–9738, 2018.
+[35] Yilin Zhu, Mengjiao Qin, Panxi Dai, Sensen Wu, Zhiyi Fu, Zhende Chen, Laifu Zhang,
+Yuanyuan Wang, and Zhenhong Du. Deep learning-based seasonal forecast of sea ice considering
+atmospheric conditions. Journal of Geophysical Research: Atmospheres, 128(24):e2023JD039521,
+2023.
+14
+
+
+Appendix
+Network Structure and Parameters
+Additional implementation details of the network architectures are provided as follows. The main
+text focuses on the proposed seasonal prior components, while this appendix summarizes the
+corresponding backbone structures, bottleneck designs, and parameter counts for reproducibility.
+All models use the same input-output setting and are evaluated under the same training and testing
+protocol unless otherwise stated.
+Table 3 and 4 summarize the detailed structure of the proposed Convolutional-Transformer
+model. The convolutional encoder first extracts local spatial features and reduces the spatial
+resolution before the Transformer bottleneck is applied. At the bottleneck, the feature maps are
+converted into spatio-temporal tokens, where positional encodings and factorized self-attention are
+used to model temporal and spatial dependencies. The decoder then upsamples the features back to
+the original spatial resolution and produces both regression and classification outputs.
+Table 5 summarizes the main forecasting, model, seasonal-prior, training, and loss settings. All
+compared models use the same input resolution, historical input window, forecast horizon, loss
+functions, and training protocol unless otherwise specified. Table 6 further compares the bottleneck
+modules used in different baselines. The pure CNN and UNet baselines rely on convolutional
+bottlenecks without a temporal modelling module. The ConvLSTM and PredRNN variants introduce
+recurrent temporal modelling at the bottleneck feature level. The Transformer-based variants reshape
+the bottleneck feature maps into spatio-temporal tokens and apply factorized temporal and spatial
+self-attention. The main architectural difference among all models lies in the bottleneck module,
+while other settings and training strategy are kept consistent. Since the attention modules are
+applied only after spatial downsampling at the bottleneck resolution, all experiments can be run on
+a single NVIDIA V100 GPU with gradient checkpointing, without requiring model parallelism.
+15
+
+
+Table 3: Detailed architecture of the proposed UNet-Transformer model with MonthPE and
+SeasonBias. Here T = 12, H = W = 352, S = 44 × 44, and Cin = 256. The batch dimension is
+omitted for readability.
+Block
+Layer
+Resolution
+Channels
+Input
+–
+352 × 352
+1
+Encoder Stem
+Conv 3 × 3
+352 × 352
+1 →32
+ReLU
+352 × 352
+32
+Conv 3 × 3
+352 × 352
+32
+ReLU
+352 × 352
+32
+Encoder Down 1
+MaxPool 2 × 2
+352 × 352 →176 × 176
+32
+Conv 3 × 3
+176 × 176
+32 →64
+ReLU
+176 × 176
+64
+Conv 3 × 3
+176 × 176
+64
+ReLU
+176 × 176
+64
+Encoder Down 2
+MaxPool 2 × 2
+176 × 176 →88 × 88
+64
+Conv 3 × 3
+88 × 88
+64 →128
+ReLU
+88 × 88
+128
+Conv 3 × 3
+88 × 88
+128
+ReLU
+88 × 88
+128
+Encoder Down 3
+MaxPool 2 × 2
+88 × 88 →44 × 44
+128
+Conv 3 × 3
+44 × 44
+128 →256
+ReLU
+44 × 44
+256
+Conv 3 × 3
+44 × 44
+256
+ReLU
+44 × 44
+256
+Bottleneck Embedding
+Learnable spatial PE
+44 × 44
+256
+Flatten to tokens
+44 × 44 →S = 1936
+256
+Relative time PE
+T × S
+256
+MonthPE
+T × S
+256
+Transformer Block ×2
+Temporal reshape
+T × S →S × T
+256
+LayerNorm
+S × T
+256
+Temporal MHA
+S × T
+256
+Residual
+S × T
+256
+Spatial reshape
+S × T →T × S
+256
+LayerNorm
+T × S
+256
+Spatial MHA
+T × S
+256
+Residual
+T × S
+256
+FFN
+T × S
+256 →1024 →256
+Residual
+T × S
+256
+Decoder Up 1
+ConvTranspose 2 × 2
+44 × 44 →88 × 88
+256 →128
+Concat skip
+88 × 88
+128 + 128 = 256
+Conv 3 × 3
+88 × 88
+256 →128
+ReLU
+88 × 88
+128
+Conv 3 × 3
+88 × 88
+128
+ReLU
+88 × 88
+128
+Decoder Up 2
+ConvTranspose 2 × 2
+88 × 88 →176 × 176
+128 →64
+Concat skip
+176 × 176
+64 + 64 = 128
+Conv 3 × 3
+176 × 176
+128 →64
+ReLU
+176 × 176
+64
+Conv 3 × 3
+176 × 176
+64
+ReLU
+176 × 176
+64
+Decoder Up 3
+ConvTranspose 2 × 2
+176 × 176 →352 × 352
+64 →32
+Concat skip
+352 × 352
+32 + 32 = 64
+Conv 3 × 3
+352 × 352
+64 →32
+ReLU
+352 × 352
+32
+Conv 3 × 3
+352 × 352
+32
+ReLU
+352 × 352
+32
+Output Heads
+Classification head (1 × 1 Conv)
+352 × 352
+32 →Ccls
+Regression head (1 × 1 Conv)
+352 × 352
+32 →1
+Classification temporal weighting
+352 × 352
+Ccls
+Regression temporal weighting + Sigmoid
+352 × 352
+1
+16
+
+
+Table 4: Detailed architecture of the proposed CNN-Transformer model with MonthPE and
+SeasonBias. Here T = 12, H = W = 352, S = 44 × 44, and Cin = 256. The batch dimension is
+omitted for readability.
+Block
+Layer
+Resolution
+Channels
+Input
+–
+352 × 352
+1
+Encoder Stem
+Conv 3 × 3
+352 × 352
+1 →32
+ReLU
+352 × 352
+32
+Conv 3 × 3
+352 × 352
+32
+ReLU
+352 × 352
+32
+Encoder Down 1
+MaxPool 2 × 2
+352 × 352 →176 × 176
+32
+Conv 3 × 3
+176 × 176
+32 →64
+ReLU
+176 × 176
+64
+Conv 3 × 3
+176 × 176
+64
+ReLU
+176 × 176
+64
+Encoder Down 2
+MaxPool 2 × 2
+176 × 176 →88 × 88
+64
+Conv 3 × 3
+88 × 88
+64 →128
+ReLU
+88 × 88
+128
+Conv 3 × 3
+88 × 88
+128
+ReLU
+88 × 88
+128
+Encoder Down 3
+MaxPool 2 × 2
+88 × 88 →44 × 44
+128
+Conv 3 × 3
+44 × 44
+128 →256
+ReLU
+44 × 44
+256
+Conv 3 × 3
+44 × 44
+256
+ReLU
+44 × 44
+256
+Bottleneck Embedding
+Learnable spatial PE
+44 × 44
+256
+Flatten to tokens
+44 × 44 →S = 1936
+256
+Relative time PE
+T × S
+256
+MonthPE
+T × S
+256
+Transformer Block ×2
+Temporal reshape
+T × S →S × T
+256
+LayerNorm
+S × T
+256
+Temporal MHA + SeasonBias
+S × T
+256
+Residual
+S × T
+256
+Spatial reshape
+S × T →T × S
+256
+LayerNorm
+T × S
+256
+Spatial MHA
+T × S
+256
+Residual
+T × S
+256
+FFN
+T × S
+256 →1024 →256
+Residual
+T × S
+256
+CNN Decoder Up 1
+ConvTranspose 2 × 2
+44 × 44 →88 × 88
+256 →128
+Conv 3 × 3
+88 × 88
+128 →128
+ReLU
+88 × 88
+128
+Conv 3 × 3
+88 × 88
+128
+ReLU
+88 × 88
+128
+CNN Decoder Up 2
+ConvTranspose 2 × 2
+88 × 88 →176 × 176
+128 →64
+Conv 3 × 3
+176 × 176
+64 →64
+ReLU
+176 × 176
+64
+Conv 3 × 3
+176 × 176
+64
+ReLU
+176 × 176
+64
+CNN Decoder Up 3
+ConvTranspose 2 × 2
+176 × 176 →352 × 352
+64 →32
+Conv 3 × 3
+352 × 352
+32 →32
+ReLU
+352 × 352
+32
+Conv 3 × 3
+352 × 352
+32
+ReLU
+352 × 352
+32
+Output Heads
+Classification head (1 × 1 Conv)
+352 × 352
+32 →Ccls
+Regression head (1 × 1 Conv)
+352 × 352
+32 →1
+Classification temporal weighting
+352 × 352
+Ccls
+Regression temporal weighting + Sigmoid
+352 × 352
+1
+17
+
+
+Table 5: Hyperparameters and experimental setup.
+Category
+Hyperparameter
+Value
+Forecasting
+Input resolution
+352 × 352
+Historical input window (T)
+12 months
+Forecast horizon (K)
+12 months
+Output classes
+3(Cls) and 1(Reg)
+Model
+Spatial depth (d)
+3
+Temperal Transformer layers
+2
+Spacial Transformer layers
+2
+Attention heads (h)
+8
+MLP ratio
+4
+Seasonal Priors
+MonthPE Fourier modes (Kf)
+4
+SeasonBias initialization (α0)
+0.1
+Attention dropout
+0.0
+Training
+Optimizer
+Adam
+Learning rate
+1 × 10−5
+Batch size
+1
+Training epochs
+200
+Loss
+Classification loss
+Focal loss
+Regression loss
+MSE loss
+Loss weights [Cls, Reg]
+[0.1, 0.9]
+18
+
+
+Table 6: Implementation details of the bottleneck modules used in the compared models. Here
+T = 12, S = 44 × 44 = 1936, and C = 256. ’-’ indicates that no explicit temporal bottleneck module
+is used.
+Model
+Bottleneck input
+Bottleneck module
+Implementation details
+CNN
+T × C × 44 × 44
+-
+standard convolutional bottleneck
+UNet
+T × C × 44 × 44
+-
+standard UNet bottleneck with skip connections
+CNN+ConvLSTM
+T × C × 44 × 44
+ConvLSTM
+ConvLSTM down/up bottleneck
+hidden channels = 256
+kernel size = 3 × 3
+UNet+ConvLSTM
+T × C × 44 × 44
+ConvLSTM
+ConvLSTM down/up bottleneck
+hidden channels = 256
+kernel size = 3 × 3
+CNN+PredRNN
+T × C × 44 × 44
+PredRNN
+PredRNN bottleneck
+hidden channels = 256
+CNN+Trans+MonthPE+SeasonBias
+T × S × C
+Factorized Transformer
+Position Encoder
+temporal MHA, heads = 8
+spatial MHA, heads = 8
+UNet+Trans+MonthPE+SeasonBias
+T × S × C
+Factorized Transformer
+Position Encoder
+temporal MHA, heads = 8
+spatial MHA, heads = 8
+19
+
+
+Additional ablation
+Table 7: Step 12 forecasting performance under different SeasonBias strengths (mean ± SE over 48
+test samples) on UNet+Trans backbone with MonthPE.
+SeasonBias
+Cls3 Acc
+Cls3 mF1
+Cls2 Acc
+Cls2 F1
+Reg RMSE
+α = 0.04
+0.9068±0.0050
+0.7178±0.0090
+0.9518±0.0018
+0.8420±0.0136
+0.1160±0.0038
+α = 0.08
+0.9066±0.0052
+0.7091±0.0104
+0.9536±0.0020
+0.8494±0.0136
+0.1093±0.0033
+α = 0.12
+0.9117±0.0047
+0.7402±0.0082
+0.9538±0.0020
+0.8538±0.0127
+0.1075±0.0032
+α = 0.16
+0.9093±0.0048
+0.7133±0.0102
+0.9527±0.0019
+0.8365±0.0154
+0.1184±0.0039
+α = 0.20
+0.9098±0.0048
+0.7082±0.0122
+0.9542±0.0020
+0.8514±0.0135
+0.1108±0.0032
+Additional ablation on SeasonBias strength.
+Table 7 reports the step-12 forecasting perfor-
+mance of the UNet+Trans backbone with MonthPE under different initial SeasonBias strengths.
+The results show that the model is relatively robust to the choice of α, with only moderate variations
+across the tested range. Among the tested settings, α = 0.12 achieves the best overall performance,
+obtaining the highest Cls3 Acc, Cls3 mF1, Cls2 Acc, Cls2 F1, and the lowest Reg RMSE. This
+suggests that a moderate seasonal bias provides the most effective prior for long-range forecasting,
+while a too weak or too strong bias may slightly reduce either classification or regression performance.
+Table 8: Forecast performance at step 1 and step 12 using 24 input months.
+Step
+Cls3 Acc
+Cls3 mF1
+Cls2 Acc
+Cls2 F1
+Reg RMSE
+1
+0.9355 ± 0.0094
+0.8080 ± 0.0128
+0.9726 ± 0.0032
+0.9131 ± 0.0167
+0.0661 ± 0.0046
+12
+0.9146 ± 0.0105
+0.7527 ± 0.0188
+0.9569 ± 0.0043
+0.8691 ± 0.0244
+0.0988 ± 0.0075
+Forecasting with a longer input window.
+Table 8 evaluates the effect of increasing the input
+window from 12 to 24 months. Although the model maintains reasonable forecasting performance
+at both step 1 and step 12, the longer input window does not provide a clear overall improvement
+over the 12-month input setting. This suggests that simply extending the historical context is not
+necessarily beneficial for SIC forecasting, and that the model may require more effective mechanisms
+to select or weight useful temporal information from longer sequences.
+20
+
+
+Additional experiments results
+Figure 5 and 6 provides a qualitative comparison of the multi-step classification forecasts initialized
+in June and December 2023. All method reproduce the major large-scale sea ice distribution.
+The visual differences are most apparent near the ice edge, where small spatial shifts or excessive
+smoothing can change the predicted class.
+Figure 5: Qualitative comparison of multi-step sea ice classification forecasts initialized in June
+2023. Each column represents a forecast lead time from step 1 to step 12, and each row corresponds
+to the ground truth or one forecasting method. The three classes denote open water, marginal ice,
+and full ice.
+21
+
+
+Figure 6: Qualitative comparison of multi-step sea ice classification forecasts initialized in December
+2023. Each column represents a forecast lead time from step 1 to step 12, and each row corresponds
+to the ground truth or one forecasting method. The three classes denote open water, marginal ice,
+and full ice.
+22

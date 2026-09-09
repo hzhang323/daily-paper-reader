@@ -1,0 +1,1175 @@
+Title: nufftcf: Fast Auto- and Cross-Correlation Function Estimation for Irregularly-Sampled Time Series via the Non-Uniform FFT
+
+URL Source: https://arxiv.org/pdf/2609.03866v1
+
+Published Time: Fri, 04 Sep 2026 01:06:42 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# nufftcf: Fast Auto- and Cross-Correlation Function Estimation for Irregularly-Sampled Time Series via the Non-Uniform FFT 
+
+Jean-Eric Campagne Universit´ e Paris-Saclay, CNRS/IN2P3, IJCLab, 91405 Orsay, France 
+
+jean-eric.campagne@ijclab.in2p3.fr 
+
+September 4, 2026 
+
+Abstract 
+
+Estimating the auto-correlation function (ACF) and the cross-correlation function (CCF) of sampled series is a standard task across different physics fields as e.g. astronomy, and environmental fields. We aim to provide an ACF/CCF estimator primarily designed fo irregularly sampled series that is numerically consistent with established, well-validated kernel-weighted definitions, while scaling as O(n log n) rather than O(n2). 
+
+nufftcf evaluates the Wiener–Khinchin theorem for irregularly sampled data using the Non-Uniform Fast Fourier Transform (NUFFT), via the Flatiron Institute’s FINUFFT library, and using the Gaussian-and rectangle-kernel estimators. An O(n) two-pointer scan replaces the naive O(n2) computation of the effective pair count that normalizes each lag bin. Direct, real-space implementations of the same estimators for small series and for reference, and dedicated classical-FFT estimators for regularly-sampled data, are provided alongside the NUFFT implementation, all sharing a single calling convention. With synthetic times series, we validate nufftcf for ACF against pastas , a library known in ground-water time series analysis, and for CCF against pyZDCF , known in astronomical time series analysis. Bench-marks confirm the expected asymptotic scalings – O(n log n) for nufftcf versus O(n2) for pastas slotting technique – with nufftcf already advantageous at moderate series lengths thanks to its low (millisecond-scale) overhead. On regularly-sampled data, nufftcf dedicated FFT path further reduces both cost and overhead relative to its own NUFFT estimator. Beyond this cross-validation exercise, we further demon-strate nufftcf on a simulated ground-based stellar light curve combining a quasi-periodic rotation signal, correlated flicker noise, seasonal sampling gaps, and heteroscedastic measurement errors. 
+
+Keywords: Time series analysis, Correlation function, Non-uniform Fast Fourier Transform 
+
+# 1 Introduction 
+
+Many measurements of physical, environmental, and astrophysical systems take the form of a scalar time series that is not regularly sampled in time. Ground-based photometric monitoring of active galactic nu-clei (AGN) is interrupted by weather, daylight, and telescope scheduling; groundwater levels are logged during irregular field visits; paleoclimate proxies are deposited at a rate that itself varies with the climate signal being measured. A recurring analysis task for such data is to estimate the autocorrelation function (ACF) of a single series, or the cross-correlation func-tion (CCF) between two independently and irregu-larly sampled series, at a set of time lags τ .Applications range from measuring a characteris-tic variability or persistence timescale, to detecting a time delay between two related signals. For instance 1arXiv:2609.03866v1 [astro-ph.IM] 3 Sep 2026 in AGN reverberation mapping, where the CCF be-tween a driving continuum light curve and a repro-cessed emission-line light curve encodes the size of the emitting region (W. Welsh, 2024; I. Jankov et al., 2022a; P. S´ anchez-S´ aez et al., 2021; A. I. Shapovalova et al., 2019; A. Kovaˇ cevi´ c et al., 2014), one uses the discrete correlation function (R. A. Edelson & J. H. Krolik, 1988), and also for instance the python ver-sion ( pyZDCF ) of the code by T. Alexander (1997). A comparable need arises in hydro(geo)logical time se-ries analysis: the open-source Python package Pastas (R. A. Collenteur et al., 2019), widely used for time series modeling of groundwater levels, implements an ACF estimator for irregularly sampled series based on K. Rehfeld et al. (2011) and R. A. Edelson & J. H. Krolik (1988). Because the classical, textbook estimator of the ACF/CCF assumes a common, regular sampling grid (e.g. D. Stoffer, 2026), irregular sampling has histor-ically been handled with different technics (see L. T. Kreutzer et al., 2023; K. Rehfeld et al., 2011): re-sampling the data onto a regular grid by interpola-tion before applying the standard Fourier-based es-timator; binning observation pairs by their time-lag separation (“slotting”); weighting observation pairs by a smooth kernel of the time-lag separation rather than binning them; or bypassing the lag domain alto-gether and working with a Fourier-domain estimator adapted to irregular sampling, such as the Lomb– Scargle periodogram (J. T. VanderPlas, 2018; J. D. Scargle, 1982; N. R. Lomb, 1976). Each of these approaches has been imple-mented, refined, and benchmarked by different re-search communities—astronomy, geoscientific con-text among them—largely independently of one an-other (Section 2). What these approaches share is a computational cost that scales at best linearly per output lag and, in the pairwise binning/weighting case, quadratically overall in the number of observa-tions n. This is unproblematic for the short, sparse times series where these methods were originally de-signed for (typically n ∼ 10 2–10 3), but certainly would become a practical bottleneck for the longer, denser irregular time series increasingly produced by continuous environmental monitoring, high-cadence time-domain surveys, or long instrumental records (n ∼ 10 4–10 6), and for workflows that require many repeated evaluations (parameter sweeps, bootstrap resampling, batch processing of large numbers of light curves or well records). In this paper we present nufftcf , an open-source Python package that computes ACF/CCF estimates by evaluating the Wiener–Khinchin theorem with the Non-Uniform Fast Fourier Transform (NUFFT) and classical-FFT for irregularly- and regularly-sampled time series respectively. nufftcf additionally pro-vides direct, “real-space” implementations of the same estimators as a reference and still valuable for short time series. All estimator families share a single calling convention, so that a user can trade accuracy against speed without altering downstream analysis code. The development of nufftcf yields the following contributions: 1. We demonstrate that the Gaussian- and rectangle-kernel ACF/CCF estimators— previously established on statistical grounds (K. Rehfeld et al., 2011)—can be reformulated as a pair of Non-Uniform Fast Fourier Transform (NUFFT) evaluations. This reformulation ensures numerical consistency with exist-ing definitions while achieving an O(n log n)computational complexity. 2. We introduce an O(n) analytical algorithm, based on a two-pointer scan, to compute the ef-fective pair count for normalizing each lag bin. This replaces the naive O(n2) all-pairs approach, significantly improving efficiency. 3. We validate nufftcf through comparisons with 
+
+pastas (R. A. Collenteur et al., 2019) and 
+
+pyZDCF (I. Jankov et al., 2022b) on synthetic ACF and CCF problems. The paper is organized as follows. Section 2reviews prior approaches to ACF/CCF estimation for irregularly-sampled data, situates nufftcf rel-ative to them, and details the methodology, from the regularly-sampled case through the four estab-lished families of irregular-sampling estimators to the NUFFT reformulation used by nufftcf . Section 3 2compares nufftcf to pastas and pyZDCF on ACF and CCF use cases. Section 4 illustrates nufftcf on a simulated astrophysical light curve closer to obser-vational practice. Section 5 presents timing bench-marks. Section 6 discusses limitations and guid-ance on estimator choice, and Section 7 concludes. The Appendix A provides additional details on the 
+
+nufftcf algorithms and implementation choices. 
+
+# 2 Related Works and Method-ology 
+
+This section is not intended as an exhaustive review of the correlation-function and spectral-estimation literature for irregularly-sampled data; several ded-icated reviews already serve that purpose (e.g. K. Rehfeld et al. (2011) for kernel-weighted and interpolation-based estimators, P. Babu & P. Sto-ica (2010) for Fourier-domain spectral-analysis meth-ods). Rather, our aim here is methodological: we introduce, in the minimal form needed to motivate and formulate nufftcf , the four broad families of approaches used in the literature to handle irregu-lar sampling (Sections 2.2–2.4), before turning to the Non-Uniform Fast Fourier Transform (Section 2.5) and showing how it can be combined with kernel-weighted estimators to yield the nufftcf approach (Section 2.6). 
+
+2.1 Correlation estimation on a reg-ular grid: the Wiener–Khinchin theorem 
+
+Let xt, t = 0 , . . . , n − 1, be a zero-mean, weakly sta-tionary process sampled at n regularly spaced times with sampling interval ∆ t. The (biased) sample au-tocovariance at lag k∆t is ˆRxx (k) = 1
+
+n
+
+> n−k−1
+
+X
+
+> t=0
+
+xt xt+k, k = 0 , . . . , n − 1, (1) and the sample ACF is 1 ˆρxx (k) = ˆRxx (k)/ ˆRxx (0). The sample cross-covariance and cross-correlation be-    
+
+> 1This normalization follows MATLAB convention (https://uk.mathworks.com/help/matlab/ref/xcorr.html),
+
+tween two co-sampled series xt and yt are defined analogously. For weakly stationary processes, the Wiener–Khinchin theorem establishes that the autocovariance function and the power spectral density form a Fourier-transform pair. Similarly, the cross-covariance function and the cross-spectral density also form such a pair. For finite sampled data, these relationships are numerically realized through the discrete Fourier transform (DFT): the cross-spectrum is estimated as ˆSxy (f ) = ˆX(f ) ˆY ∗(f ), ˆRxy (k) = F−1 h ˆSxy (f )
+
+i
+
+(k),
+
+(2) where ˆX(f ) = F[x]( f ) (and similarly for ˆY (f )) de-notes the DFT of the sampled series. On a regu-lar grid, this identity is evaluated efficiently using a pair of FFTs—a forward FFT to compute ˆX(f )and ˆY (f ), a pointwise complex-conjugate product to form ˆSxy (f ), and an inverse FFT to recover ˆRxy (k)— yielding an O(n log n) algorithm instead of the O(n2)direct lag-domain summation of Equation 1. This FFT-based approach provides the regular-grid baseline for correlation estimation. However, for irregularly-sampled data, where the sample times 
+
+t1 < t 2 < · · · < t n are not equally spaced, neither the sum in Equation 1 nor the FFT pair can be applied directly. The literature describes four broad strate-gies to address this issue, which we outline below. 
+
+2.2 Slotting and the discrete correla-tion function 
+
+The earliest widely used approach specific to irregu-lar sampling is the slotting technique, introduced in astronomy by R. A. Edelson & J. H. Krolik (1988) as the discrete correlation function (DCF). Slotting bins the products of pairs of (standardized) observations by their time-lag separation into fixed-width bins and averages within each bin. While simple and model-free, the resulting correlation-function estimate is not guaranteed to be positive semi-definite and may re-quire post-processing (K. Rehfeld et al., 2011). This     
+
+> where ˆRxx (0) is the total energy of the signal. For cross-correlation, the normalization factor is
+> qˆRxx (0) ˆRyy (0).
+
+3limitation has motivated the development of kernel-weighted techniques (Section 2.3). A refinement of the DCF, proposed by T. Alexan-der (1997) (ZDCF-transform), addresses the sparse, unevenly sampled light curves typical of AGN moni-toring by using equal-population binning rather than fixed-width bins. In this approach, bin boundaries are chosen adaptively so that each bin contains ap-proximately an equal number of pairs. Addition-ally, a Fisher z-transform (R. A. Fisher, 1915) is applied to stabilize the variance of the correlation estimate in each bin before computing confidence intervals. pyZDCF (I. Jankov et al., 2022b) is the reference Python implementation of ZDCF and re-mains the standard tool for CCF estimation in AGN reverberation-mapping studies. Both the DCF and ZDCF require a pairwise scan of the data, resulting in an O(n2) computational cost. 
+
+2.3 Kernel-weighted estimators 
+
+Kernel-weighted estimators replace the hard bin as-signment of slotting with a smooth weighting func-tion (kernel) of the time-lag separation. This allows pairs to contribute to a lag estimate in proportion to the proximity of their separation to that lag. In this context, P. Stoica et al. (2009) proposed a sinc kernel, while O. N. BjØrnstad & W. Falck (2001) introduced a Gaussian kernel. Notably, the slotting technique of R. A. Edelson & J. H. Krolik (1988) can be interpreted as a rectangle (or box) kernel. The kernel-weighted cross-correlation estimator is defined as: ˆρxy (k∆τ ) = 
+
+> nx
+
+X
+
+> i=1
+> ny
+
+X
+
+> j=1
+
+xi yj bk(d)
+
+> nx
+
+X
+
+> i=1
+> ny
+
+X
+
+> j=1
+
+bk(d)
+
+, (3) where d = tyj −txi −k∆τ represents the deviation from the target lag. Typical choices for bk(d) include the rectangle/box kernel (R. A. Edelson & J. H. Krolik, 1988): 
+
+bk(d) = 
+
+(
+
+1 for |d| ≤ h/ 2,
+
+0 otherwise. (4) and the Gaussian kernel (O. N. BjØrnstad & W. Falck, 2001), which is the primary choice in pastas 
+
+and nufftcf :
+
+bk(d) = 1
+
+√2π h exp 
+
+
+
+− d2
+
+2h2
+
+
+
+. (5) Here, h is a bandwidth parameter typically set to match the mean sampling interval ∆txy , see K. Rehfeld et al. (2011) for details. Another typical choice, not yet implemented in the current version of 
+
+nufftcf , is the Hanning kernel (W. Max-Moerbeck et al., 2014). Given the irregular sampling common in geoscien-tific time series, K. Rehfeld et al. (2011) conducted a systematic benchmark of kernel-based estimators (Gaussian, sinc, rectangle) against linear interpola-tion and the Lomb–Scargle approach, the latter being addressed in the following section. Using synthetic si-nusoidal and autoregressive processes with controlled sampling irregularity, they found that the Gaussian-kernel estimator consistently exhibited the lowest, or close to the lowest, root-mean-square error (RMSE) and bias across nearly all test cases. This led the authors to recommend it over linear interpolation for irregularly sampled data. This methodology underpins the ACF estimator implemented in pastas (R. A. Collenteur et al., 2019), a widely used Python package for groundwater time-series analysis. pastas offers Gaussian, rectan-gle, and regular-grid binning options for its ACF. As with slotting, kernel-weighted estimators evaluate a direct pairwise sum, with an overall cost of O(n2) for a full lag range (or O(n) per individual lag). 
+
+2.4 Lomb–Scargle-based (Fourier-domain) estimation 
+
+A conceptually different approach, introduced by N. R. Lomb (1976); J. D. Scargle (1982) (see also J. D. Scargle (1989); J. T. VanderPlas (2018)), estimates the cross-correlation function by first computing the cross-spectrum via the Lomb–Scargle Fourier trans-form (LSFT). The LSFT is an irregular-sampling generalization of the DFT built from a least-squares sinusoid fit. The (cross-)periodogram is then formed, 4and an inverse Fourier transform is applied to the result, effectively applying the Wiener–Khinchin the-orem in the Fourier domain rather than directly bin-ning or weighting observation pairs in the lag domain. More broadly, the LSFT is one instance of a wider family of Fourier-domain approaches to spectral anal-ysis of nonuniformly-sampled data, comprehensively reviewed by P. Babu & P. Stoica (2010). K. Rehfeld et al. (2011) found this approach com-petitive with kernel methods for univariate (ACF) problems but markedly worse for bivariate (CCF) problems. While the Lomb–Scargle method reuses the transform-multiply-invert idea of Section 2.1, it replaces the FFT with a nonuniform transform tai-lored to irregular sampling, with a computational cost of O(n n f ) for nf frequencies. In practice, this transform can itself be evaluated efficiently via a non-uniform FFT (NUFFT), following the approach of L. H. Garrison et al. (2024), which uses the same NUFFT library (FINUFFT) as nufftcf , as de-scribed in the next section. 
+
+2.5 The Non-Uniform Fast Fourier Transform 
+
+The NUFFT computes Fourier sums between nonuni-formly and uniformly spaced points without forming the O(n · m) direct sum over all n sample points and 
+
+m output frequencies (or vice versa). Two of its three standard types are relevant here (see sign convention in Section A.3): 
+
+• type 1 (“nonuniform to uniform”): given values 
+
+xj at nonuniform points tj , j = 1 , . . . , n , com-pute ˆX(fk) = X
+
+> j
+
+xj eif k tj := Xk (6) at m uniform output frequencies fk.
+
+• type 2 (“uniform to nonuniform”): the ad-joint operation, evaluating a uniformly-gridded Fourier series at arbitrary nonuniform output points: 
+
+xj = X
+
+> k
+
+Xk e−if k tj (7) Modern NUFFT algorithms, such as FINUFFT 
+
+(A. H. Barnett et al., 2019) (used by nufftcf ), com-pute both types in O(( n + m) log(1 /ε )) time, where ε
+
+is the requested accuracy. This is achieved by (i) grid-ding , where each nonuniform sample is spread onto a fine uniform grid using a compactly-supported in-terpolation kernel, (ii) taking a standard FFT of the fine grid, and (iii) deconvolving by dividing by the Fourier transform of the spreading kernel to correct for the smoothing introduced by the kernel. Type 2 reverses this sequence. 
+
+FINUFFT uses the “exponential of semicircle” ker-nel 2 as preading kernel, which is chosen to first mini-mize aliasing error for a given support width and sec-ondly because its Fourier transform can be computed easily using a Gauss-Legendre quadrature integra-tion. Such spreading kernel is an internal numerical-accuracy device of the NUFFT algorithm itself, dis-tinct from the statistical weighting kernels bk(·) of Equation 5. We return below to the distinction between the two kernels (spreading and statistical weighting). 
+
+2.6 From kernel-weighted estimators to NUFFT: the nufftcf approach 
+
+nufftcf central observation is that the kernel-weighted estimator of Equation 3 can be evaluated via Wiener–Khinchin using a NUFFT, rather than via a direct pairwise sum, whenever the weighting kernel bk(·) is itself expressible as (or well approxi-mated by) a smooth, compactly supported function of the lag—which the Gaussian and rectangle kernels used by pastas are. Concretely, nufftcf :1. forms the (irregularly sampled) power or cross-spectrum of the input series with a type 1NUFFT onto a uniform frequency grid whose resolution is set by the requested lag range and kernel bandwidth; 2. evaluates the correlation estimate at the re-quested lags by inverting this spectrum with a type 2 NUFFT , applying the Wiener– Khinchin theorem in the same spirit as the      
+
+> 2ϕβ(x) = eβ
+> √1−x2for |x| ≤ 1 (0 elsewhere).
+
+5regular-grid FFT pair of Section 2.1, but re-placed by their nonuniform-capable counter-parts. Algorithms 1–3 in Appendix A give the complete pseudocode of the CCF and ACF estimators, re-spectively, and Appendix A.3 details the implemen-tation choices dictated by FINUFFT conventions (do-main mapping, sign convention, oversampling factor 
+
+N1, and the interior-lag normalization used to avoid an edge-smoothing bias). The total cost of evaluating the correlation function at K lags from n (irregular) samples is O(n log n + K log K), instead of the O(n2)(or O(nK )) cost of the direct sum in Equation 3. Be-cause this route implicitly represents the signal on a finite, periodic Fourier basis, it is subject to a small spectral-leakage bias for strongly periodic input with irregular or gappy sampling (quantified in Section 5 and controllable via the number of Fourier modes). 
+
+nufftcf therefore also provides a direct, “real-space” evaluation of the same kernel-weighted estimator, at the original O(n2) cost, both as an accuracy reference and as the recommended choice when n is modest and this bias must be avoided entirely (Section 6). 
+
+Effective pair count. Every estimate in Equa-tion 3 is normalized by bk(·) summed over all pairs— the effective number of pairs contributing to lag k,which both normalizes the correlation estimate and flags under-sampled lags. Computed naively this de-nominator is itself an O(n2) all-pairs sum. Because the sample times are sorted, nufftcf instead com-putes it in O(n) with a two-pointer scan implemented as a numba -compiled (S. K. Lam et al., 2015) kernel per supported weighting kernel (Algorithms 4–5 in Appendix A.2), and, for the regular-grid classic-FFT estimators, recovers the same quantity for free by filtering the deterministic raw-pair-count ramp with the same discrete filter applied to the correlation nu-merator. This avoids reintroducing an O(n2) step alongside an otherwise O(n log n) estimator. 
+
+Unified API. All three estimator families im-plemented in nufftcf —NUFFT-based, real-space, and classic-FFT (regular grid only)—share the call-ing convention fn(lags, tx, x, [ty, y], ...) -> (c, b) 3, so that a user can move between them, e.g. to check a NUFFT-based result against the real-space reference on a subset of the data, without al-tering the rest of an analysis pipeline. 
+
+# 3 Comparison with pastas and pyZDCF 
+
+We now validate nufftcf against two widely used, independently implemented estimators — pastas 
+
+(kernel-weighted, real-space, Section 2.3) and pyZDCF 
+
+(equal-population slotting, Section 2.2) — on syn-thetic series for which the “true” correlation func-tion is known analytically. We treat ACF and CCF separately, since pastas does not expose a cross-correlation estimator equivalent to its ACF 4, so the CCF benchmark below compares only nufftcf 
+
+against pyZDCF .
+
+3.1 Test series and experimental setup 
+
+ACF benchmark series 5. We reuse the syn-thetic irregularly-sampled series from the pastas 
+
+autocorrelation-benchmark tutorial 6, shown in Fig-ure 1. Two underlying stationary processes are gen-erated over a ten-year span at a one-day base resolu-tion: 
+
+• STS SIN : a pure sine wave of period T =365 .25 d, with analytical autocorrelation ρ(τ ) = cos(2 πτ /T ); 
+
+• STS EXP : an AR(1)-like process obtained by con-volving white noise with a causal exponential        
+
+> 3(c,b) standing for ”correlation estimate” and ”effective pair count”.
+> 4An internal cross-correlation code exists from which the ACF is computed, but it is not part of its public API. In the
+> pastas/pastas-plugins repository, the cross-correlation code uses the scipy.signal.correlate function (P. Virtanen et al., 2020) with the FFT method, which is only valid for equidistant time steps.
+> 5see pastas vs nufftcf.ipynb and zdcf vs nufftcf.ipynb
+> notebooks.
+> 6https://pastas.readthedocs.io/stable/benchmarks/ autocorrelation.html
+
+61                 
+
+> 01STS_SIN
+> 1
+> 01STS_SIN1
+> 1
+> 01STS_SIN2
+> 1
+> 01STS_SIN3
+> 2.5
+> 0.0 STS_EXP
+> 2
+> 0STS_EXP1
+> 2
+> 0STS_EXP2
+> 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2
+> 0STS_EXP3
+
+Figure 1: The synthetic series used in the ACF benchmark: the fully-sampled reference processes (STS SIN, STS EXP) and their three irregularly-sampled derivatives each (STS SIN1–3, STS EXP1– 3), reproduced from the pastas autocorrelation-benchmark tutorial. kernel e−t/α , α = 10 d; because this kernel co-incides with the process autocovariance, its ana-lytical ACF is ρ(τ ) = e−τ /α .Each process is then resampled onto three irregular time grids of different sparsity, yielding six bench-mark series ( STS SIN 1–3, STS EXP 1–3): (1) a mix of 30-day and 14-day regular sub-sampling with dense daily coverage over the last four years; (2) the same scheme with an additional three-year data gap; and (3) re-indexing onto a set of real, highly irregular groundwater-monitoring dates spanning 1960–2015, used asis from the pastas tutorial. Series 3 is by far the sparsest and most irregular of the three ( n ∼ 500-600 points over 55 years with long gaps), while se-ries 1–2 alternate between decades of sparse sampling and a few years of dense daily coverage. 
+
+CCF benchmark series 7. Two complementary CCF setups are used, both without access to pastas :
+
+• Shifted-timestamp STS SIN/EXP series: The same STS SIN and STS EXP processes used in the ACF benchmark are drawn over ndays = 3650 d, and two independent, irregular observation se-ries x(tx) and y(ty ) sample the identical under-  
+
+> 7see nufftcf ccf demo.ipynb notebook.
+
+lying process values, with y-timestamps shifted by a known delay τ0 relative to x-timestamps (∼ 43% of days retained in each series). Be-cause x and y are the same signal read at shifted times, the CCF should peak exactly at τ = τ0
+
+with the ACF own peak value (1 for these unit-variance processes). We use τ0 = 60 d as the fiducial case (Figure 5) and additionally sweep 
+
+τ0 ∈ { 20 , 60 , 120 } d for the STS EXP series (Fig-ure 6) to check that the recovered peak location tracks the injected delay. 
+
+• Coupled Ornstein–Uhlenbeck (OU) processes with variable ρ. Two independent latent OU-like processes 8 e1(t), e2(t) are generated with the same exponential-kernel construction as STS EXP 
+
+(α = 10 d), and combined as 
+
+X1(t) = e1(t),X2(t) = ρ e 1(t − τ0) + p1 − ρ2 e2(t), (8) with τ0 = 60 d and ρ ∈ { 0.1, 0.2, 0.3, 0.5, 0.7, 0.95 }.Unlike the shifted-timestamp case, here the lag is physical : X2 is a genuinely delayed, partially decorrelated copy of X1, contaminated by an independent noise process. The two series are sampled on independent irregular grids retaining 
+
+∼ 40% and ∼ 60% of days, respectively, with no artificial timestamp shift. The analytical cross-correlation function for this construction is 
+
+ρX1X2 (τ ) = ρ e −| τ −τ0|/α , (9) i.e. an exponential peak of height ρ centered at 
+
+τ = τ0 (Figure 7).                                                 
+
+> 8Concretely, each process is built by causally filtering unit-variance white noise ηt∼ N (0 ,1) through a discrete expo-nential kernel, et∝P
+> k≥0e−k/α ηt−k, truncated after a 200-day burn-in (negligible relative to α=10 d) and rescaled to unit variance. Since e−k/α is geometric, this sum tele-scopes exactly into the AR(1) recursion et=ϕ e t−1+ηtwith
+> ϕ=e−1/α .This is the exact (not Euler–Maruyama) dis-cretisation of the OU Stochastic Differential Equation dX =
+> −θX dt +σ dW ,θ= 1 /α , at unit time step, with innovation variance σ2(1 −e−2θ)/(2 θ) = 1, i.e. σ=p2θ/ (1 −e−2θ), so that ηtmatches the unit-variance driving noise above. The resulting process is stationary with autocorrelation e−| τ|/α up to the burn-in transient, which is what underlies Equation (9).
+
+7Software configuration. For nufftcf we evalu-ate both the rectangle and Gaussian kernels (Equa-tions 4, 5) via the NUFFT-based estimator (and, for the fiducial CCF case, the direct real-space evaluation as an accuracy cross-check), using bin width = 0 .5 d as the kernel-bandwidth control parameter for all ACF and CCF runs, and evaluating every integer lag from 1 to 365 d (ACF) or 1 to 180 d (CCF). For pastas we call pastas.stats.acf with 
+
+bin method set to "rectangle" and "Gaussian" and 
+
+max gap =30 d, over the same lag range. For pyZDCF we use uniform sampling = False ,
+
+omit zero lags = True , and its equal-population bin-size parameter minpts , the closest analogue to 
+
+nufftcf and pastas bandwidth: we report minpts = 11 (its default in practice 9) for all CCF runs and both minpts = 11 and minpts = 25 for the ACF runs, with asymmetric Monte-Carlo error bars from 50 (ACF) or 100 (CCF) resamplings. Because pyZDCF adapts its bin boundaries to the pair count rather than to a fixed lag spacing, the number of lags it returns is set by the data and by minpts, i.e., not chosen by the user. It therefore always produces far fewer lag points than the fixed grid used by nufftcf , typically resulting in ∼ 100 − 500 bins for the ACF series here, com-pared to the full requested grid of 365 or 180 points for nufftcf . This is a direct consequence of pyZDCF 
+
+equal-population-per-bin design (Section 2.2). 
+
+3.2 Autocorrelation: nufftcf vs 
+
+pastas and pyZDCF 
+
+Figures 2–3 compare nufftcf and pastas on the 
+
+STS SIN and STS EXP series, respectively, showing the estimated ACF together with the residual to the analytical truth for both the Gaussian and rect-angle kernels. Across all six series the two imple-mentations are visually indistinguishable and their Root Mean Square Error (RMSE) against the ana-lytical ACF agree to within the reported precision (e.g. RMSE = 0 .03 /0.05 /0.04 for STS SIN 1/2/3 and RMSE = 0 .08 /0.11 /0.07 for STS EXP 1/2/3, identical for pastas and nufftcf in every case). This con-   
+
+> 9In practice, the default minpts = 0 in pyZDCF is internally replaced by ENOUGH = 11 (see pyzdcf/pyzdcf.py ).
+
+firms that nufftcf , NUFFT-based Wiener–Khinchin methodology, reproduces the direct pairwise kernel-weighted estimator of Equation 3 to the accuracy ex-pected from its spectral-leakage bias (Section 2.6), which here is negligible compared to the sampling and estimation noise common to both methods. The residuals for both methods grow with n-dependent gaps and departures from stationarity (e.g. around the transition between sparse and dense sampling in 
+
+STS EXP 1/2 near lag ∼40–100 d), which is a property of the underlying data and kernel bandwidth rather than of either estimator. Figure 4 repeats the comparison against pyzdcf .The nufftcf Gaussian and rectangle estimates, which closely follow the analytical ACF, agree with the pyzdcf points (within their Monte-Carlo er-ror bars) wherever the two methods are directly comparable. The main qualitative differences are in resolution and computational cost: nufftcf re-turns a value at every requested lag for these se-ries (e.g., 365 points) in at most a few hundred milliseconds, whereas pyzdcf returns only ∼ 300– 500 equal-population bins (even fewer for the coarser minpts = 25 setting) and requires several seconds per series. These timing differences are driven by 
+
+pyzdcf O(n2) pairwise scan and Monte Carlo error resampling, compared to nufftcf O(n log n) NUFFT evaluation. 
+
+3.3 Cross-correlation: nufftcf vs pyZDCF ( STS SIN/EXP series) 
+
+Figure 5 shows the fiducial τ0 = 60 d shifted-timestamp case for the STS SIN and STS EXP series, respectively. The nufftcf Gaussian-kernel estimate is compared against its real-space reference (left pan-els) and its rectangle-kernel estimate (right panels). In both panels, the pyZDCF estimate is also displayed. The three nufftcf variants agree essentially exactly with one another, and all three also agree with the 
+
+pyZDCF sparser set of binned points within its error bars. Additionally, they correctly locate the CCF peak at the injected delay τ = τ0. Figure 6 confirms that this peak recovery is robust as τ0 is varied over 
+
+{20 , 60 , 120 } d, exemplified for the STS EXP series: both nufftcf and pyZDCF recover peaks consistent 81
+
+01ACF gauss 
+
+STS_SIN1 
+
+PASTAS NUFFT true ACF 
+
+0.05 
+
+0.00 0.05 Err. gauss. 
+
+PASTAS (RMSE=0.03) NUFFT (RMSE=0.03) 
+
+1 10 30 60 180 365 Lags [Days] 0.05 
+
+0.00 0.05 Err. rect. 
+
+PASTAS (RMSE=0.03) NUFFT (RMSE=0.03) 
+
+STS_SIN2 
+
+PASTAS NUFFT true ACF 
+
+PASTAS (RMSE=0.05) NUFFT (RMSE=0.05) 
+
+1 10 30 60 180 365 Lags [Days] 
+
+PASTAS (RMSE=0.05) NUFFT (RMSE=0.05) 
+
+STS_SIN3 
+
+PASTAS NUFFT true ACF 
+
+PASTAS (RMSE=0.04) NUFFT (RMSE=0.04) 
+
+1 10 30 60 180 365 Lags [Days] 
+
+PASTAS (RMSE=0.04) NUFFT (RMSE=0.04) Figure 2: ACF of the STS SIN 1–3 series: signal (top row), pastas vs. nufftcf Gaussian-kernel ACF against the analytical truth (second row), and residuals for the Gaussian and rectangle kernels (third and fourth rows), with matching RMSE values for both estimators in every panel. 0.0 0.5 1.0 ACF gauss 
+
+STS_EXP1 
+
+PASTAS NUFFT true ACF 
+
+0.0 0.2 Err. gauss. 
+
+PASTAS (RMSE=0.08) NUFFT (RMSE=0.08) 
+
+1 10 30 60 180 365 Lags [Days] 0.0 0.2 Err. rect. 
+
+PASTAS (RMSE=0.08) NUFFT (RMSE=0.08) 
+
+STS_EXP2 
+
+PASTAS NUFFT true ACF 
+
+PASTAS (RMSE=0.11) NUFFT (RMSE=0.11) 
+
+1 10 30 60 180 365 Lags [Days] 
+
+PASTAS (RMSE=0.11) NUFFT (RMSE=0.11) 
+
+STS_EXP3 
+
+PASTAS NUFFT true ACF 
+
+PASTAS (RMSE=0.07) NUFFT (RMSE=0.07) 
+
+1 10 30 60 180 365 Lags [Days] 
+
+PASTAS (RMSE=0.07) NUFFT (RMSE=0.07) 
+
+Figure 3: Same as Figure 3, for the STS EXP 1–3 series. 91 10 30 60 180 365 Lag [days] 1.0                                      
+
+> 0.5
+> 0.0 0.5 1.0 ACF
+> STS_SIN1
+> nufftcf gaussian (7937.7 ms) nufftcf rectangle (1565.9 ms) true ACF pyzdcf minpts=11 450 bins (9.6 s)
+> pyzdcf minpts=25 345 bins (9.2 s)
+> 110 30 60 180 365 Lag [days] ACF
+> STS_SIN2
+> nufftcf gaussian (279.4 ms) nufftcf rectangle (61.7 ms) true ACF pyzdcf minpts=11 442 bins (6.4 s)
+> pyzdcf minpts=25 337 bins (4.9 s)
+> 110 30 60 180 365 Lag [days] ACF
+> STS_SIN3
+> nufftcf gaussian (106.7 ms) nufftcf rectangle (21.5 ms) true ACF pyzdcf minpts=11 500 bins (9.9 s)
+> pyzdcf minpts=25 391 bins (9.2 s) 110 30 60 180 365 Lag [days] 1.0
+> 0.5
+> 0.0 0.5 1.0 ACF
+> STS_EXP1
+> nufftcf gaussian (106.8 ms) nufftcf rectangle (21.2 ms) true ACF pyzdcf minpts=11 450 bins (7.5 s)
+> pyzdcf minpts=25 345 bins (8.7 s)
+> 110 30 60 180 365 Lag [days] ACF
+> STS_EXP2
+> nufftcf gaussian (72.3 ms) nufftcf rectangle (16.0 ms) true ACF pyzdcf minpts=11 442 bins (5.4 s)
+> pyzdcf minpts=25 337 bins (6.3 s)
+> 110 30 60 180 365 Lag [days] ACF
+> STS_EXP3
+> nufftcf gaussian (98.3 ms) nufftcf rectangle (22.8 ms) true ACF pyzdcf minpts=11 500 bins (9.7 s)
+> pyzdcf minpts=25 391 bins (8.4 s)
+
+Figure 4: Top: ACF of the STS SIN 1–3 series: signal (top row) and ACF (bottom row), comparing nufftcf 
+
+(Gaussian and rectangle kernels, with per-series computation time) to pyZDCF (minpts =11 and 25, with num-ber of returned bins and computation time) and to the analytical truth. Bottom: Same for the STS EXP 11–3 series. Table 1: Comparison of cross-correlation peaks for different values of ρ.
+
+τ0 = 60 d ρ = 0 .1 ρ = 0 .2 ρ = 0 .3 ρ = 0 .5 ρ = 0 .7 ρ = 0 .95 Method val. loc. val. loc. val. loc. val. loc. val. loc. val. loc. 
+
+nufftcf Gaussian 0.167 167 0.255 60 0.351 60 0.539 60 0.724 60 0.962 60 
+
+nufftcf rectangle 0.178 167 0.258 60 0.355 60 0.546 60 0.733 60 0.973 60 realspace Gaussian 0.181 167 0.256 60 0.352 60 0.538 60 0.722 60 0.957 60 
+
+pyZDCF 0.072 178.7 0.082 80.9 0.094 80.9 0.117 80.9 0.138 80.9 0.154 80.9 with the true delay (marked by the vertical dashed line), with the nufftcf continuous curve making the peak location and shape considerably easier to read off than the pyZDCF handful of bins per panel. 
+
+3.4 Cross-correlation: nufftcf vs pyZDCF (coupled OU-processes) 
+
+Figure 7 presents the physically coupled Ornstein-Uhlenbeck process test of Equation 8, for which 
+
+nufftcf (Gaussian and rectangle kernels) and 
+
+pyZDCF estimates are displayed as weel as the ana-lytical CCF (Equation 9) as a dashed black curve. Table 1 compares the estimated CCF peak (ampli-tude and location) across the six tested values of ρ,for the three estimators. The theoretical expectation is a peak value of ρ and a location of τ0 = 60 d, respectively (Eq. 9). We discuss the two peak char-actireistics recovery. 
+
+3.4.1 Peak location 
+
+For ρ ≥ 0.2, both nufftcf kernel variants and the real-space Gaussian estimator correctly recover τ0 =60 d, whereas pyZDCF systematically places the peak near 80 .9 d, i.e. a constant offset of about +21 d. 10 0 20 40 60 80 100 120 140 160 180 Lag [days] 0.5 
+
+0.0 0.5 1.0 CCF 
+
+nufftcf gaussian vs pyZDCF 
+
+nufftcf gaussian nufftcf realspace (ref) true tau_0=60 d pyZDCF (minpts=11) 105 bins 
+
+0 20 40 60 80 100 120 140 160 180 Lag [days] CCF 
+
+nufftcf rectangle vs pyZDCF 
+
+nufftcf gaussian nufftcf rectangle true tau_0=60 d pyZDCF (minpts=11) 105 bins 
+
+SIN series ( 0=60 d) 0 20 40 60 80 100 120 140 160 180 Lag [days] 0.5 
+
+0.0 0.5 1.0 CCF 
+
+nufftcf gaussian vs pyZDCF 
+
+0 20 40 60 80 100 120 140 160 180 Lag [days] CCF 
+
+nufftcf rectangle vs pyZDCF 
+
+EXP series ( 0=60 d) Figure 5: Top: CCF of the shifted-timestamp STS SIN test ( τ0 = 60 d): nufftcf Gaussian vs. its own real-space reference (left) and vs. its rectangle kernel (right), both compared to pyZDCF . Bottom: Same legend for the shifted-timestamp STS EXP test. 0 50 100 150 Lag [days] 0.5 
+
+0.0 0.5 1.0 CCF 
+
+> 0
+
+=20 d 
+
+> nufftcf gaussian true tau_0=20 d pyZDCF (102 bins)
+
+0 50 100 150 Lag [days] 
+
+> 0
+
+=60 d 
+
+> nufftcf gaussian true tau_0=60 d pyZDCF (105 bins)
+
+0 50 100 150 Lag [days] 
+
+> 0
+
+=120 d 
+
+> nufftcf gaussian true tau_0=120 d pyZDCF (104 bins)
+
+CCF peak vs delay 0 (EXP series, n~1500) 
+
+Figure 6: CCF peak recovery for the shifted-timestamp EXP network test as the injected delay τ0 varies over 
+
+{20 , 60 , 120 } d ( n ∼ 1500 points per network): nufftcf Gaussian vs. pyZDCF , with the true delay marked by the vertical dashed line. 11 0.2                
+
+> 0.0 0.2 0.4 0.6 0.8 1.0 CCF
+> = 0.1 theoretical CCF nufftcf gaussian nufftcf rectangle pyZDCF (186 bins)
+> = 0.2 = 0.3
+> 050 100 150 Lag [days] 0.2
+> 0.0 0.2 0.4 0.6 0.8 1.0 CCF
+> = 0.5
+> 050 100 150 Lag [days]
+> = 0.7
+> 050 100 150 Lag [days]
+> = 0.95
+> CCF of coupled Ornstein-Uhlenbeck processes (0=60 d, =10.0)
+
+Figure 7: CCF of the coupled Ornstein–Uhlenbeck processes of Equation 8 ( τ0 = 60 d, α = 10 d), for coupling strengths ρ = 0 .1, 0.4, 0.7, 0.95: nufftcf (Gaussian and rectangle kernels) and pyZDCF against the analytical CCF of Equation 9. This offset is an intrinsic consequence of the equal-population slotting algorithm: the reported lag is the mean lag of the pairs contained in the highest-correlation bin, not a fixed grid point, and bin edges are set purely by pair count rather than by physi-cal lag. A test done by retaining 50% of both se-ries (Equation 8) shows that nufftcf recovers the peak location, while pyZDCF increases the deviation by +78 .1. pyZDCF equal-population slotting can de-grade in an essentially uncontrolled way once the lo-cal pair density near τ0 (set jointly by minpts , the sampling retention fractions, and their overlap struc-ture) becomes insufficient to support a bin localized to the true peak neighborhood. We do not undertake further a detailed study of pyZDCF behavior as we focus ourselves on nufftcf results. The ρ = 0 .1 case is atypical for all estimators: the peak is found at lag = 167 d ( nufftcf and real-space Gaussian alike) or 178 .7 d ( pyZDCF ), far from 
+
+τ0 = 60 d. At this weak coupling level, the signal-to-noise ratio of the theoretical CCF is too low for the physical peak to reliably dominate the estimated cross-correlation function, so the global maximum is instead captured by a noise fluctuation rather than by the expected physical peak. As a further check of this interpretation, we repeated the coupled OU-process experiment with the total baseline extended by a factor of ten (from 3650 to 36 500 d, i.e. ten times more sampled points at comparable cadence), keeping all other parameters unchanged. With this larger sample, nufftcf (both kernels) and the real-space Gaussian estimator recover lag = τ0 = 60 d even at ρ = 0 .1. The interpretation is as the number of pairs contributing to each lag bin grows, the per-lag noise floor drops, the physical peak emerges above it, and the global maximum of the estimated CCF converges onto the true lag τ0.
+
+3.4.2 Peak amplitude 
+
+A systematic, ρ-dependent bias is observed: nufftcf 
+
+(both kernels) and the real-space Gaussian estima-tor all overestimate the peak amplitude compared to the true value, with an absolute bias that decreases with increasing ρ: e.g., +0 .055/+0 .058/+0 .056 at 12 ρ = 0 .2 versus +0 .012/+0 .023/+0 .007 at ρ = 0 .95, for nufftcf Gaussian and rectangle kernels, and real-space Gaussian respectively. The fact that the real-space evaluation shares essentially the same bias as the nufftcf NUFFT-based counterpart shows that this overestimation is inherent to the kernel-weighted estimator itself, rather than a NUFFT-specific arti-fact. We discuss this in more detail below. Note that the rectangle kernel consistently produces a slightly higher peak amplitude than the Gaussian kernel esti-mator, as the latter smooths more strongly over the peak neighborhood. In contrast, pyZDCF strongly underestimates the amplitude across the entire tested range (at best es-timating 0 .154 instead of 0 .95), with the absolute gap widening as ρ increases. This underestimation is again a direct consequence of slotting, as discussed for the peak location. 
+
+3.4.3 Systematic overestimation by the ker-nel estimators 
+
+The real-space Gaussian-kernel and the nufftcf 
+
+Gaussian-kernel results agree quite well at every ρ
+
+(e.g. 0.538 vs. 0.539 at ρ = 0.5 and 0 .957 vs. 0.962 at ρ = 0 .95), sharing essentially the same pos-itive bias. Since the real-space Gaussian estimator (Equation 3) and the nufftcf NUFFT-based esti-mator (Algorithm 1, step 10) numerator and denom-inator are weighted by the same kernel at the level of individual pairs in both implementations, the over-estimation cannot be attributed to the NUFFT grid-ding algorithm (Section 2.5). It is instead an intrinsic property of the kernel-weighted correlation estimator itself. We attribute this to a selection bias: the reported peak is a maximum, over a dense grid of lags, of a locally noisy estimate – at each lag only the pairs within a few kernel bandwidths (bin width = 0 .5 d) contribute, given a mean sampling interval of ∼ 1.7– 2.5 d. Scanning many such noisy per-lag estimates and reporting the global maximum systematically overestimates the true peak, an effect that is largest when ρ is comparable to the per-lag noise level and vanishes as ρ tends to 1, since the Pearson correlation is bounded by unity. This also explains the ρ = 0 .1case (excluded from the quantitative analysis below), where the true bump at τ0 is not statistically distin-guishable from the noise floor and the reported max-imum is essentially a pure noise fluctuation, located at lag = 167 rather than 60. To test this hypothesis quantitatively, for ρ ≥ 0.2and each estimator we compare on Table 2 the peak bias ∆ = peak val . − ρ
+
+to std far the standard deviation of the CCF estimate away from the peak defined as std far = std 
+
+
+
+CCF (lag) | | lag − τ0| > 5α = 50 d 
+
+
+
+The lag window is chosen so that the theoretical CCF (Equation 9) has decayed to e−5 ≈ 0.7% of its peak value there. With lags ∈ [1 , 180] d this leaves nfar =79 lag points. Two features support the selection bias interpretation. First, std far is essentially constant across ρ (≈
+
+0.038–0 .051) for all three estimators, consistent with a signal-independent noise floor set by sampling and kernel bandwidth. Second, ∆ /std far is of order unity at weak-to-moderate coupling ( ≈ 0.9–1 .2 at ρ = 0 .2–0 .5) – the peak bias is comparable to the background noise, ex-actly as expected when selecting the maximum of a noisy curve – and decreases monotonically as ρ
+
+grows, down to ≈ 0.17–0 .54 at ρ = 0 .95, since std far stays roughly constant while ∆ itself shrinks toward the ρ = 1 bound. The rectangle kernel shows the largest bias-to-noise ratio at every ρ, consistent with its sharper effective bandwidth producing a noisier per-lag estimate, while real-space and nufftcf Gaus-sian remain statistically indistinguishable, confirming a kernel-choice effect rather than an implementation artifact. This sample-size dependence can also be verified directly. Repeating the experiment with a ten-fold longer baseline (36 500 instead of 3650 d) markedly reduces |∆| at every tested ρ, for all three esti-mators: e.g. ∆ = −0.030/ −0.027/ −0.029 at ρ =0.2 (versus +0 .055/+0 .058/+0 .056 in the fiducial run) and −0.008/ −0.001/ −0.003 at ρ = 0 .95 (ver-sus +0 .012/+0 .023/+0 .007), confirming that the bias 13 Table 2: Peak bias ∆ = peak val −ρ compared to the background noise level std far (std of the CCF estimate over |lag − τ0| > 50 d, nfar = 79), for ρ ≥ 0.2.                                                                      
+
+> ρ= 0 .2ρ= 0 .3ρ= 0 .5ρ= 0 .7ρ= 0 .95 Method ∆std far ratio ∆std far ratio ∆std far ratio ∆std far ratio ∆std far ratio nufftcf Gaussian 0.055 0.047 1.16 0.051 0.045 1.14 0.039 0.041 0.96 0.024 0.038 0.64 0.012 0.042 0.28 nufftcf rectangle 0.058 0.048 1.20 0.055 0.046 1.21 0.046 0.042 1.10 0.033 0.039 0.85 0.023 0.043 0.54 realspace Gaussian 0.056 0.051 1.10 0.052 0.048 1.07 0.038 0.044 0.88 0.022 0.040 0.55 0.007 0.044 0.17
+
+shrinks as the per-lag noise floor drops with increas-ing sample size. Notably, the residual at this larger sample size turns slightly negative for every estima-tor, and is consistently less negative for the rectangle kernel than for the Gaussian kernel – the same or-dering seen in the selection-bias-dominated regime – suggesting that once the selection bias is suppressed, a small residual smoothing bias from averaging the sharply peaked CCF over a finite kernel bandwidth becomes visible instead. A natural mitigation, in both implementations (real space or NUFFT-based nufftcf computati-ions), would be to widen the kernel bandwidth re-ducing per-lag variance at the cost of resolution or to calibrate and subtract the selection bias via a bootstrap/Monte-Carlo procedure on surrogate data, analogous to the internal Monte-Carlo simulations used by pyZDCF for its own uncertainty estimates. Section 4.4 revisits this same diagnosis – a single-realization deviation mistaken for a bias – on an independently-motivated, physical use case, using re-peated realizations rather than a longer baseline to demonstrate it. 
+
+# 4 A physical use-case: Sim-ulated Astrophysical Light Curve 
+
+The synthetic series of Section 3 were designed to isolate ACF/CCF estimator behaviour under sim-ple, well-controlled statistical models, so as to en-able a quantitative, independent cross-check against 
+
+pastas and pyZDCF . To illustrate nufftcf on acase closer to observational practice, we simulate a single stellar photometric light curve combining a quasi-periodic rotation signal, correlated “flicker” noise, realistic ground-based sampling gaps, and het-eroscedastic measurement noise, and use nufftcf 
+
+alone to recover the injected rotation period and noise correlation time. 10 
+
+4.1 Simulated light curve 
+
+The latent flux is 
+
+y(t) = A(t) cos 
+
+ 2πt Prot 
+
++ φ
+
+
+
++ n(t), (10) where φ is a random phase, uniform on [0 , 2π) and independent of A(t); A(t) is a stationary Ornstein– Uhlenbeck (OU) process of mean A0, variance σ2
+
+> A
+
+,and correlation time τA ≫ Prot , modelling slow spot evolution; and n(t) is an independent OU process of variance σ2 
+
+> n
+
+and correlation time τn, modelling short-timescale correlated (flicker/granulation) noise. The normalized autocorrelation of y(t) is then analytic, 
+
+ρtrue (τ ) =  
+
+> 12
+
+cos 
+
+ 2πτ Prot 
+
+  σ2
+
+> A
+
+e−| τ |/τ A + A20
+
+ + σ2
+
+> n
+
+e−| τ |/τ n 
+
+> 12
+
+(σ2 
+
+> A
+
++ A20) + σ2
+
+> n
+
+,
+
+(11) and has the form of a sum of an exponentially damped cosine and an exponential decay, closely re-lated to the stochastically driven damped harmonic oscillator (SHO) kernels of the celerite family (D. Foreman-Mackey et al., 2017), which have been used to model stellar rotation (e.g. R. Angus et al., 2018) and granulation/flicker noise in a similar decompo-sition. It is qualitatively similar in spirit, though not identical in functional form, to the product-form quasi-periodic kernels (squared-exponential times pe-riodic) commonly used in Gaussian-process models   
+
+> 10 See nufftcf astro demo.ipynb notebook.
+
+14 2       
+
+> 02flux (a.u.)  observed (noisy, sampled)
+> 0200 400 600 800 1000 1200 1400 time (days) 0.2 0.4
+> i
+> Light curve: rotation + correlated noise + gaps + heteroscedastic noise
+
+Figure 8: Simulated ground-based light curve (top; error bars show σi) combining stellar-rotation mod-ulation, correlated OU noise, seasonal/weather gaps, and heteroscedastic measurement noise (bottom). of stellar activity (e.g. V. Rajpaul et al., 2015). We use Prot = 12 d, A0 = 1, σA = 0 .35, τA = 220 d, 
+
+σn = 0 .55, τn = 3 .5 d. Both A(t) and n(t) are sim-ulated directly at the (irregular) observation epochs using the exact OU transition kernel, so no dense-grid discretization is needed. Ground-based sampling is emulated over four years with one nightly epoch, an ∼8-month seasonal ob-servability window, and 25% of otherwise-observable nights lost to weather, yielding a fiducial realiza-tion of n = 762 irregular epochs (median cadence 1.0 d within a season). Each point additionally car-ries a heteroscedastic measurement uncertainty σi,growing toward the edges of the observing season (higher airmass), with σi ∈ [0 .07 , 0.43] d (median 0.18) for this parameter choice; the observed flux is 
+
+xobs (ti) = y(ti) + εi, εi ∼ N (0 , σ 2 
+
+> i
+
+). Figure 8 shows the resulting light curve. 
+
+4.2 ACF recovery 
+
+We compute the ACF with nufftcf Gaussian-kernel real-space and NUFFT estimators (bin width =0.5 d) on xobs , at every integer lag from 1 to 49 d. Since nufftcf standardizes the series before evalu-ating ˆ ρ, and the measurement noise only contributes at lag-0 (known as “nugget” effect (e.g. A. M. Sayer, 2020) or “zero-lag” spike (e.g. B. C. Lacki, 2025)), the observed ACF is a rescaled version of Equation 11: 0 10 20 30 40 50 0.50 
+
+> 0.25
+> 0.00 0.25 0.50 0.75 ACF
+> Recovered ACF (sparse data, heteroscedastic noise) vs true ACF
+> theoretical ACF (latent process) nufftcf gaussian_realspace nufftcf gaussian_nufft
+
+Figure 9: ACF recovered by nufftcf Gaussian real-space and NUFFT estimators from the sparse, het-eroscedastic light curve of Figure 8, against the the-oretical latent-process ACF (Equation 11). 
+
+ρobs (τ ) = κ ρ true (τ ), with dilution factor 
+
+κ = Cov tot (0) /Var( xobs )= Cov tot (0) /(Cov tot (0) + ⟨σ2 
+
+> i
+
+⟩) < 1. (12) Figure 9 compares the two nufftcf estimates to ρtrue 
+
+for the fiducial realization. Both agree closely with the theoretical curve and with each other: RMSE = 0.027 for real-space, 0 .040 for NUFFT, against ρtrue ,i.e. without correcting for the dilution factor above. The rotation-driven oscillation and the fast initial de-cay from the flicker noise are both clearly resolved de-spite the seasonal gaps and the heteroscedastic noise. 
+
+4.3 Recovering the rotation period and noise timescale 
+
+We extract two physical quantities from the recovered ACF: the rotation period Prot , taken as the lag of the ACF maximum in a search window around the injected value, and the flicker-noise correlation time 
+
+τn, obtained by fitting the short-lag ( ≤ 14 d) ACF to a two-component model, ˆρ(τ ) = κ
+
+
+
+w cos 
+
+ 2πτ Prot 
+
+
+
++ (1 − w) e−τ /τ n
+
+
+
+, (13) with free parameters ( w, τ n, P rot , κ ). Note that a naive single-exponential decay does not fit this range, since Prot = 12 d is not slowly varying compared to 15 the fitted lags. The explicit dilution factor κ is re-quired in Equation 13: without it, the fit compen-sates for the noise-induced amplitude deficit at τ > 0by biasing τn low, since ˆ ρ would otherwise be pinned to 1 at τ = 0 by construction. For the fiducial realization, the ACF peak search recovers Prot = 12 .00 d exactly (injected: 12 .00 d) for both estimators. The composite fit gives τn =4.09 ±0.38 d (real-space) and 4 .16 ±0.38 d (NUFFT), compared to the injected τn = 3.5 d, and κ =0.938 ± 0.019 and 0 .940 ± 0.020 respectively, in agree-ment with an independent, fit-free estimate κest =1 − ⟨ σ2 
+
+> i
+
+⟩/Var( xobs ) = 0 .954 obtained directly from the data. 
+
+4.4 Monte-Carlo over independent re-alizations 
+
+Taken at face value, the single-realization τn fit above (∼ 4.1 d) is above the injected value (3 .5 d) by more than its formal uncertainty, suggestive of a residual bias – reminiscent of the CCF peak-amplitude offsets identified from a single realization in Section 3.4.3. Following the same logic, we test whether this is a genuine estimator bias or a finite-sample fluctuation by repeating the full pipeline – survey sampling, het-eroscedastic noise, latent signal, nufftcf Gaussian-NUFFT ACF, and the fit of Equation 13 – over 
+
+nmc = 20 independent realizations (Figure 10). The same model is fit to the noiseless theoretical curve, to the noise-free but irregularly-sampled latent signal, and to the fully observed (sampled+noisy) series. Averaged over the 20 realizations, the fit recovers 
+
+τn = 3 .64 ± 0.19 d (sampling only) and 3 .60 ± 0.24 d (sampling+noise) [mean ± SEM 11 ], both consistent with the injected τn = 3 .5 d, while the noiseless the-oretical curve, which carries no randomness and is therefore fit only once, returns τn = 3 .46 d. The per-realization scatter is substantial (std ≃ 0.86–1 .09 d), comparable to, or larger than, the ∼ 0.6 d offset seen for the single fiducial realization: the latter is not statistically distinguishable from the sampling noise floor. As in the CCF peak-amplitude case of Sec-tion 3.4.3, an apparent bias identified from a sin- 
+
+> 11 SEM stands for Standard Error of the Mean. y_latent (sampling only) x_obs (sampling+noise) 23456fitted  n (d)
+> 20 survey realizations
+> injected n=3.5 d
+
+Figure 10: Fitted τn over nmc = 20 independent sur-vey realizations, for the sampled-only latent signal and the sampled+noisy observed series, against the injected value (dashed). Medians are shown as red lines, box edges represent the first (Q1) and third (Q3) quartiles, and whiskers extend to the most ex-treme data point within 1.5 times the interquartile range (IQR) from the boxes. gle, or a small number of, realization(s) is again a finite-sample/selection effect rather than an intrinsic property of the nufftcf estimator. This bias shrinks on average when several independent realizations are combined, even though the per-realization scatter re-mains unchanged, as it is determined by the survey information content rather than by the estimator it-self. This test reinforces, on an independent, physically-motivated case, the guidance of Section 3.4.3: asingle-realization deviation from the truth should al-ways be weighed against the estimator sampling vari-ance (accessible here via repeated simulation, or in practice via bootstrap on the real data) before being interpreted as a bias. 
+
+# 5 Timing Benchmarks 
+
+To quantify the practical speed-up offered by 
+
+nufftcf NUFFT, we benchmarked nufftcf and 
+
+pastas on synthetic white-noise series of increas-16 ing length, separately for irregularly-sampled and regularly-sampled data. pyZDCF was excluded from this comparison: its O(n2) real-space correlation, combined with a Monte-Carlo error estimate, makes it prohibitively slow for series of the lengths con-sidered here – unsurprising, since pyZDCF was de-signed to prioritize error estimation over computa-tional speed. Benchmarks are restricted to ACF, rather than CCF, for two reasons: first, this allows a direct com-parison against pastas , which only implements ACF; second, within nufftcf itself, CCF and ACF share the same computational cost, since both are driven by the same NUFFT calls and the same b-factor (pair-count normalization) computation. For each configuration, computation time was mea-sured over several repeats per series length, with execution order randomized across (kernel, length) combinations to avoid confounding a systematic drift (e.g. thermal throttling over a long benchmark run) with the trend in series length being measured. The reported point estimate is the per-length median (regular case) or minimum (irregular case) compu-tation time, and error bars show the min-to-max spread across repeats. For each (kernel, algorithm) pair, timings were fit to the theoretically expected scaling law using a robust nonlinear least-squares fit (scipy.optimize.least squares P. Virtanen et al. (2020), soft l1 loss), which down-weights the influ-ence of occasional outlier measurements without re-quiring them to be manually identified and removed. Parameter uncertainties were obtained by bootstrap-ping over the recorded repeats (500 iterations): at each iteration, repeats at every series length are re-sampled with replacement, the point estimate is re-computed, and the model is refit; the standard de-viation of the refit parameters across iterations gives the reported uncertainty. For the sake of completeness and reproducibility, we detail the exact hardware configuration used to conduct the benchmarks: this is a MacBook Pro (2020) equipped with a 2 GHz Intel Core i5 processor (quad-core), 512 KB of L2 cache per core, and 6 MB of shared L3 cache, along with 16 GB of LPDDR4X RAM (3733 MHz, dual-channel, 8 GB per channel), running macOS 26.5.2 (build 25F84). 
+
+5.1 Irregularly-sampled data 
+
+Irregularly-sampled series are the primary use case 
+
+nufftcf was designed for, and the NUFFT-based es-timator was accordingly compared against pastas for both the Gaussian and rectangle smoothing kernels. Table 3 summarizes the fitted parameters, and Fig-ure 11 shows the results. As expected from the un-derlying algorithms, pastas slotting technique scales quadratically in the number of points, t ∼ a n 2 +overhead, while nufftcf scales as t ∼ a n ln( n) + overhead, consistent with its NUFFT-based evalua-tion of the Wiener–Khinchin relation. The quadratic-vs-n ln n scaling translates into a rapidly growing speed advantage for nufftcf as se-ries length increases, and confirms that the O(n log n)NUFFT-based approach delivers its expected asymp-totic benefit in practice, not just in principle –with the small residual overhead (a few milliseconds) making nufftcf advantageous already for moder-ately sized series, well before reaching the asymptotic regime. 
+
+5.2 Regularly-sampled data 
+
+When the data lie on a uniform grid, there is no need to pay for the generality of a NUFFT: nufftcf also provides a dedicated classic-FFT path ( fft acf.py )that reproduces the exact same Gaussian/rectangle kernel definitions as the NUFFT and real-space es-timators, but via a plain FFT correlation with no numba/finufft dependency in the hot path. To quan-tify what this dedicated fast path buys over sim-ply reusing the general-purpose NUFFT estimator on regular data, we benchmarked pastas against both the FFT and NUFFT paths of nufftcf for the Gaus-sian and rectangle kernels, and additionally against 
+
+pastas own "regular" bin method (a fixed-size win-dowed numpy.corrcoef 12 per lag, with no smooth-ing kernel), for which the comparison is limited to the dedicated fft acf no-kernel estimator, since NUFFT has no counterpart for this case. Note that pastas "regular" bin method scales empirically as O(n), 
+
+> 12 https://numpy.org/doc/stable/reference/generated/ numpy.corrcoef.html
+
+17 Table 3: Fit results for irregularly- and regularly-sampled data. pastas Gaussian/rectangle bin methods and nufftcf nufft path follow a n 2 and a n ln( n) (resp.) + overhead; pastas "regular" bin method follows 
+
+a n + overhead; nufftcf fft path follows a n ln( n) + overhead. 
+
+Sampling Kernel Algorithm a Overhead [ms] R2
+
+Irregular Gaussian pastas (4 .744 ± 0.002) × 10 −8 17 .32 ± 1.04 1.00 Gaussian nufftcf (1 .370 ± 0.033) × 10 −6 2.17 ± 0.59 1.00 rectangle pastas (5 .448 ± 0.004) × 10 −8 3.08 ± 0.88 1.00 rectangle nufftcf (4 .712 ± 0.230) × 10 −7 1.71 ± 0.30 0.98 Regular Gaussian pastas (4 .738 ± 0.026) × 10 −8 12 .89 ± 6.31 1.00 Gaussian nufftcf (fft) (2 .098 ± 0.056) × 10 −8 1.01 ± 0.12 0.99 Gaussian nufftcf (nufft) (1 .351 ± 0.002) × 10 −6 28 .43 ± 3.29 1.00 rectangle pastas (4 .818 ± 0.038) × 10 −8 0.24 ± 2.04 1.00 rectangle nufftcf (fft) (1 .314 ± 0.083) × 10 −8 0.61 ± 0.30 0.94 rectangle nufftcf (nufft) (4 .267 ± 0.073) × 10 −7 10 .05 ± 2.70 0.99 regular pastas (1 .461 ± 0.016) × 10 −5 17 .05 ± 0.57 1.00 regular nufftcf (fft) (1 .017 ± 0.068) × 10 −8 0.00 ± 0.06 0.99 10 3 10 4                   
+
+> Number of points in series 10 −2
+> 10 −1
+> 10 0
+> Computation time [s]
+> gaussian kernel
+> fit a.n2+overhead (R2=1.000) fit a.n. ln( n) + overhead (R2=0.997) pastas -- data nu ff t -- data
+> 10 310 4
+> Number of points in series
+> rectangle kernel
+> fit a.n2+overhead (R2=1.000) fit a.n. ln( n) + overhead (R2=0.981) pastas -- data nu ff t -- data
+> ACF benchmark (irregular data): Pastas vs nu ff tcf
+
+Figure 11: ACF benchmark, nufftcf versus pastas , on irregularly-sampled data (Gaussian and rectangle kernels). Robust fit (soft l1); error bars show the min-to-max spread across repeats at each point. 18 10 3 10 4 10 5             
+
+> Number of points in series 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> Computation time [s]
+> gaussian
+> fit a.n2+overhead (R2=1.000) fit a.n. ln( n) + overhead (R2=0.991) fit a.n. ln( n) + overhead (R2=0.999) pastas -- data
+> ff t -- data nu ff t -- data
+> ACF benchmark (regular data): Pastas vs nu ff tcf ( ff t / nu ff t)
+
+Figure 12: ACF benchmark on regularly-sampled data, pastas versus nufftcf (dedicated FFT path and general-purpose NUFFT path), Gaussian kernel. unlike its O(n2) "Gaussian" /"rectangle" bin meth-ods, and is fit to t ∼ a n + overhead accordingly. Fit results are given in Table 3, and the Gaussian kernel comparison is shown in Figure 12. The dedi-cated FFT path is markedly faster than NUFFT on regular data (e.g. for the Gaussian kernel, its lead-ing coefficient a is ∼65 × smaller and its overhead 
+
+∼30 × lower), and, like the NUFFT path on irregular data, retains an O(n log n) advantage over pastas 
+
+O(n2) Gaussian/rectangle bin methods – including over pastas own O(n) "regular" bin method, whose much larger leading coefficient outweighs its more fa-vorable scaling. 
+
+# 6 Discussion on nufftcf 
+
+6.1 Choosing an estimator: NUFFT, real-space, or classic-FFT 
+
+The three estimator families provided by nufftcf 
+
+share a single calling convention (Section 2.6) so the choice can be made per use case. For regularly-sampled data, the dedicated classic-FFT (Section 5) should always be preferred: it reproduces the same Gaussian/rectangle kernel definitions at the low-est cost, with no NUFFT-specific approximation. For irregularly-sampled data—the intended use case for nufftcf —the NUFFT estimator is the default choice, since it retains the O(n log n) scaling advan-tage over O(n2) slotting (Table 3) already for moder-ately sized series, well before the asymptotic regime is reached. However, the real-space estimator, at O(n2)cost, remains useful in the following situations: when 
+
+n is modest enough (a few thousand points or fewer) that the quadratic cost is not limiting, as an reference against which a NUFFT-based result can be checked on a subset of the data. 
+
+6.2 Limitations 
+
+Two limitations, quantified in Section 3, are worth restating as guidance rather than as a defect spe-cific to nufftcf . First, the Gaussian- and rectangle-kernel estimators, whether evaluated in real space or via NUFFT, share an intrinsic selection bias. This has led to overestimating a CCF peak amplitude by an amount of order the background noise level of the estimate (Table 2, Figure 7). This is a prop-erty of maximizing over many noisy per-lag estimates, not a NUFFT-specific artifact (Section 3.4.3), and it shrinks as the sampling density increases: a ten-fold 19 larger sample already reduces the bias by a factor of a few and leaves only a small residual smoothing bias from averaging the CCF over a finite kernel band-width h.The same diagnosis extends beyond the CCF peak amplitude itself: in the physically-motivated light-curve case of Section 4.4, a single-realization time-delay fit that appeared offset from the injected value by more than its formal uncertainty turned out, once averaged over nmc = 20 independent realizations, to be statistically consistent with the truth – confirming that the apparent bias was a finite-sample selection effect rather than an intrinsic property of the estima-tor. The practical lesson is the same in both cases: a single-realization deviation from the truth should al-ways be weighed against the estimator sampling vari-ance – accessible via repeated simulation when avail-able, or via bootstrap/Monte-Carlo resampling on the real data otherwise – before being interpreted as evidence of a systematic bias. In practice, this lim-itation is best addressed by increasing the number of sampled points or independent realizations where possible, by widening h, or by a bootstrap/Monte-Carlo calibration of the bias on surrogate data, in the spirit of pyZDCF own internal resampling. Second, in contrast to pyZDCF , which uses coarser, data-adaptive equal-population bins, nufftcf uses a dense, user-chosen lag grid evaluated pointwise. This gives much higher lag resolution (Section 3.3) but, unlike pyZDCF , does not itself supply per-lag uncer-tainty estimates, which a user wanting formal error bars must still obtain externally (e.g., by bootstrap). 
+
+# 7 Summary and Conclusion 
+
+We have presented nufftcf , an open-source Python package that evaluates the Gaussian- and rectangle-kernel ACF/CCF estimators of Section 2.3 through the Wiener–Khinchin theorem using the Non-Uniform FFT from FINUFFT library, reducing their cost from O(n2) to O(n log n) while remaining nu-merically consistent with their established real-space definitions. An O(n) two-pointer scan removes the re-maining O(n2) bottleneck in the effective-pair-count normalization, and dedicated classic-FFT functions extend the same estimator definitions to regularly-sampled data at a further reduced cost. All three estimator families share a single calling convention, letting a user move between speed and an exact ac-curacy reference without changing downstream code. We validated nufftcf against pastas for ACF es-timation and against pyZDCF for CCF estimation, on synthetic series with known analytical correla-tion structure, finding agreement with both refer-ence implementations within their respective statis-tical precision (Section 3), and measured the ex-pected O(n log n) versus O(n2) scaling advantage over pastas in direct timing benchmarks (Section 5). 
+
+nufftcf is therefore positioned as a drop-in, order-of-magnitude faster alternative to existing kernel-weighted ACF/CCF estimators for the long, dense irregularly-sampled time series increasingly produced by continuous monitoring and high-cadence surveys, without sacrificing the statistical grounding of the un-derlying estimator. Beyond this controlled, cross-implementation val-idation, we also exercised nufftcf on a physically-motivated simulated use case (Section 4): a stellar photometric light curve combining a quasi-periodic rotation signal, correlated “flicker” noise, realistic ground-based sampling gaps, and heteroscedastic measurement noise. nufftcf , used alone, recovers both the injected rotation period and the noise cor-relation time from the simulated observed series. Re-peating this pipeline over several independent real-izations further showed that an apparent bias sug-gested by a single realization was in fact a finite-sample selection effect rather than an intrinsic prop-erty of the estimator (Section 4.4), reinforcing on an independent, more realistic case the same conclusion reached from the synthetic peak-amplitude tests of Section 3.4.3. Future work may include extending nufftcf un-certainty quantification beyond the deterministic ef-fective pair count b following pyZDCF own approach, exploring additional weighting kernels within the same NUFFT reformulation. An other kind of exten-sion may be guided by the GPU version of FINUFFT 
+
+(Y.-h. Shih et al., 2021) for the very largest ( n ≳ 10 6)20 time series that may emerge from continuous environ-mental and astronomical monitoring. Finally, while the quantitative validation and benchmarks in this article rely on synthetic se-ries with known, controlled statistical properties— complemented by a single physically motivated simu-lated light curve—the ultimate test of nufftcf prac-tical utility lies in its application to both more real-istic time series simulations, such as those developed by D. Emmanoulopoulos et al. (2013), and real-world data. Tests by the AGN reverberation-mapping com-munity currently served by pyZDCF , and by hydroge-ologists relying on pastas for groundwater time se-ries analysis, would expose nufftcf to observational irregularities — gaps, heteroscedastic noise, and non-stationary sampling — that synthetic series may not fully capture, and would constitute a valuable com-plement to the synthetic validation performed in this work. 
+
+# 8 Reproducible Research 
+
+The latest version of the nufftcf package is available at https://github.com/jecampagne/nufftcf under the MIT license, together with the notebooks and bench-mark scripts used to produce the comparisons and timings in this article. The code is also available as a PyPI package at https://pypi.org/project/nufftcf/ to ease its installation. The documentation is available at https://jecampagne.github.io/nufftcf/. For Con-inuous Integration the test suite is run via GitHub Actions on Linux, macOS (Apple Silicon/arm64 and Intel/x86 64), and Windows, across Python versions 3.11–3.14. We have used pastas 1.14.0, while concerning 
+
+pyZDCF we have made a fork of the https://github. com/LSST-sersag/pyzdcf repository to allow the notebooks to be run on the Google Colab plate-form 13 .
+
+> 13 https://colab.research.google.com/
+
+# Large Language Model Use Dis-closure 
+
+For the development of nufftcf , we used the free version of Claude Desktop by Anthropic (Sonnet 5 14 ,Moyen) to elaborate the Python project and set up the workflow for GitHub continuous integration and systematic tests. We also used it to assist in writing the README and documenting the notebooks and Python functions as well as their transcriptions into Latex algorithms. We also used Le Chat CNRS Enterprise, an AI-powered language model developed by Mistral AI 15 
+
+and tailored to the research needs of the National Centre for Scientific Research (CNRS), to refine the clarity and fluency of the English text. All AI-generated suggestions were carefully re-viewed and validated by the author. 
+
+# Acknowledgments 
+
+I would like to thank Julian Hamo for fruitful dis-cussions, as well as the developers of FINUFFT , the library upon which nufftcf is based, pastas , and 
+
+pyZDCF , against which nufftcf is validated. 
+
+# References 
+
+Alexander, T. 1997, in Astrophysics and Space Sci-ence Library, Vol. 218, Astronomical Time Series, ed. D. Maoz, A. Sternberg, & E. M. Leibowitz, 163, doi: 10.1007/978-94-015-8941-3 14 Angus, R., Morton, T., Aigrain, S., Foreman-Mackey, D., & Rajpaul, V. 2018, Inferring probabilistic stellar rotation periods using Gaussian processes, Monthly Notices of the Royal Astronomical Soci-ety, 474, 2094, doi: 10.1093/mnras/stx2109 Babu, P., & Stoica, P. 2010, Spectral analysis of nonuniformly sampled data – a review, Digital Sig-nal Processing, 20, 359, doi: https://doi.org/10. 1016/j.dsp.2009.06.019 
+
+> 14 https://www.anthropic.com/news/claude-sonnet-5.
+> 15 https://mistral.ai
+
+21 Barnett, A. H., Magland, J. F., & af Klinteberg, L. 2019, A parallel non-uniform fast Fourier trans-form library based on an “exponential of semicir-cle” kernel, SIAM Journal on Scientific Computing, 41, C479, doi: 10.1137/18M120885X BjØrnstad, O. N., & Falck, W. 2001, Nonparametric spatial covariance functions: Estimation and test-ing, Environmental and Ecological Statistics, 8, 53, doi: 10.1023/A:1009601932481 Collenteur, R. A., Bakker, M., Calj´ e, R., Klop, S. A., & Schaars, F. 2019, Pastas: Open Source Soft-ware for the Analysis of Groundwater Time Series, Groundwater, 57, 877, doi: 10.1111/gwat.12925 Edelson, R. A., & Krolik, J. H. 1988, The Discrete Correlation Function: A New Method for Analyz-ing Unevenly Sampled Variability Data, ApJ, 333, 646, doi: 10.1086/166773 Emmanoulopoulos, D., McHardy, I. M., & Pa-padakis, I. E. 2013, Generating artificial light curves: revisited and updated, MNRAS, 433, 907, doi: 10.1093/mnras/stt764 Fisher, R. A. 1915, Frequency distribution of the val-ues of the correlation coefficient in samples from an indefinitely large population, Biometrika, 10, 507, doi: 10.2307/2331838 Foreman-Mackey, D., Agol, E., Ambikasaran, S., & Angus, R. 2017, Fast and Scalable Gaussian Pro-cess Modeling with Applications to Astronomical Time Series, The Astronomical Journal, 154, 220, doi: 10.3847/1538-3881/aa9332 Garrison, L. H., Foreman-Mackey, D., Shih, Y.-h., & Barnett, A. 2024, NIFTY-LS: Fast and Accurate Lomb-Scargle Periodograms Using a Non-uniform FFT, Research Notes of the American Astronomi-cal Society, 8, 250, doi: 10.3847/2515-5172/ad82cd Jankov, I., Kovaˇ cevi´ c, A. B., Ili´ c, D., et al. 2022a, Photoreverberation mapping of quasars in the con-text of Legacy Survey of Space and Time observ-ing strategies, Astronomische Nachrichten, 343, e210090, doi: 10.1002/asna.20210090 Jankov, I., Kovaˇ cevi´ c, A. B., Ili´ c, D., S´ anchez-S´ aez, P., & Nikutta, R. 2022b, pyZDCF: Initial Release, doi: 10.5281/zenodo.7253034 Kovaˇ cevi´ c, A., Popovi´ c, L. ˇC., Shapovalova, A. I., et al. 2014, Time series analysis of active galactic nuclei: The case of Arp 102B, 3C 390.3, NGC 5548 and NGC 4051, Advances in Space Research, 54, 1414, doi: 10.1016/j.asr.2014.06.025 Kreutzer, L. T., Gillen, E., Briegal, J. T., & Queloz, D. 2023, S-ACF: a selective estimator for the au-tocorrelation function of irregularly sampled time series, MNRAS, 522, 5049, doi: 10.1093/mnras/ stad1223 Lacki, B. C. 2025, Flickers, Bursts, and Dips: De-tecting Rapid Variability with the g(2) Autocor-relation Function, Astrophys. J., 987, 68, doi: 10. 3847/1538-4357/add151 Lam, S. K., Pitrou, A., & Seibert, S. 2015, in Pro-ceedings of the Second Workshop on the LLVM Compiler Infrastructure in HPC, LLVM ’15 (New York, NY, USA: Association for Computing Ma-chinery), doi: 10.1145/2833157.2833162 Lomb, N. R. 1976, Least-Squares Frequency Anal-ysis of Unequally Spaced Data, Ap&SS, 39, 447, doi: 10.1007/BF00648343 Max-Moerbeck, W., Richards, J. L., Hovatta, T., et al. 2014, A method for the estimation of the sig-nificance of cross-correlations in unevenly sampled red-noise time series, MNRAS, 445, 437, doi: 10. 1093/mnras/stu1707 Rajpaul, V., Aigrain, S., Osborne, M. A., Reece, S., & Roberts, S. 2015, A Gaussian process framework for modelling stellar activity signals in radial veloc-ity data, Monthly Notices of the Royal Astronomi-cal Society, 452, 2269, doi: 10.1093/mnras/stv1428 Rehfeld, K., Marwan, N., Heitzig, J., & Kurths, J. 2011, Comparison of correlation analysis tech-niques for irregularly sampled time series, Nonlin-ear Processes in Geophysics, 18, 389, doi: 10.5194/ npg-18-389-2011 22 S´ anchez-S´ aez, P., Lira, H., Mart´ ı, L., et al. 2021, Searching for Changing-state AGNs in Mas-sive Data Sets. I. Applying Deep Learning and Anomaly-detection Techniques to Find AGNs with Anomalous Variability Behaviors, AJ, 162, 206, doi: 10.3847/1538-3881/ac1426 Sayer, A. M. 2020, How Long Is Too Long? Vari-ogram Analysis of AERONET Data to Aid Aerosol Validation and Intercomparison Studies, Earth and Space Science, 7, e2020EA001290, doi: https://doi. org/10.1029/2020EA001290 Scargle, J. D. 1982, Studies in astronomical time series analysis. II. Statistical aspects of spectral analysis of unevenly spaced data., ApJ, 263, 835, doi: 10.1086/160554 Scargle, J. D. 1989, Studies in Astronomical Time Series Analysis. III. Fourier Transforms, Autocor-relation Functions, and Cross-Correlation Func-tions of Unevenly Spaced Data, ApJ, 343, 874, doi: 10.1086/167757 Shapovalova, A. I., Popovi´ c, L. ˇC., Afanasiev, V. L., et al. 2019, Long-term optical spectral monitor-ing of a changing-look active galactic nucleus NGC 3516 - I. Continuum and broad-line flux variability, MNRAS, 485, 4790, doi: 10.1093/mnras/stz692 Shih, Y.-h., Wright, G., And´ en, J., Blaschke, J., & Barnett, A. H. 2021, cuFINUFFT: a load-balanced GPU library for general-purpose nonuni-form FFTs, arXiv e-prints, arXiv:2102.08463, doi: 10.48550/arXiv.2102.08463 Stoffer, D. 2026, astsa: Applied Statistical Time Series Analysis. https://CRAN.R-project.org/ package=astsa Stoica, P., Li, J., & He, H. 2009, Spectral analysis of nouniformly sampled data: a new approach versus the periodogram, Trans. Sig. Proc., 57, 843–858, doi: 10.1109/TSP.2008.2008973 VanderPlas, J. T. 2018, Understanding the Lomb-Scargle Periodogram, ApJS, 236, 16, doi: 10.3847/ 1538-4365/aab766 Virtanen, P., Gommers, R., Oliphant, T. E., et al. 2020, SciPy 1.0: Fundamental Algorithms for Sci-entific Computing in Python, Nature Methods, 17, 261, doi: 10.1038/s41592-019-0686-2 Welsh, W. 2024, in AAS/High Energy Astrophysics Division, Vol. 21, AAS High Energy Astrophysics Division Meeting #21, 102.18 
+
+# A NUFFT-based ACF/CCF algorithms 
+
+This appendix provides the complete pseudocode for the NUFFT-based estimators implemented us-ing the FINUFFT library, as outlined in Section 2.6 (nufft ccf.py and nufft acf.py ). These estima-tors evaluate the Wiener–Khinchin identity of Equa-tion 2 via a type 1 NUFFT (from nonuniform sam-ples to uniform frequency grid) followed by a type 2 NUFFT (from uniform frequency grid to requested lags). Both weighting kernels supported by nufftcf 
+
+(Gaussian and rectangle; see Equations 4–5) share the same algorithmic structure. They differ only in the smoothing operator Sh (Gaussian filter of width 
+
+h, or box filter of size round(2 h)) applied to the raw NUFFT output, and in the corresponding pair-count function b(·) from Appendix A.2. Thus, each esti-mator is presented as a single, kernel-parameterized algorithm to avoid redundancy. 
+
+A.1 Cross and Autocorrelation func-tions 
+
+Algorithm 1 describes the general NUFFT-based CCF estimator. It evaluates the Wiener–Khinchin identity by applying a type 1 NUFFT to each se-ries, computes the cross-spectrum ˆX∗(f ) ˆY (f ), eval-uates it at the requested lags using a type 2 NUFFT, smooths the result with the chosen kernel Sh, and normalizes it to a Pearson correlation in [ −1, 1]. This normalization uses the matching effective pair count (Algorithm 4) and the geometric mean of the two se-ries ACF values at lag 0, pACF x(0) · ACF y (0), each obtained from Algorithm 2. 23 Algorithm 1: CCF via NUFFT + smoothing (Gaussian or rectangle) 
+
+Require : times t = ( txi )nx
+
+> i=1
+
+, values x = ( xi) (series 1, t ascending); times s = ( tyj )ny
+
+> j=1
+
+, values y = ( yj ) (series 2, s ascending); requested lags {τ1, . . . , τ K }; kernel filter Sh with bandwidth h (σ for the Gaussian kernel, half-width for the rectangle kernel); NUFFT tolerance ε; frequency-grid size N1 (default 32 max( nx, n y )) 
+
+Ensure : c = ( c1, . . . , c K ) (CCF estimate, normalized to [ −1, 1]), b = ( b1, . . . , b K ) (effective pair count)  
+
+> 1
+
+xstd ← (x − ¯x)/std( x), ystd ← (y − ¯y)/std( y) ; ▷ standardize both series  
+
+> 2
+
+tmin ← min(min t, min s), span ← max(max t, max s) − tmin ; ▷ common (union) time span  
+
+> 3
+
+˜t ← t − tmin 
+
+span 2π, ˜s ← s − tmin 
+
+span 2π, ˜τ ← (0 , τ 1, . . . , τ K )span 2π ; ▷ lag 0 prepended for the normalization step below  
+
+> 4
+
+ˆF1 ← nufft1d1 (˜ t, x std , N 1, ε ) ; ▷ type 1: time → frequency  
+
+> 5
+
+ˆF2 ← nufft1d1 (˜ s, y std , N 1, ε );  
+
+> 6
+
+M ← ˆF1 ⊙ ˆF2 ; ▷ cross-spectrum ˆX∗(f ) ˆY (f ), not Hermitian in general  
+
+> 7
+
+craw ← ℜ nufft1d2 (˜ τ , M, ε ) ; ▷ type 2: frequency → lags  
+
+> 8
+
+csm ← S h(craw ) ; ▷ Gaussian or rectangle filtering  
+
+> 9
+
+bcross ← PairCount (t, s, (0 , τ 1, . . . , τ K ), h ) ; ▷ Alg. 4, matching kernel  
+
+> 10
+
+cnorm ← csm ⊘ bcross ; ▷ elementwise division  
+
+> 11
+
+scale x ← AcfScaleAtLag0 (t, x std , t min , span , N 1, ε, h ) ; ▷ Alg. 2  
+
+> 12
+
+scale y ← AcfScaleAtLag0 (s, y std , t min , span , N 1, ε, h );  
+
+> 13
+
+scale ← pscale x · scale y ; 
+
+> 14
+
+c ← cnorm [2:] / scale ; ▷ drop the lag-0 entry (indexing starts at 1)  
+
+> 15
+
+b ← bcross [2:];  
+
+> 16
+
+return c, b 
+
+The ACF (Algorithm 3) is a special case of this estimator where s = t and y = x. This simpli-fies the procedure in three ways. First, since only one series is involved, the power spectrum | ˆX(f )|2
+
+is real and even, so only one type 1 NUFFT call is required. The ±i sign convention, which must be carefully fixed for the CCF cross-spectrum, is irrel-evant here. Second, the effective pair count reduces to Algorithm 4 evaluated with s = t. Third, normal-ization is simpler: instead of computing the geomet-ric mean of two scales ACF x(0) · ACF y (0) separately (Algorithm 2), the ACF estimate is normalized di-rectly by the smoothed value at lag 0, obtained as the first entry of the same evaluation array. The interior-position trick of Algorithm 2 is unnecessary here because the ACF is even about τ = 0. 
+
+A.2 Effective pair count algorithms 
+
+The pair-count functions b(·) (module kernels.py )are presented in Algorithms 4-5. Each algorithm computes the effective number of pairs contribut-ing to each lag — the normalization denominator in Equation 3. They are implemented in numba using a two-pointer scan: since both time arrays are sorted in ascending order, the window [lo , hi) associated with the pair-matching center advances monotonically as the outer index increases. This reduces the computa-tional cost from O(n1n2) to O(n1 +n2) per lag, and to an overall O(( n1 + n2) log n1)-equivalent throughput when parallelized ( prange ) across lags. The ACF and CCF pair-counts are not separate algorithms but two instantiations of the same two-pointer scan, differing only in the role of the time arrays and the sign ϵ ∈ { +1 , −1} in the window-center formula cj = tyj + ϵ τ k. For the ACF ( ty =
+
+tx = t, ϵ = +1), the window center is cj = tj +24 Algorithm 2: ACF scale at lag 0 (Pearson normalization) — AcfScaleAtLag0 
+
+Require : t, xstd , tmin , span (shared by both series), N1, ε, bandwidth h
+
+Ensure : scalar estimate of ACF x(0)  
+
+> 1
+
+˜t ← (t − tmin )/span · 2π; 
+
+> 2
+
+ˆF ← nufft1d1 (˜ t, x std , N 1, ε ), P ← | ˆF |2; 
+
+> 3
+
+nh ← max( ⌈4h⌉ + 2 , 5); τsym ← (−nh, . . . , −1, 0, 1, . . . , n h) ; ▷ lag 0 placed at an interior array position  
+
+> 4
+
+˜τsym ← τsym /span · 2π; 
+
+> 5
+
+craw ← ℜ nufft1d2 (˜ τsym , P, ε ); 
+
+> 6
+
+csm ← S h(craw ) ; ▷ same smoothing as Alg. 1, applied symmetrically  
+
+> 7
+
+bsym ← PairCount (t, t, τ sym , h ) ; ▷ Alg. 4 with s = t 
+
+> 8
+
+return csm [nh+1] / max( bsym [nh+1] , 10 −16 )
+
+Algorithm 3: ACF via NUFFT + smoothing (Gaussian or rectangle) 
+
+Require : times t, values x; lags {τ1, . . . , τ K }; bandwidth h; ε; N1 (default 32 n)
+
+Ensure : c = ( c1, . . . , c K ), b = ( b1, . . . , b K ) 
+
+> 1
+
+xstd ← (x − ¯x)/std( x);  
+
+> 2
+
+˜t ← t − min t
+
+max t − min t 2π, ˜τ ← (0 , τ 1, . . . , τ K )max t − min t 2π; 
+
+> 3
+
+ˆF ← nufft1d1 (˜ t, x std , N 1, ε );  
+
+> 4
+
+M ← ˆF ⊙ ˆF = | ˆF |2 ; ▷ real and even: the Hermitian case, no sign ambiguity  
+
+> 5
+
+craw ← ℜ nufft1d2 (˜ τ , M, ε ); 
+
+> 6
+
+csm ← S h(craw );  
+
+> 7
+
+beval ← PairCount (t, t, (0 , τ 1, . . . , τ K ), h ) ; ▷ Alg. 4, s = t 
+
+> 8
+
+ceval ← csm ⊘ beval ; 
+
+> 9
+
+c ← ceval [2:] / c eval [1] ; ▷ normalize by the lag-0 value  
+
+> 10
+
+b ← beval [2:];  
+
+> 11
+
+return c, b 
+
+25 Algorithm 4: PairCount — Gaussian (weighted) kernel, generic (ACF/CCF) 
+
+Require : ty = ( tyj )ny 
+
+> j=1
+
+sorted (outer array), tx = ( txi )nx 
+
+> i=1
+
+sorted (window array), lags {τk }Kk=1 , bandwidth h,sign ϵ ∈ { +1 , −1}
+
+Ensure : b = ( bk )Kk=1  
+
+> 1
+
+for k ← 1 to K in parallel  
+
+> 2
+
+lo ← 0, hi ← 0, bk ← 0;  
+
+> 3
+
+for j ← 1 to ny do 
+
+▷ increasing j ⇒ increasing center ⇒ lo/hi only advance  
+
+> 4
+
+center ← tyj + ϵ τ k ; 
+
+> 5
+
+while lo < n x and tx 
+
+> lo
+
+< center − 6h do  
+
+> 6
+
+lo ← lo + 1;  
+
+> 7
+
+while hi < n x and tx 
+
+> hi
+
+< center + 6 h do  
+
+> 8
+
+hi ← hi + 1;  
+
+> 9
+
+for i ← lo to hi − 1 do  
+
+> 10
+
+bk ← bk + 1
+
+h√2π exp 
+
+
+
+− (txi − center) 2
+
+2h2
+
+
+
+; 
+
+> 11
+
+bk ← max( bk , 10 −16 ) ; ▷ avoids division by zero at sparsely-populated lags  
+
+> 12
+
+return b • ACF: ty =tx=t, ny =nx=n, ϵ=+1 ⇒ compute b Gaussian . • CCF: ty =s, tx=t, ϵ=−1 ⇒
+
+compute b Gaussian cross .
+
+τk with pair condition ti − tj ≈ τk, corresponding to compute b Gaussian and compute b rectangle .For the CCF ( ty = s, tx = t, ϵ = −1), the window center is cj = sj − τk with pair condition sj − ti ≈
+
+τk, corresponding to compute b Gaussian cross and 
+
+compute b rectangle cross .The sign flip encodes the asymmetry of the CCF (lag + τ means y lags x by τ ; cf. the sign-convention note on the cross-spectrum). For the ACF, the sign choice ( ti − tj ≈ τk rather than tj − ti ≈ τk) is an arbitrary but fixed convention, harmless because x is correlated with itself. 
+
+A.3 Implementation choices dictated by FINUFFT 
+
+Algorithms 1–3 rely on the FINUFFT library for both nonuniform transforms ( nufft1d1 , type 1, and 
+
+nufft1d2 , type 2). Several implementation choices follow directly from this library constraints and con-ventions. We detail them here, complementing the 
+
+O(n)-per-lag numba kernels of Appendix A.2. 
+
+Time domain [0 , 2π). FINUFFT requires nonuni-form points to lie in the standard domain [ −π, π ) or [0 , 2π), so the user-supplied sample times t (in days, or any other unit) must first be rescaled. For the ACF, a single series is involved and its own extent is used: ˜t = t − min( t)max( t) − min( t) 2π. 
+
+For the CCF, however, two series t and s, poten-tially shifted and with different supports, must be placed on the same frequency grid for the cross-product ˆF1 ⊙ ˆF2 to be meaningful. Algorithm 1 there-fore uses the union of the two time spans, tmin =min(min( t), min( s)), span = max(max( t), max( s)) −
+
+tmin , and applies the same affine map to t, s, and to the requested lags τ . Because lags have units of time, they are rescaled identically, ˜ τ = 2 πτ / span, which is what allows the type 2 output to be read off directly at the desired lags without any further inverse trans-form. 
+
+Sign convention and the non-Hermitian cross-spectrum. With FINUFFT default sign conventions, 26 Algorithm 5: PairCount — rectangle (counting) kernel, generic (ACF/CCF) 
+
+Require : ty = ( tyj )ny 
+
+> j=1
+
+sorted (outer array), tx = ( txi )nx 
+
+> i=1
+
+sorted (window array), lags {τk }Kk=1 , half-width h,sign ϵ ∈ { +1 , −1}
+
+Ensure : b = ( bk )Kk=1  
+
+> 1
+
+for k ← 1 to K in parallel  
+
+> 2
+
+lo ← 0, hi ← 0, bk ← 0;  
+
+> 3
+
+for j ← 1 to ny do  
+
+> 4
+
+center ← tyj + ϵ τ k ; 
+
+> 5
+
+while lo < n x and tx 
+
+> lo
+
+< center − h do  
+
+> 6
+
+lo ← lo + 1;  
+
+> 7
+
+hi ← max(hi , lo);  
+
+> 8
+
+while hi < n x and tx 
+
+> hi
+
+≤ center + h do  
+
+> 9
+
+hi ← hi + 1;  
+
+> 10
+
+bk ← bk + (hi − lo) ; ▷ direct count, no weighted sum: O(1) per j 
+
+> 11
+
+bk ← max( bk , 10 −16 );  
+
+> 12
+
+return b • ACF: ty =tx=t, ϵ=+1 ⇒ compute b rectangle . • CCF: ty =s, tx=t, ϵ=−1 ⇒
+
+compute b rectangle cross .
+
+isign=+1 for type-1 (Equation 6) and isign=-1 for type-2 (Equation 7), this corresponds to the usual opposite-sign Fourier-transform conventions. For the ACF, the power spectrum | ˆX(f )|2 is real and even, so the sign convention has no effect: M = ˆF ⊙ ˆF .For the CCF, the cross-spectrum ˆX∗(f ) ˆY (f ) is Her-mitian (since x, y are real-valued), which guarantees that craw is real up to NUFFT roundoff. However, it does not generally have exchange symmetry x ↔ y:
+
+Sxy (−f ) = Syx (f )̸ = Sxy (f ) in general ,
+
+mirroring the time-domain identity Cyx (τ ) =
+
+Cxy (−τ ). Consequently, with the convention 
+
+Cxy (τ ) = R x(t)y(t + τ ) dt , the choice M = ˆF1 ⊙ ˆF2
+
+places the correlation peak at the physical lag + τ
+
+when signal 2 is delayed by + τ relative to signal 1, whereas the opposite choice ˆF1 ⊙ ˆF2 effectively com-putes Syx (f ) and therefore places the peak at −τ ,i.e. a time-reversed (mirrored) result. This is a mat-ter of Fourier/CCF convention rather than numerical precision, but the convention must be applied consis-tently for the sign of the estimated delay to have the intended physical meaning. 
+
+Frequency-grid size N1. The parameter N1 (Al-gorithms 1-3) sets the resolution of the type 1transform (time → frequency), and therefore the fidelity of the reconstructed signal ahead of the type 2 evaluation. The default N1 =32 max( nx, n y ) (a 32 × oversampling factor) was validated empirically against the exact real-space estimator (compute ccf Gaussian realspace ; see 
+
+kernels.py ): a factor of 32 is enough to bring the two estimators into close agreement for both the Gaussian and rectangle kernels. Higher oversampling yields only marginal further improvement (mainly for strongly periodic signals with the Gaussian kernel) at the cost of increased O(N1 log N1) time and memory. Scaling N1 ∝ n, rather than fixing a constant grid size, keeps the frequency grid adequate regardless of series length. 
+
+Requested tolerance ε. The eps parameter sets the accuracy requested from FINUFFT internal itera-tive scheme (gridding + FFT + deconvolution; Sec-tion 2.5). While FINUFFT own library default is 10 −6,our implementation uses a tighter default of 10 −9 (Al-gorithms 1–3). Looser values such as 10 −6 speed up 27 the computation but introduce NUFFT-specific nu-merical noise. 
+
+Lag-0 normalization and interior placement. 
+
+The smoothing step (Gaussian or box filter) applied to the raw NUFFT output (Algorithm 1 step 8, Algo-rithm 3 step 6) introduces an edge artifact: a point at the end of the evaluated array is not smoothed symmetrically, unlike an interior point. The CCF peak of interest (at lag τ0, interior to the requested 
+
+lags range) is an interior point. Dividing this peak by an ACF(0) scale computed by placing lag 0 at the 
+
+first position of an array (hence smoothed asymmet-rically) introduced a systematic 2–3 % deficit in the estimated CCF peak. Algorithm 2 (step 3) corrects this by evaluating ACF x(0) on a small, symmetric 
+
+lag array centered on 0 (indices −nh, . . . , 0, . . . , n h,with nh = max( ⌈4h⌉ + 2 , 5), i.e. at least 4 h of margin on each side), so that the smoothing filter acts there exactly as it does at the peak — a concrete exam-ple of a numerical-pipeline artifact (not a property of the underlying signal) that must be neutralized by how the evaluation array is constructed, rather than corrected a posteriori .
+
+Prior standardization. Both x and y are stan-dardized (zero mean, unit variance) before any call to 
+
+FINUFFT . This is not dictated by FINUFFT itself, but ensures that the NUFFT internal scale (which de-pends on input amplitude) is consistent between the two compared series; combined with the final division by pACF x(0) · ACF y (0), it guarantees c ∈ [−1, 1] under the Pearson convention, regardless of the orig-inal physical scale of either series. 28

@@ -1,0 +1,395 @@
+Title: Rollcast: Proper-Score Gated Rolling Anchors for Adaptive Probabilistic Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2609.05561v1
+
+Published Time: Wed, 09 Sep 2026 00:05:47 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Rollcast: Proper-Score Gated Rolling Anchors for Adaptive Probabilistic Time-Series Forecasting 
+
+Giancarlo Vercellino Independent Researcher 
+
+giancarlo.vercellino@gmail.com 
+
+September 2026 
+
+Abstract 
+
+We introduce Rollcast , a probabilistic forecasting method for a single numeric time series that combines simple rolling statistics through a state-dependent predictive mixture. Unlike conventional forecast combinations whose components are separately fitted models, Rollcast 
+
+uses a compact dictionary of rolling anchors : the local mean, median, minimum, maximum, a one-step linear-regression endpoint, and selected empirical quantiles. Historical forecast origins are represented by the anchors’ robustly scaled displacement from the current observation. Each anchor is paired with a causal, state-conditional residual distribution estimated from similar earlier states, while a softmax gate is fitted by minimizing regularized negative log predictive density of the full mixture. Gate probabilities are stabilized by an adaptive persistence rule and multi-step distributions are generated recursively through an all-anchor particle mixture. The CRAN implementation is evaluated in a synthetic calibration benchmark with eight pre-specified data-generating processes, 250 independent replications per process, 300 training observations, and forecast horizons one through six. Compared with the true-DGP oracle, mean coverage is 0.862 versus 0.901 for nominal 90% intervals and 0.915 versus 0.952 for nominal 95% intervals. Rollcast intervals are nevertheless 13.6% and 15.9% wider than the oracle at those levels, while normalized CRPS is 14.4% above the oracle overall. Coverage declines with horizon, from 0.898 to 0.840 at the 90% level. Performance is closest to the oracle under stochastic volatility, heavy-tailed autoregression, Gaussian autoregression, threshold dynamics, and variance breaks; local trend and Markov-switching dynamics are more difficult. These results locate the main weakness in multi-step conditional calibration rather than interval width alone. 
+
+Keywords: probabilistic forecasting; forecast combination; mixture of experts; proper scoring rules; predictive calibration; Monte Carlo simulation; time series. 
+
+Primary arXiv category: stat.ME (Statistics Methodology). 
+
+# 1 Introduction 
+
+Forecast combination has a long history in time-series analysis, from the original evidence that weighted combinations can outperform individual forecasts (Bates and Granger, 1969) through broad reviews of why simple and adaptive combinations can be effective (Clemen, 1989; Wang et al., 2023). The literature now includes predictive-density pooling, time-varying weights, feature-dependent combinations, and mixture-of-experts architectures (Hall and Mitchell, 2007; Geweke and Amisano, 2011; Li et al., 2023; Ni et al., 2024). In parallel, probabilistic forecasting has emphasized that the 1arXiv:2609.05561v1 [stat.ML] 3 Sep 2026 complete predictive distribution should be evaluated with proper scoring rules rather than only point accuracy (Gneiting and Raftery, 2007; Gneiting and Katzfuss, 2014). 
+
+Rollcast starts from a deliberately different object than most forecast-combination methods. Its components are not separately estimated ARIMA, state-space, regression, or machine-learning models. They are simple summaries of a recent rolling window: a mean, median, extrema, selected quantiles, and a short linear-regression endpoint. These summaries are treated as low-capacity 
+
+forecast anchors . Their purpose is not to be individually correct, but to provide a small set of interpretable local hypotheses whose relevance can change with the observed state. Two statistical traditions are especially close to this construction. Local analog and nearest-state forecasting uses historical states similar to the current one to infer subsequent behavior (Farmer and Sidorowich, 1987; Sugihara and May, 1990), while nonparametric conditional-density estimation uses local weighting and kernels to estimate a full response distribution conditional on covariates (Hyndman et al., 1996; Hyndman and Yao, 2002). Rollcast uses nearest historical states to build anchor-specific residual distributions and combines those distributions with a state-dependent gate trained by a proper score. The resulting method has four operational layers. First, the current anchor configuration is expressed relative to the latest level and a robust local scale. Second, each anchor receives a residual distribution estimated from causally available historical states that resemble the current state. Third, a softmax gate is trained on the logarithmic score of the complete predictive mixture, aligning weight learning with density quality. Fourth, the one-step mixture is propagated recursively, with gate inertia adapting to the amount of state movement. Relative to these literatures, Rollcast organizes proper-score pooling, nearest-state retrieval, kernel residual smoothing, and dynamic mixture weights around a compact dictionary of rolling statistical anchors. Anchor geometry supplies the gating state; residual distributions are estimated around every anchor using responsibility-weighted neighbors; gate persistence depends on observed state movement; and tuning uses common causal validation origins. 
+
+# 2 Forecast anchors and state representation 
+
+Let y1, . . . , y n be a univariate time series. At forecast origin t, define a rolling window of width W ,
+
+Wt = ( yt−W +1 , . . . , y t). (1) Let Atj , j = 1 , . . . , M , denote M anchor functionals of this window. The default dictionary contains 
+
+n
+
+¯yt, med t, min  
+
+> t
+
+, max  
+
+> t
+
+, byreg 
+
+> t+1
+
+, Q t(q1), . . . , Q t(qQ)
+
+o
+
+, (2) where M = 5 + Q and the median is not duplicated among the user-specified quantiles. The regression anchor is the ordinary least-squares fitted level one step beyond the rolling window. Writing k = 1 , . . . , W , ¯k = ( W + 1) /2, and ¯ yt = W −1 P 
+
+> k
+
+yt−W +k,
+
+bbt =
+
+PWk=1 (k − ¯k)( yt−W +k − ¯yt)
+
+PWk=1 (k − ¯k)2 , (3) 
+
+byreg  
+
+> t+1
+
+= ¯ yt + bbt{(W + 1) − ¯k}. (4) The one-step endpoint is used instead of the mean fitted regression value, because with an intercept the latter equals the sample mean. 2Let st > 0 be a robust local scale. The reference implementation uses the median absolute deviation multiplied by 1.4826, with IQR, standard deviation, range, and a small numerical floor as fallbacks for degenerate windows. The default relative state vector is 
+
+xtj = Atj − yt
+
+st
+
+, j = 1 , . . . , M. (5) An optional raw-state formulation uses xtj = Atj . For fitting the gate and computing nearest states, 
+
+xt is standardized componentwise using training-period means and standard deviations. For each historical origin, define the standardized anchor error 
+
+etj = yt+1 − Atj 
+
+st
+
+, (6) and its absolute version dtj = |etj |. Rather than assigning each observation exclusively to the ex post closest anchor, Rollcast uses a soft responsibility 
+
+rtj = exp {− (dtj − min ℓ dtℓ )/τ }
+
+PMm=1 exp {− (dtm − min ℓ dtℓ )/τ } , (7) where τ > 0 controls how sharply responsibility concentrates on the nearest anchor. 
+
+# 3 Causal state-conditional component distributions 
+
+A deterministic anchor alone does not provide a density forecast. Rollcast constructs an anchor-specific predictive component by borrowing residual behavior from similar earlier states. Let zt
+
+denote the standardized state corresponding to xt. For a target training row t, only rows r < t are eligible. Let Nt contain the K nearest eligible states under root-mean-square Euclidean distance, and define state-similarity weights 
+
+κtr = exp 
+
+
+
+− ∥zt − zr∥22/M 
+
+2h2
+
+> x
+
+
+
+, r ∈ N t, (8) with state bandwidth hx > 0. Responsibilities are slightly smoothed to avoid zero support, 
+
+errj = (1 − ϵ)rrj + ϵM , (9) where ϵ ∈ [0 , 1]. The combined neighbor/anchor weight is wtrj = κtr errj .Let γ ∈ [0 , 1] control the strength of residual correction. A continuous approximation to the component density at a realized one-step outcome can be written on the residual scale as 
+
+bftj (yt+1 ) = 1
+
+st
+
+P 
+
+> r∈N t
+
+wtrj ϕheff (etj − γe rj )
+
+P 
+
+> r∈N t
+
+wtrj 
+
+, (10) where ϕh(u) = h−1ϕ(u/h ) and 
+
+heff = max( γh e, h 0). (11) Here he is the residual kernel bandwidth and h0 > 0 is a validation-only numerical floor. The floor keeps logarithmic scores finite at γ = 0; it is not injected into actual forecast simulations. When 
+
+γ = 0, the deployed forecast is a pure discrete mixture over the anchors. 3For simulation at a new state, a historical residual center erj is sampled with probability proportional to wtrj , then Gaussian kernel jitter with standard deviation he is added. Conditional on anchor j, a one-step candidate is 
+
+Y (j) 
+
+> t+1
+
+= Atj + γs teetj . (12) This separates where an anchor places predictive mass from how much local residual dispersion is admitted around it. 
+
+# 4 Proper-score gating 
+
+Let πtj denote the state-dependent probability assigned to anchor j. The gate is a multinomial logistic model on standardized states. Let ezt = (1 , z ⊤ 
+
+> t
+
+)⊤ and let βj be the coefficient vector for component j, with one component fixed as the zero-reference vector for identifiability. Then 
+
+πtj = exp( ez⊤ 
+
+> t
+
+βj )
+
+PMm=1 exp( ez⊤ 
+
+> t
+
+βm) . (13) Crucially, the gate is not trained to reproduce the ex post label arg min j dtj . Instead, it is fitted to maximize the probability assigned by the mixture density to realized observations. For a training index set T , the penalized negative log predictive density is 
+
+L(B) = − 1
+
+|T | 
+
+X
+
+> t∈T
+
+log 
+
+
+
+> M
+
+X
+
+> j=1
+
+πtj bftj (yt+1 )
+
+ + λ
+
+2 
+
+> M−1
+
+X
+
+> j=1
+
+∥βj, −0∥22, (14) where the intercept is unpenalized and λ ≥ 0. This is directly aligned with the logarithmic proper score (Gneiting and Raftery, 2007). The reference implementation optimizes this regularized objective numerically with BFGS. The important distinction is practical: the gate is rewarded for assigning probability to components that improve the density of the realized next observation, not simply for reproducing a hard “best-anchor” label. 
+
+# 5 State-adaptive persistence 
+
+A raw gate may change too quickly when neighboring states are nearly identical, or too slowly if persistence is imposed uniformly. Rollcast therefore makes inertia depend on standardized state movement. Let 
+
+δt =
+
+
+
+1
+
+M
+
+> M
+
+X
+
+> j=1
+
+(ztj − zt−1,j )2
+
+
+
+> 1/2
+
+. (15) The persistence parameter is 
+
+ρt = ρmin + ( ρmax − ρmin ) exp( −δt/d ρ), (16) with 0 ≤ ρmin ≤ ρmax ≤ 1 and dρ > 0. The stabilized gate is 
+
+eπt = ρteπt−1 + (1 − ρt)πt. (17) The rule has a direct interpretation. If the standardized state barely changes, ρt stays close to ρmax 
+
+and the previous mixture receives more weight. As state movement grows, ρt smoothly approaches 
+
+ρmin and the gate responds more quickly to the new state. The decay parameter dρ controls how rapidly this transition occurs. 46 Recursive multi-step predictive mixtures 
+
+At horizon one, each simulation path begins from the observed final rolling window. At later horizons, each particle contains its own recursively simulated window, previous standardized state, and previous stabilized gate. For particle b = 1 , . . . , B and anchor j, Rollcast constructs 
+
+Yh,b,j = Ah,b,j + γs h,b eeh,b,j , (18) with weight 
+
+ωh,b,j = eπh,b,j 
+
+B . (19) The horizon-h predictive distribution is therefore the explicit BM -point weighted mixture 
+
+bFh(y) = 
+
+> B
+
+X
+
+> b=1
+> M
+
+X
+
+> j=1
+
+ωh,b,j 1(Yh,b,j ≤ y). (20) Predictive means, variances, medians, and quantiles are computed from these weights before resampling. To propagate paths, the implementation supports multinomial, systematic, and anchor-stratified systematic resampling. The default anchor-stratified scheme first allocates offspring counts approxi-mately proportional to aggregate anchor mass, using integer floors plus largest remainders, and then selects particles within each anchor systematically. This reduces the chance that low-probability but non-negligible anchor components disappear from the recursive population solely because of Monte Carlo variation. 57 Algorithm 
+
+Canonical Rollcast procedure Inputs. Univariate levels y1: T ; rolling-window width W ; anchor quantiles Q; responsibility temperature 
+
+τ ; gate penalty λ; nearest-state settings ( K, h x); residual settings ( he, γ, ϵ ); persistence settings (ρmin , ρ max , d ρ); forecast horizon H; number of simulation paths B; resampling rule. 
+
+Outputs. Horizon-specific predictive distributions and quantiles; simulated paths; raw and stabilized anchor probabilities; selected-anchor frequencies; adaptive-persistence diagnostics; fitted and tuning diagnostics. 1. Anchors and states. For every observable forecast origin, compute the rolling anchor vector At,robust scale st, relative state xt, standardized anchor residuals et, and soft anchor responsibilities 
+
+rt.2. Causal residual archive. Standardize the state using training-period information. For each historical row and anchor, retrieve only earlier nearby states and combine state similarity with anchor responsibility to form a conditional residual distribution. 3. Proper-score gate. Fit the softmax gate πt by minimizing penalized negative log predictive density of the complete anchor mixture. When hyperparameters are searched, score every candidate on the same causal validation origins. 4. Adaptive persistence. Convert the raw gate into eπt using state-dependent inertia: stable states preserve more of the previous gate, while large state movements place more weight on the current gate. 5. Recursive mixture. At each horizon and for every particle, recompute anchors and state, draw a conditional residual for every anchor, and form all M candidate next levels Ah,b,j + γs h,b eeh,b,j 
+
+with weights eπh,b,j /B .6. Forecast and propagate. Aggregate the BM candidates into the predictive distribution, compute requested summaries, resample parent–anchor candidates, update the particle windows and gate/state histories, and continue through horizon H.
+
+y1: T −→ (At, s t, x t, e t, r t) −→ bftj −→ πt −→ eπt −→ bFT +h −→ { Y (b)   
+
+> T+1: T+H
+
+}Bb=1 .
+
+# 8 Practical statistical properties and validation design 
+
+The relative-state formulation is insensitive to the measurement units of the series. If a series is shifted and multiplied by a positive constant, the default anchors and robust scale transform in the same way. As a result, the relative anchor positions, standardized residuals, responsibility weights, nearest-state geometry, and gate inputs remain unchanged; the predictive distribution simply shifts and rescales with the data. This is useful in practice because the behavior of the model is driven by local shape rather than by whether a series is expressed, for example, in units, thousands, or percentages. Exactly constant windows are handled by a small numerical scale floor. The fitting and tuning design is also causal by construction. When a historical row is used to evaluate a component density, only earlier rows are eligible for nearest-state residual information. With an explicit validation block, state normalization and gate fitting use rows preceding the first validation origin. When alternative rolling windows are compared, the implementation chooses a common set of validation origins after the largest candidate window has accumulated sufficient history. This avoids giving different window lengths different realized target sets. 6Table 1: Reference search spaces in the supplied implementation. A scalar value fixes the parameter; a vector triggers staged search.                      
+
+> Parameter Default candidate values Rolling window W20, 30, 45, 60, 90, 120 Responsibility temperature
+> τ
+> 0.15, 0.25, 0.40 Gate penalty λ0.001, 0.01, 0.05 Nearest states K20, 40, 80 State bandwidth hx0.60, 1.00, 1.60 Residual bandwidth he0.20, 0.35, 0.55 Residual strength γ0, 0.10, 0.25, 0.50, 0.75, 1.00 Responsibility smoothing ϵ0.01, 0.03, 0.06
+> ρmin 0, 0.05, 0.10
+> ρmax 0.80, 0.90, 0.97 Persistence decay dρ0.50, 1.00, 2.00 Anchor quantiles 0.05, 0.10, 0.25, 0.75, 0.90, 0.95 Validation fraction 0.25
+
+After hyperparameters have been selected, the deployment model is refitted on all valid causal-density rows with those values held fixed. In other words, validation is used for choosing the configuration, while the final gate recovers the available historical information before forecasting. 
+
+# 9 Hyperparameter selection 
+
+The public implementation follows a simple rule: a scalar hyperparameter is fixed; a vector denotes a candidate set to be searched. The anchor quantiles are structural definition parameters rather than tuning candidates. Candidate dimensions include W , τ , λ, K, hx, he, γ, responsibility smoothing ϵ,and the persistence parameters ρmin , ρmax , and dρ.A full Cartesian grid is usually unnecessary and can be expensive because causal nearest-state densities must be rebuilt for many configurations. Rollcast instead uses cached staged coordinate search on common validation origins. Starting from central values, parameters are visited in a fixed order and replaced only when a candidate lowers held-out negative log predictive density. One or more coordinate passes may be requested. With grid sizes G1, . . . , G p, this changes the number of configuration evaluations from Q 
+
+> k
+
+Gk for a Cartesian grid to approximately P 
+
+> k
+
+Gk per pass, although individual evaluations can still be computationally demanding. The reference defaults are shown in Table 1. They are starting search spaces, not universal recommendations. 
+
+# 10 Relation to existing methods 
+
+The closest literature is broader than forecast combination alone. Five strands are particularly relevant. 
+
+Forecast combination. Bates and Granger established the basic case for combining forecasts, while later reviews documented the robustness of simple combinations and the expansion toward adaptive, nonlinear, and probabilistic schemes (Bates and Granger, 1969; Clemen, 1989; Wang 7et al., 2023). Rollcast differs in the objects being combined: statistical functionals of one rolling empirical window rather than forecasts from separately fitted models. 
+
+Predictive-density pooling and proper scores. Hall and Mitchell estimate density-combination weights using a Kullback–Leibler/log-score criterion, and Geweke and Amisano show why optimal linear prediction pools can retain several components with positive weight even when individual models differ in quality (Hall and Mitchell, 2007; Geweke and Amisano, 2011). Proper scoring rules provide the decision-theoretic basis for evaluating probabilistic forecasts (Gneiting and Raftery, 2007). In Rollcast , mixture weights are conditional on anchor-derived state variables and the component densities come from local residual archives. 
+
+Local analog and nearest-state forecasting. Local prediction based on similar past states has a long history in nonlinear time-series forecasting (Farmer and Sidorowich, 1987; Sugihara and May, 1990). Rollcast shares the idea that past neighborhoods can be more informative than a single global equation, but it does not forecast directly from the future trajectories of nearest neighbors. Instead, neighbor information is used to estimate residual distributions around each rolling anchor. 
+
+Conditional-density estimation. Kernel and local-polynomial approaches estimate the distribu-tion of a response conditional on predictors rather than only its conditional mean (Hyndman et al., 1996; Hyndman and Yao, 2002). The residual layer in Rollcast belongs conceptually to this family, although it is intentionally simpler: the conditioning variables are the standardized anchor state, the archive is restricted causally, and neighbor weights are multiplied by anchor responsibilities before kernel jitter is applied. 
+
+Dynamic and feature-dependent mixtures. Dynamic model averaging allows model probabil-ities to evolve through time, feature-based density combinations let weights depend on observed time-varying features, and mixture-of-experts models learn routers that specialize experts across patterns (Raftery et al., 2010; Li et al., 2023; Jacobs et al., 1991; Ni et al., 2024). Rollcast uses a much lower-capacity version of this idea. Its gate is linear in standardized anchor geometry, and persistence is a deterministic function of observed state movement rather than a latent transition model. 
+
+# 11 Synthetic calibration benchmark 
+
+11.1 Design and benchmark 
+
+The CRAN implementation of rollcast version 0.1.0 was evaluated on eight fixed data-generating processes (DGPs) covering stationary, integrated, trending, nonlinear, regime-switching, heteroskedas-tic, heavy-tailed, and variance-break dynamics. Each DGP contributes 250 independently generated replications with 300 training observations and a six-step realized future path, for 2,000 fitted series and 12,000 forecast targets. Rollcast uses 1,000 particles with anchor-stratified resampling. The calibration-related search varies W ∈ { 30 , 60 , 90 }, he ∈ { 0.20 , 0.35 , 0.55 }, residual strength 
+
+γ ∈ { 0.10 , 0.25 , 0.50 , 0.75 , 1.00 }, and persistence decay dρ ∈ { 0.50 , 1.00 , 2.00 }; the remaining struc-tural settings are fixed. Candidate configurations are selected by causal proper-log-score validation on common origins and refitted on the full training history. For every replication, 10,000 paths from the known DGP conditional on its terminal observed and latent state define an approximate oracle predictive distribution. The experiment therefore 8Table 2: Synthetic data-generating processes. Innovations are Gaussian unless otherwise stated. 
+
+DGP Mechanism Gaussian AR(1) yt = 0 .70 yt−1 + εt.Gaussian random walk yt = yt−1 + εt.Local trend dt = 0 .85 dt−1 + 0 .15 ηt, yt = yt−1 + dt + 0 .50 εt.Threshold AR yt = ϕ(yt−1)yt−1 + εt, with ϕ = 0 .85 above zero and 0 .20 otherwise. Markov switching Two regimes with ( μs, ϕ s, σ s) = ( −1.5, 0.30 , 0.60) and (1 .5, 0.80 , 1.50), with transition matrix ( 0.95 0 .05 0.08 0 .92 ). Stochastic volatility ht = −0.20 + 0 .95( ht−1 + 0 .20) + 0 .20 ηt, yt = 0 .50 yt−1 +exp( ht/2) εt.Heavy-tail AR yt = 0 .60 yt−1 + ut, with variance-standardized Student-t5 innovations. Variance break yt = 0 .50 yt−1 + σtεt; σt rises from 0 .60 to 2 .00 for the final 25 training observations and remains high over the forecast horizon. 
+
+Table 3: Rollcast calibration and probabilistic efficiency relative to the true-DGP oracle, averaged over horizons one through six. CRPS/oracle and width/oracle equal one at oracle performance. 
+
+DGP 90% cov. 95% cov. 90% width/oracle CRPS/oracle Gaussian AR(1) 0.868 0.922 0.999 1.098 Gaussian random walk 0.877 0.933 1.284 1.196 Local trend 0.865 0.917 1.659 1.461 Threshold AR 0.845 0.908 1.002 1.100 Markov switching 0.861 0.900 1.098 1.287 Stochastic volatility 0.864 0.921 1.004 1.081 Heavy-tail AR 0.859 0.911 1.027 1.088 Variance break 0.855 0.911 1.012 1.109 Overall 0.862 0.915 1.136 1.144 
+
+measures calibration and probabilistic efficiency relative to the true conditional law. It is not a comparison against practical fitted alternatives such as ARIMA, ETS, or GARCH. Coverage is evaluated at 50%, 80%, 90%, and 95%; the results below emphasize the 90% and 95% intervals. For each fixed DGP–horizon cell, the 250 replications are independent, and Wilson intervals and exact binomial diagnostics are computed at the cell level (Wilson, 1927). CRPS, WIS, interval width, and interval score are also calculated; oracle ratios equal one when Rollcast matches the oracle benchmark. 
+
+11.2 Results 
+
+Table 3 gives the main comparison with the oracle. Across all DGP–horizon cells, mean coverage is 0.862 for nominal 90% intervals and 0.915 for nominal 95% intervals, compared with oracle coverages of 0.901 and 0.952. Rollcast intervals are 13.6% wider than the oracle at the 90% level and 15.9% wider at the 95% level. Overall normalized CRPS is 14.4% above the oracle. Wider intervals therefore do not remove the coverage gap; conditional location and distributional-shape errors remain relevant. Calibration weakens with forecast horizon. Mean 90% coverage falls from 0.898 at h = 1 to 0.840 at h = 6; mean 95% coverage falls from 0.940 to 0.901. Local trend and Markov switching show the largest CRPS losses relative to the oracle, at 1.461 and 1.287 respectively. The other six DGPs range from 1.081 to 1.196, with the smallest gap under stochastic volatility. The adaptive search reacts strongly to the variance break: γ = 1 is selected in 99.2% of fits, 9he = 0 .55 in 95.2%, and W = 30 in 54.8%. All gate optimizations converge. The persistence-stabilized training negative log score is lower than the raw-gate score in only 0.65% of fits, with a mean stabilized-minus-raw difference of +0 .035; persistence therefore acts primarily as a smoothing regularizer in this experiment. 
+
+# 12 Computational considerations 
+
+The method is intentionally lightweight in model form but not necessarily in brute-force training cost. For each forecast origin, anchors require rolling statistics and quantiles. Causal conditional density construction then performs nearest-state search against an expanding historical archive. Without a dedicated neighbor index, this stage is approximately quadratic in the number of training states for a single full density build. The Rcpp implementation mitigates constants by maintaining only the K nearest candidates in a heap rather than sorting every distance. Recursive forecasting is particle based. At each horizon, B particles each generate M anchor candidates, producing a BM -point weighted mixture before resampling. The main cost comes from recomputing rolling anchors and nearest-state residual retrieval for each particle. The current implementation is suited to moderate-dimensional univariate forecasting rather than high-throughput global forecasting. Approximate nearest-neighbor indexing, cached rolling quantiles, and parallel particle updates would reduce computational cost. 
+
+# 13 Discussion 
+
+Rollcast connects forecast combination, conditional-density estimation, nearest-state prediction, and mixture-of-experts methods through a compact anchor representation. Unlike conventional forecast pools, the components are rolling statistical functionals rather than separately fitted forecasting models. Unlike direct analog forecasting, nearest historical states are used to estimate anchor-specific residual distributions. The gate then assigns state-dependent probability to the resulting component densities using a proper log score. The synthetic benchmark identifies a consistent calibration gap. Nominal 90% and 95% intervals cover 86.2% and 91.5% of outcomes on average, and the gap increases with horizon. Because the corresponding intervals are wider than the oracle, the dominant error is not simple under-dispersion. The recursive distribution can be wide and still place probability mass in the wrong location or shape. The DGP results separate different failure modes. Local trend produces intervals 65.9% wider than the oracle and a CRPS ratio of 1.461, showing poor dynamic tracking despite generous dispersion. Markov switching produces a CRPS ratio of 1.287, consistent with latent regimes that are only indirectly represented by anchor geometry. Stochastic volatility and heavy-tailed autoregression are closer to the oracle, with CRPS ratios of 1.081 and 1.088, indicating that the conditional residual archive can represent changing dispersion and heavy tails when comparable observed states recur. The simulation benchmark has clear limits. The eight DGPs are fixed stress scenarios, so cross-DGP averages are descriptive. The oracle uses the true model and latent state and is therefore an efficiency reference, not a realistic fitted competitor. The experiment does not establish comparative superiority over ARIMA, ETS, GARCH, state-space, or machine-learning alternatives. The current anchor dictionary also omits explicit seasonal, long-memory, calendar, and multivariate structure, while recursive simulation compounds one-step approximation errors. Finally, persistence rarely improves the training log score in this experiment, which motivates a direct persistence ablation. 10 The observed horizon-dependent undercoverage motivates horizon-aware residual calibration or horizon-dependent residual strength. The local-trend and Markov-switching results motivate richer state features or specialized anchors, while CRPS- or interval-score-based tuning would align parameter selection more directly with distributional calibration (Gneiting and Ranjan, 2011). 
+
+# 14 Conclusion 
+
+Rollcast is an adaptive probabilistic forecasting framework that treats rolling statistical summaries as forecast anchors and combines them through state-dependent proper-score gating, causal residual conditioning, adaptive persistence, and recursive all-anchor resampling. In the synthetic benchmark, the CRAN implementation completes all 2,000 fits and remains relatively close to the true-DGP oracle for several stationary and heteroskedastic mechanisms. Mean coverage is 0.862 for nominal 90% intervals and 0.915 for nominal 95% intervals, while those intervals are wider than the oracle on average. Calibration deteriorates with forecast horizon, and local trend and Markov-switching dynamics produce the largest efficiency losses. The results identify multi-step conditional calibration as the main limitation of the current implementation. Horizon-aware calibration, persistence ablation, richer state representations, and anchors specialized for trend or regime dynamics are the most direct extensions suggested by the benchmark. 
+
+# Software and reproducibility 
+
+The reference implementation is the R package rollcast , with Rcpp-compiled routines for causal component-density construction and recursive simulation. The package can be installed directly from CRAN with install.packages("rollcast") . The package page and source archive are available at: 
+
+https://cran.r-project.org/web/packages/rollcast/index.html 
+
+The reported benchmark was generated with R 4.5.1 and the CRAN rollcast 0.1.0 package. The main protocol uses eight fixed DGPs, 250 independent replications per DGP, 300 training observations, horizons one through six, 1,000 Rollcast particles, and 10,000 oracle trajectories per replication. The protocol script, raw forecast and interval rows, diagnostics, metadata, and summary files are included in the accompanying reproducibility bundle. 
+
+# References 
+
+Bates, J. M. and Granger, C. W. J. (1969). The combination of forecasts. Journal of the Operational Research Society , 20(4), 451–468. https://doi.org/10.1057/jors.1969.103 
+
+Bracher, J., Ray, E. L., Gneiting, T., and Reich, N. G. (2021). Evaluating epidemic forecasts in an interval format. PLoS Computational Biology , 17(2), e1008618. https://doi.org/10.1371/ journal.pcbi.1008618 
+
+Clemen, R. T. (1989). Combining forecasts: A review and annotated bibliography. International Journal of Forecasting , 5(4), 559–583. https://doi.org/10.1016/0169-2070(89)90012-5 
+
+11 Diebold, F. X., Gunther, T. A., and Tay, A. S. (1998). Evaluating density forecasts with applications to financial risk management. International Economic Review , 39(4), 863–883. https://doi.org/ 10.2307/2527342 
+
+Farmer, J. D. and Sidorowich, J. J. (1987). Predicting chaotic time series. Physical Review Letters ,59(8), 845–848. https://doi.org/10.1103/PhysRevLett.59.845 
+
+Geweke, J. and Amisano, G. (2011). Optimal prediction pools. Journal of Econometrics , 164(1), 130–141. https://doi.org/10.1016/j.jeconom.2011.02.017 
+
+Gneiting, T. and Katzfuss, M. (2014). Probabilistic forecasting. Annual Review of Statistics and Its Application , 1, 125–151. https://doi.org/10.1146/annurev-statistics-062713-085831 
+
+Gneiting, T. and Raftery, A. E. (2007). Strictly proper scoring rules, prediction, and estimation. 
+
+Journal of the American Statistical Association , 102(477), 359–378. https://doi.org/10.1198/ 016214506000001437 
+
+Gneiting, T. and Ranjan, R. (2011). Comparing density forecasts using threshold- and quantile-weighted scoring rules. Journal of Business & Economic Statistics , 29(3), 411–422. https: //doi.org/10.1198/jbes.2010.08110 
+
+Hall, S. G. and Mitchell, J. (2007). Combining density forecasts. International Journal of Forecasting ,23(1), 1–13. https://doi.org/10.1016/j.ijforecast.2006.08.001 
+
+Hyndman, R. J., Bashtannyk, D. M., and Grunwald, G. K. (1996). Estimating and visualizing conditional densities. Journal of Computational and Graphical Statistics , 5(4), 315–336. https: //doi.org/10.1080/10618600.1996.10474715 
+
+Hyndman, R. J. and Yao, Q. (2002). Nonparametric estimation and symmetry tests for conditional density functions. Journal of Nonparametric Statistics , 14(3), 259–278. https://doi.org/10. 1080/10485250212374 
+
+Jacobs, R. A., Jordan, M. I., Nowlan, S. J., and Hinton, G. E. (1991). Adaptive mixtures of local experts. Neural Computation , 3(1), 79–87. https://doi.org/10.1162/neco.1991.3.1.79 
+
+Li, L., Kang, Y., and Li, F. (2023). Bayesian forecast combination using time-varying features. In-ternational Journal of Forecasting , 39(3), 1287–1302. https://doi.org/10.1016/j.ijforecast. 2022.06.002 
+
+Ni, R., Lin, Z., Wang, S., and Fanti, G. (2024). Mixture-of-Linear-Experts for long-term time series forecasting. In Proceedings of the 27th International Conference on Artificial Intelligence and Statistics , PMLR 238, 4672–4680. https://proceedings.mlr.press/v238/ni24a.html 
+
+Raftery, A. E., K´ arn´ y, M., and Ettler, P. (2010). Online prediction under model uncertainty via dynamic model averaging: Application to a cold rolling mill. Technometrics , 52(1), 52–66. 
+
+https://doi.org/10.1198/TECH.2009.08104 
+
+Morris, T. P., White, I. R., and Crowther, M. J. (2019). Using simulation studies to evaluate statistical methods. Statistics in Medicine , 38(11), 2074–2102. https://doi.org/10.1002/sim.8086 
+
+Wilson, E. B. (1927). Probable inference, the law of succession, and statistical inference. Journal of the American Statistical Association , 22(158), 209–212. https://doi.org/10.1080/01621459. 1927.10502953 
+
+12 Sugihara, G. and May, R. M. (1990). Nonlinear forecasting as a way of distinguishing chaos from measurement error in time series. Nature , 344, 734–741. https://doi.org/10.1038/344734a0 
+
+Wang, X., Hyndman, R. J., Li, F., and Kang, Y. (2023). Forecast combinations: An over 50-year review. International Journal of Forecasting , 39(4), 1518–1547. https://doi.org/10.1016/j. ijforecast.2022.11.005 
+
+13

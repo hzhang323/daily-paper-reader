@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 31 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-09 22:19:28 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-10 21:33:22 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日扫描31篇论文，精读19篇，重点关注AI安全与智能体协作。最值得一看的是满分论文《VEX-Bench》，它用LLM评估软件供应链漏洞的可利用性，另有一篇9分研究探索语言与非语言智能体的协作。后续可优先追踪漏洞评估方向，并浏览高维时序变点推断及NL-to-SQL新基准。</p>
+<p>今日共生成 18 篇推荐（精读 7 篇，速读 11 篇）</p>
+<p>精读：《Assessing Covariate-Informed Grid Load Forecasting with a Time-Series Foundation Model》（9.0/10）, 《It&#x27;s All in the Way You Say It: The Role of Information Representation in LLM-Based Glycemic-Event Prediction》（9.0/10）</p>
+<p>速读：《IPM-FM: A Foundation Model with Consensus Feature Selection for Industrial Process Monitoring》（8.0/10）, 《CompEvo: Competition-Induced Evolution for Multi-Agent in News-Driven Time Series Forecasting》（8.0/10）, 《Distillation of Synthetic Data for Time Series Foundation Models》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">19 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VEX-Bench: Benchmarking LLM Agents for Assessing Exploitability of Software Supply Chain Vulnerabilities">VEX-Bench: Benchmarking LLM Agents for Assessing Exploitability of Software Supply Chain Vulnerabilities</span></li><li><span class="dpr-home-dashboard-paper-title" title="Exploring Collaboration between a language and a non-language agent">Exploring Collaboration between a language and a non-language agent</span></li><li><span class="dpr-home-dashboard-paper-title" title="WorldBench: Culturally Grounded Benchmark for Multilingual Agents">WorldBench: Culturally Grounded Benchmark for Multilingual Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Assessing Covariate-Informed Grid Load Forecasting with a Time-Series Foundation Model">Assessing Covariate-Informed Grid Load Forecasting with a Time-Series Foundation Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="It&#x27;s All in the Way You Say It: The Role of Information Representation in LLM-Based Glycemic-Event Prediction">It&#x27;s All in the Way You Say It: The Role of Information Representation in LLM-Based Glycemic-Event Prediction</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Era by Eon Benchmark: A Generated Enterprise Estate with Exact Ground Truth for Benchmarking LLM Agents">The Era by Eon Benchmark: A Generated Enterprise Estate with Exact Ground Truth for Benchmarking LLM Agents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>10</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>5</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +87,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Cost-Aware Agentic Architecture for NL-to-SQL over Nested Enterprise Schemas, with a New Benchmark">A Cost-Aware Agentic Architecture for NL-to-SQL over Nested Enterprise Schemas, with a New Benchmark</span></li><li><span class="dpr-home-dashboard-paper-title" title="Simultaneous Change-Point Inference for High-Dimensional Functional Time Series">Simultaneous Change-Point Inference for High-Dimensional Functional Time Series</span></li><li><span class="dpr-home-dashboard-paper-title" title="PAC-Bayesian Reconstruction Guarantees for Time Series Variational Autoencoders">PAC-Bayesian Reconstruction Guarantees for Time Series Variational Autoencoders</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="IPM-FM: A Foundation Model with Consensus Feature Selection for Industrial Process Monitoring">IPM-FM: A Foundation Model with Consensus Feature Selection for Industrial Process Monitoring</span></li><li><span class="dpr-home-dashboard-paper-title" title="CompEvo: Competition-Induced Evolution for Multi-Agent in News-Driven Time Series Forecasting">CompEvo: Competition-Induced Evolution for Multi-Agent in News-Driven Time Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Distillation of Synthetic Data for Time Series Foundation Models">Distillation of Synthetic Data for Time Series Foundation Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>8</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>5</strong></span></div>
 </section>
 </div>
 

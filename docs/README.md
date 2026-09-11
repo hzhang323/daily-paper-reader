@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-10</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-11</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-10 21:33:22 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-11 22:19:21 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,10 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 18 篇推荐（精读 7 篇，速读 11 篇）</p>
-<p>精读：《Assessing Covariate-Informed Grid Load Forecasting with a Time-Series Foundation Model》（9.0/10）, 《It&#x27;s All in the Way You Say It: The Role of Information Representation in LLM-Based Glycemic-Event Prediction》（9.0/10）</p>
-<p>速读：《IPM-FM: A Foundation Model with Consensus Feature Selection for Industrial Process Monitoring》（8.0/10）, 《CompEvo: Competition-Induced Evolution for Multi-Agent in News-Driven Time Series Forecasting》（8.0/10）, 《Distillation of Synthetic Data for Time Series Foundation Models》（8.0/10）</p>
-<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+<p>2026-09-11 日报精选15篇，6篇精读聚焦预测精度提升与多模态太阳能预测。最值得看的是异方差估计改进预测精度，以及融合天空图像与时序并用大语言模型做太阳能预测，两篇均获9.0分。普通读者可优先读这两篇精读，再按兴趣浏览速读中的变点监测与智能体技能优化。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -74,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Assessing Covariate-Informed Grid Load Forecasting with a Time-Series Foundation Model">Assessing Covariate-Informed Grid Load Forecasting with a Time-Series Foundation Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="It&#x27;s All in the Way You Say It: The Role of Information Representation in LLM-Based Glycemic-Event Prediction">It&#x27;s All in the Way You Say It: The Role of Information Representation in LLM-Based Glycemic-Event Prediction</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Era by Eon Benchmark: A Generated Enterprise Estate with Exact Ground Truth for Benchmarking LLM Agents">The Era by Eon Benchmark: A Generated Enterprise Estate with Exact Ground Truth for Benchmarking LLM Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Halo: Improving forecast accuracy through heteroscedastic estimation">Halo: Improving forecast accuracy through heteroscedastic estimation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Bidirectional Multimodal Fusion of Sky Images and Time-Series for Solar Forecasting with Large Language Models">Bidirectional Multimodal Fusion of Sky Images and Time-Series for Solar Forecasting with Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Evaluating Time-Series Foundation Models and Multimodal Dietary Context for CGM Forecasting">Evaluating Time-Series Foundation Models and Multimodal Dietary Context for CGM Forecasting</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>5</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="IPM-FM: A Foundation Model with Consensus Feature Selection for Industrial Process Monitoring">IPM-FM: A Foundation Model with Consensus Feature Selection for Industrial Process Monitoring</span></li><li><span class="dpr-home-dashboard-paper-title" title="CompEvo: Competition-Induced Evolution for Multi-Agent in News-Driven Time Series Forecasting">CompEvo: Competition-Induced Evolution for Multi-Agent in News-Driven Time Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Distillation of Synthetic Data for Time Series Foundation Models">Distillation of Synthetic Data for Time Series Foundation Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Online Change-Point Monitoring for Object-valued Time Series">Online Change-Point Monitoring for Object-valued Time Series</span></li><li><span class="dpr-home-dashboard-paper-title" title="BenchShield: Formal Model-Backed Instrumentation for Reward Integrity in LLM-Agent Evaluation Infrastructure">BenchShield: Formal Model-Backed Instrumentation for Reward Integrity in LLM-Agent Evaluation Infrastructure</span></li><li><span class="dpr-home-dashboard-paper-title" title="COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization">COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>6</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span></div>
 </section>
 </div>
 

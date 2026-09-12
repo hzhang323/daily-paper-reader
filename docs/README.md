@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-11</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-12</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 7 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-11 22:19:21 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-12 21:19:30 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-11 日报精选15篇，6篇精读聚焦预测精度提升与多模态太阳能预测。最值得看的是异方差估计改进预测精度，以及融合天空图像与时序并用大语言模型做太阳能预测，两篇均获9.0分。普通读者可优先读这两篇精读，再按兴趣浏览速读中的变点监测与智能体技能优化。</p>
+<p>今日精读4篇、速读3篇，重点覆盖Agent科学创意评测与混合深度研究基准。最值得看的是两篇8分基准工作：AgentIdeaBench衡量智能体时代的科学创意，另一篇则跨数据库查询与网页搜索评测混合深度研究。普通读者可先读这两篇基准，再按需浏览金融预测、Agent记忆与时间序列补全等速读方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Halo: Improving forecast accuracy through heteroscedastic estimation">Halo: Improving forecast accuracy through heteroscedastic estimation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Bidirectional Multimodal Fusion of Sky Images and Time-Series for Solar Forecasting with Large Language Models">Bidirectional Multimodal Fusion of Sky Images and Time-Series for Solar Forecasting with Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Evaluating Time-Series Foundation Models and Multimodal Dietary Context for CGM Forecasting">Evaluating Time-Series Foundation Models and Multimodal Dietary Context for CGM Forecasting</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AgentIdeaBench: Benchmarking Scientific Ideation in the Agent Era">AgentIdeaBench: Benchmarking Scientific Ideation in the Agent Era</span></li><li><span class="dpr-home-dashboard-paper-title" title="Benchmarking Hybrid Deep Research Across Database Querying and Web Search">Benchmarking Hybrid Deep Research Across Database Querying and Web Search</span></li><li><span class="dpr-home-dashboard-paper-title" title="AgentAudit: An Open, Extensible Framework for Full-Lifecycle Trust Evaluation of AI Agents">AgentAudit: An Open, Extensible Framework for Full-Lifecycle Trust Evaluation of AI Agents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Online Change-Point Monitoring for Object-valued Time Series">Online Change-Point Monitoring for Object-valued Time Series</span></li><li><span class="dpr-home-dashboard-paper-title" title="BenchShield: Formal Model-Backed Instrumentation for Reward Integrity in LLM-Agent Evaluation Infrastructure">BenchShield: Formal Model-Backed Instrumentation for Reward Integrity in LLM-Agent Evaluation Infrastructure</span></li><li><span class="dpr-home-dashboard-paper-title" title="COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization">COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Making Alternative Data Work: Context-Augmented LLMs for Financial Forecasting">Making Alternative Data Work: Context-Augmented LLMs for Financial Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Graph-Based Personalized Memory for LLM Agents: Representation, Evolution, Retrieval, and Evaluation">Graph-Based Personalized Memory for LLM Agents: Representation, Evolution, Retrieval, and Evaluation</span></li><li><span class="dpr-home-dashboard-paper-title" title="RDDMPI: Residual Denoising Diffusion Model for Probabilistic Multivariate Time Series Imputation">RDDMPI: Residual Denoising Diffusion Model for Probabilistic Multivariate Time Series Imputation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>6</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>2</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
 </section>
 </div>
 

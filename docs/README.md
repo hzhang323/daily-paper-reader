@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-12</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-13</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 7 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 11 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-12 21:19:30 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-13 21:23:05 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读4篇、速读3篇，重点覆盖Agent科学创意评测与混合深度研究基准。最值得看的是两篇8分基准工作：AgentIdeaBench衡量智能体时代的科学创意，另一篇则跨数据库查询与网页搜索评测混合深度研究。普通读者可先读这两篇基准，再按需浏览金融预测、Agent记忆与时间序列补全等速读方向。</p>
+<p>今日筛选11篇论文，精读4篇、速读7篇，重点覆盖模型智能体评测与数据库规范化。最值得看的是两篇9.0分精读：DAREBench提出部署感知的可靠智能体评测，另一篇展示Qiushi Engine在AstaBench E2E-Bench-Hard上的表现。普通读者可先读这两篇精读了解智能体评测前沿，再按需浏览速读中的时间序列与数据库基准工作。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -74,9 +74,9 @@
     <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AgentIdeaBench: Benchmarking Scientific Ideation in the Agent Era">AgentIdeaBench: Benchmarking Scientific Ideation in the Agent Era</span></li><li><span class="dpr-home-dashboard-paper-title" title="Benchmarking Hybrid Deep Research Across Database Querying and Web Search">Benchmarking Hybrid Deep Research Across Database Querying and Web Search</span></li><li><span class="dpr-home-dashboard-paper-title" title="AgentAudit: An Open, Extensible Framework for Full-Lifecycle Trust Evaluation of AI Agents">AgentAudit: An Open, Extensible Framework for Full-Lifecycle Trust Evaluation of AI Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DAREBench: Deployment-Aware and Reliable Evaluation of Models as Agents">DAREBench: Deployment-Aware and Reliable Evaluation of Models as Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Qiushi Engine on AstaBench E2E-Bench-Hard">Qiushi Engine on AstaBench E2E-Bench-Hard</span></li><li><span class="dpr-home-dashboard-paper-title" title="Equation free data-driven modelling of chaotic processes">Equation free data-driven modelling of chaotic processes</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>3</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">3 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Making Alternative Data Work: Context-Augmented LLMs for Financial Forecasting">Making Alternative Data Work: Context-Augmented LLMs for Financial Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Graph-Based Personalized Memory for LLM Agents: Representation, Evolution, Retrieval, and Evaluation">Graph-Based Personalized Memory for LLM Agents: Representation, Evolution, Retrieval, and Evaluation</span></li><li><span class="dpr-home-dashboard-paper-title" title="RDDMPI: Residual Denoising Diffusion Model for Probabilistic Multivariate Time Series Imputation">RDDMPI: Residual Denoising Diffusion Model for Probabilistic Multivariate Time Series Imputation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Multi-Task Learning for Sparsely-Labeled Time Series: A Case Study on Cold-Hardiness Modeling">Multi-Task Learning for Sparsely-Labeled Time Series: A Case Study on Cold-Hardiness Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="RAP: Research Attention Prediction Reveals Target-Conditioned Evidence Acquisition Biases">RAP: Research Attention Prediction Reveals Target-Conditioned Evidence Acquisition Biases</span></li><li><span class="dpr-home-dashboard-paper-title" title="Can LLMs Normalize Databases? A Benchmark and Multi-Agent Framework for Schema Normalization">Can LLMs Normalize Databases? A Benchmark and Multi-Agent Framework for Schema Normalization</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>2</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span></div>
 </section>
 </div>
 

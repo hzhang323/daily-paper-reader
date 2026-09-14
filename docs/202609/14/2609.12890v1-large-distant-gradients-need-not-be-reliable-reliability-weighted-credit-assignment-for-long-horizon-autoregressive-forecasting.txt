@@ -1,0 +1,1856 @@
+Title: Large Distant Gradients Need Not Be Reliable: reliability-weighted credit assignment for long-horizon autoregressive forecasting
+
+URL Source: https://arxiv.org/pdf/2609.12890v1
+
+Published Time: Mon, 14 Sep 2026 01:07:48 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# LARGE DISTANT GRADIENTS NEED NOT BE RELI -
+
+# ABLE : RELIABILITY -WEIGHTED CREDIT ASSIGNMENT FOR LONG -HORIZON AUTOREGRESSIVE FORECASTING 
+
+Junhao Zhao 
+
+University of Maryland, College Park 
+
+jzhao121@umd.edu 
+
+David Michael Simberg 
+
+University of Maryland, College Park 
+
+dsimberg@umd.edu 
+
+Jacob Kang 
+
+University of Maryland, College Park 
+
+jkang115@umd.edu 
+
+Colin Connor Kurniawan 
+
+University of Maryland, College Park 
+
+ckurniaw@umd.edu 
+
+Nan Xu ∗
+
+University of Maryland, College Park 
+
+nanxu@umd.edu 
+
+## ABSTRACT 
+
+In autoregressive forecasting, long prediction rollouts provide distant supervision, but backpropagation through time (BPTT) carries gradients from those losses through many autoregressive steps. Repeated Jacobian products can make dis-tant gradients dominate the update while amplifying predictable signal and unpre-dictable noise together; a large distant gradient therefore need not carry reliable learning signal. Motivated by this observation, we introduce Internal Dual-Wiener routing (Internal-DW), a principled backward-only intervention that preserves the full forward rollout and all horizon losses while reliability-weighting internal gra-dient routes. At each residual block, we derive bounded Wiener gains for the identity and nonlinear routes that balance preserving predictable learning signal against suppressing unpredictable variation, and estimate them from route-level gradient statistics and an explicit noise model. In a controlled system with known gradient signal-to-noise ratio (SNR), we show that distant gradients can grow even as their SNR falls, and that Internal-DW reduces held-out error in recovering pre-dictable gradient signals and improves forecasting. On four history-dominated, weak-drive testbeds, Internal-DW reduces forecast error by 5.2%–13.8% relative to full BPTT, outperforms gradient clipping and Jacobian regularization on all four, and outperforms validation-selected truncated BPTT (TBPTT) on three. It also extends or preserves the fitted optimal training-horizon range across these four testbeds. Across the full benchmark suite, the current Internal-DW estimator has a clear applicability boundary: its benefit diminishes or reverses when us-able history is limited or when the selected sampler fails to represent dominant drive-dependent variation. The results show that retaining long-horizon supervi-sion does not require trusting every backward contribution equally. 
+
+## 1 INTRODUCTION 
+
+In autoregressive forecasting, training over long closed-loop rollouts provides supervision at distant forecast horizons, while backpropagation through time (BPTT) carries gradients from those distant losses backward through many earlier autoregressive steps. Classical analyses show that these dis-tant gradients can grow rapidly in recurrent models (Bengio et al., 1994; Pascanu et al., 2013), and related sensitivity amplification has been observed in neural PDE solvers and weather mod-els (McCabe et al., 2023; Pervez & Locatello, 2026). But a large gradient need not be a reliable 
+
+> ∗
+
+Corresponding author. 
+
+1arXiv:2609.12890v1 [cs.LG] 11 Sep 2026 Full  BPTT 
+
+> all routes open
+
+# Σ
+
+> step k
+> late noise
+> can dominate
+
+LR / clipping 
+
+> post -sum scaling
+
+# Σ 
+
+> step k
+> signal and noise shrink
+> together
+
+Jacobian regularization 
+
+> transport suppressed
+
+# Σ
+
+> step k
+> growth limited;
+> forward dynamics constrained
+
+Internal -DW 
+
+> reliability weights
+
+# Σ
+
+> step k
+> signal retained;
+> noise reduced
+
+Step cutoff 
+
+> late steps removed
+
+# Σ   
+
+> step k
+> late supervision is
+> also lost
+> signal noise full -BPTT size update and noise range
+
+Figure 1: Common controls reshape long-horizon gradients in different ways. Conceptual com-parison of forecast-step contributions retained by each approach and resulting update. A route weight scales signal and innovation together; these components are not separately observed in data. one (Parmas et al., 2018). We ask when distant BPTT gradients acquire high leverage without ac-quiring correspondingly reliable learning signal, and how long-horizon supervision can be retained without trusting every backward contribution equally. To see why gradient magnitude can be misleading, first consider the history-dominated case: an au-tonomous system without external forcing or control inputs. The loss at each future step produces a gradient that is propagated backward through earlier applications of the same model, and the contri-butions from all forecast steps are added to form the parameter update. The same Jacobian products that amplify a contribution’s predictable learning signal also amplify its unpredictable innovation. Consequently, a distant contribution can become large enough to dominate the summed update even when most of its magnitude reflects unreliable variation. Gradient magnitude therefore measures backward sensitivity, not necessarily useful credit. Under full BPTT, all delayed contributions remain open and are summed into the update (Fig. 1a). Existing controls address neighboring problems but intervene at different stages of the training pro-cess. Gradient clipping (Pascanu et al., 2013) and adaptive optimizers such as Adam (Kingma & Ba, 2015) rescale gradients after forecast-step contributions have already been combined and therefore cannot identify which delayed contribution is unreliable (Fig. 1b). Forward Jacobian regularization instead limits amplification by constraining the learned dynamics (Pervez & Locatello, 2026; Nie & Suzuki, 2026) (Fig. 1c), whereas truncation or shorter rollouts limit delayed backpropagation but also remove distant supervision (Aceituno et al., 2025) (Fig. 1d). None of these approaches di-rectly asks which delayed contributions remain reliable before they are aggregated. This motivates a backward-only intervention that preserves the complete rollout, all horizon losses, and the learned forward dynamics while selectively reducing unreliable delayed credit (Fig. 1e). Internal-DW implements this reliability-weighting idea inside residual blocks. At a block y =
+
+x + Fθ (x), ordinary BPTT maps an incoming gradient through I + J⊤ 
+
+> F
+
+; Internal-DW replaces this backward operator with αI + mJ ⊤ 
+
+> F
+
+, assigning separate reliability weights to the identity and nonlin-ear routes while leaving the block’s forward value unchanged. The two gains are chosen jointly by a box-constrained 2×2 Wiener solve that trades distortion of the conditional gradient signal against unpredictable variation. Because signal and noise are not separately observed, the solve requires an explicit noise estimate (Mehra, 1970; B´ elanger, 1974; Odelson et al., 2006). We therefore make the identifying assumption explicit through two noise samplers: DW-Generic uses centered train-ing residuals as a proxy for unpredictable error, whereas DW-Prior incorporates domain-supported structure when available. We first test the mechanism in a controlled system where gradient signal-to-noise ratio (SNR) is known. Delayed gradients grow even as their SNR falls, the estimated gains reduce held-out route-gradient risk, and Internal-DW achieves the lowest forecast error among the tested methods. On application data, where the true signal–innovation split is unavailable, held-out gradient tests ask whether large per-horizon gradients transfer across examples, while controlled-noise tests ask whether the estimated gains decrease as noise increases. Across four history-dominated, weak-drive testbeds, Internal-DW improves forecasting and extends or preserves the useful training-horizon range. Its benefit weakens when usable history is limited or when important driven information is not represented by the sampler. These cases define boundaries of the current estimator, not of the broader delayed-credit reliability problem. We therefore view unreliable delayed credit as the broader training problem, and Internal-DW as one reliability-weighted correction for it. The current estimator is best suited when useful credit is 2primarily propagated through state history; separating that credit from newly injected drive remains an important extension. 
+
+## 2 RELATED WORK 
+
+Long autoregressive rollouts provide distant supervision but can make BPTT gradients large, noisy, and expensive to compute. Existing approaches intervene at different stages of long-horizon training. Scheduled sampling, DAgger, Professor Forcing, and pushforward training change the distribution of states on which the model is trained (Bengio et al., 2015; Ross et al., 2011; Lamb et al., 2016; Brandstetter et al., 2022). Jacobian penalties, stable recurrent operators, and recurrent training in-stead constrain or stabilize the forward dynamics (McCabe et al., 2023; Pervez & Locatello, 2026; Nie & Suzuki, 2026; Ye et al., 2025). Studies of training horizons examine trade-offs among forecast accuracy and learnability (Aceituno et al., 2025). TBPTT truncates backward propagation, yielding a cheaper but biased gradient (Tallec & Ollivier, 2017); stop-gradient unrolling retains long-rollout states without propagating through time (List et al., 2025), while damped BPTT prescribes decay during gradient accumulation (Ingraham et al., 2019). Long-term credit assignment also arises in reinforcement learning and agent training. RUDDER redistributes delayed rewards through return decomposition, whereas TRACE derives turn-level re-wards along long agent trajectories (Arjona-Medina et al., 2019; Tao et al., 2026). GAE uses a single global temporal parameter λ to balance shorter, lower-variance and longer, lower-bias esti-mates of policy advantage (Schulman et al., 2015). Differentiable world models optimize policies by backpropagating through imagined trajectories, and Ma et al. redesign the model to provide more direct long-range gradient paths (Hafner et al., 2019; Ma et al., 2024). Internal-DW instead keeps the supervised autoregressive rollout, horizon losses, and learned forward dynamics fixed, and es-timates the reliability of transported internal VJPs before their route contributions are aggregated. Appendix A discusses additional connections to finite-time sensitivity, recurrent-gradient estimators, covariance identification, and backward-message methods. 
+
+## 3 RELIABLE GRADIENT TRANSPORT IN LONG -H ORIZON ROLLOUT 
+
+Long-horizon BPTT can give delayed gradient contributions high leverage without making them reliable. We formalize this mismatch, derive Internal-DW as a backward-only reliability weighting of residual routes that leaves the forward rollout unchanged, and show why estimating its gains requires an explicit noise model whose assumptions determine the scope of the current estimator. 3.1 LARGE DELAYED GRADIENTS NEED NOT BE RELIABLE 
+
+Jacobian transport controls a delayed gradient’s magnitude, not its reliability, and one amplified contribution can dominate the summed update. For the K-step loss L = K−1 PKk=1 ∥rt+k∥2, where 
+
+rt+k = ˆ xt+k − x⋆t+k, let Dt+k = dˆxt+k/dθ . Define Jτ := ∂ ˆxτ +1 /∂ ˆxτ , Gτ := ∂ ˆxτ +1 /∂θ , and 
+
+Φa,q = Ja+q−1 · · · Ja, with Φa, 0 = I. The exact gradient and its chain-rule expansion are 
+
+∇θ L = 2
+
+K
+
+> K
+
+X
+
+> k=1
+
+D⊤
+
+> t+k
+
+rt+k, D⊤
+
+> t+k
+
+rt+k =
+
+> k−1
+
+X
+
+> j=0
+
+G⊤ 
+
+> t+j
+
+Φ⊤
+
+> t+j+1 ,k −j−1
+
+rt+k. (1) Because the same parameters are reused at every rollout step, each step injects a new local con-tribution while transporting earlier ones through Jacobian products. Appendix B formalizes this forced sensitivity recurrence and shows that, under a stationary local linearization, sensitivity can plateau, accumulate, or grow exponentially. Equation 1 sums contributions from all such paths, so a dominant transported term can control the update’s magnitude and direction (Mikhaeil et al., 2022). Write rt+k = bt+k + ηt+k, where bt+k = E[rt+k | ˆxt+k−1] is the learnable conditional-mean component and ηt+k is unpredictable innovation. The same Jacobian product transports both com-ponents, so amplification increases the leverage of innovation without making it informative. Even without exponential growth, innovation comparable to the predictable component can perturb the update. We therefore seek a backward-only linear route weighting that minimizes mean-squared er-ror relative to the predictable delayed contribution, before rollout-step contributions are aggregated. 33.2 INTERNAL -DW: O PTIMAL RELIABILITY -W EIGHTED GRADIENT TRANSPORT 
+
+Internal-DW changes only backward propagation at residual merges; the forward rollout is un-changed. We first define its residual-route operator and then show that, under an explicit signal– innovation decomposition, its oracle weights are the unique minimum-risk bounded linear weighting of the two backward routes. Fig. 2 summarizes the resulting method. 
+
+Backward-only routing. For a residual block y = x + Fθ (x), ordinary BPTT maps an incoming gradient v to v + J⊤
+
+F v. Internal-DW instead uses 
+
+VJP DW (v) = αv + mJ ⊤
+
+F v, JF = ∂F θ (x)
+
+∂x . (2) We assign one pair wk,ℓ = ( αk,ℓ , m k,ℓ )⊤ to each horizon k and residual layer ℓ.(a) Reliability -weighted backward routes (what changes)  (b) Route gains from task and noise statistics (how weights are chosen) 
+
+𝐹 𝜃 (𝑥) 
+
+> Forward pass: unchanged
+
+𝒙  𝒚  
+
+> Backward pass: route reweighted
+> Identity route
+> (residual connection)
+> Nonlinear route (through 𝑭 𝜽 )
+> Incoming Gradient
+> 𝒗 = 𝝏ℒ/𝝏𝒚
+
+𝑣  𝐽 𝐹 𝑇 𝑣 
+
+× 𝜶  × 𝒎 
+
+𝛼𝑣  𝑚𝐽 𝐹 𝑇 𝑣 
+
+𝛼𝑣 + 𝑚𝐽 𝐹 𝑇 𝑣  Reweighted 
+
+> gradient message
+
+1 Probe with task data  
+
+> (true gradients)
+
+2 Probe with noise model  
+
+> (modeled innovation)
+
+3 Wiener solve     
+
+> (minimum risk)
+> Training loss over Horizons 𝟏 :𝑲
+> loss
+> 0
+> 1⋯𝑲
+> horizon 𝒌
+> Fully open route
+> probe (Same
+> backward graph)
+
+෡𝑻  Total route   
+
+> variation
+> (signal + noise)
+> Noise model 𝓠 𝒅
+> 𝝐 𝟏:𝑲 ∼ 𝓠 𝒅
+> (prior or dataset assumptions)
+> Fully open route
+> probe (Same
+> backward graph)
+
+෡𝑹  Noise route 
+
+> variation
+
+෡𝑷 = 𝚷 𝑷𝑺𝑫 (෡𝑻 − ෡𝑹)  Reliable route      
+
+> variation
+> Solve Wiener problem with
+> (෡𝑷, ෡𝑹)
+> (𝜶 𝒌,ℓ , 𝒎 𝒌,ℓ )
+> Reliability weights
+> One pair
+> (𝜶 𝒌,ℓ , 𝒎 𝒌,ℓ )for each forecast horizon 𝒌 and
+> residual layer ℓ.
+
+Figure 2: Internal-DW. (a) Internal-DW keeps the forward residual block unchanged and reweights its two backward routes—identity and nonlinear—by (α, m ). (b) The weights are calibrated per horizon k and layer ℓ. Fully open probes produce total route variation bT from the quadratic total-moment probe and noise route variation bR from a noise model Qd. The predictable component bP =ΠPSD ( bT − bR) and bR are substituted into the minimum-risk routing objective, yielding reliability weights (αk,ℓ , m k,ℓ ).
+
+Wiener gains. At a fixed (k, ℓ ), let vk,ℓ be the gradient arriving at the output of the residual block. The identity and nonlinear backward routes return 
+
+dI = vk,ℓ , dF = J⊤
+
+Fℓ vk,ℓ .
+
+Collect these two route gradients as d = [ dI dF ] and decompose them as 
+
+d = s + n, s = E[d | C ], n = d − s, 
+
+where C denotes the information under which delayed credit is predictable. Thus s is the predictable transported gradient and n its unpredictable innovation. Then E[s⊤n] = 0 , and 
+
+T = E[d⊤d] = P + R, P = E[s⊤s], R = E[n⊤n]. (3) 
+
+Theorem 1 (Optimal reliability-weighted gradient transport) . For w = ( α, m )⊤, let dw be the routed message and s1 = sI + sF the fully open predictable target. If T = P + R ≻ 0, then the route risk decomposes as 
+
+R(w) := E
+
+h
+
+∥dw − s1∥22
+
+i
+
+= ( w − 1)⊤P (w − 1) + w⊤Rw. (4) 
+
+The corresponding unconstrained and bounded optima are, respectively, 
+
+wunc = T −1P 1, w⋆ = arg min 
+
+w∈[0 ,1] 2 R(w). (5) 4Hence w⋆ is the T -metric projection of wunc onto [0 , 1] 2. Since the fully open BPTT operator w = 1
+
+is feasible, 
+
+R(w⋆) ≤ R (1) = 1⊤R1, (6) 
+
+with strict inequality whenever 1 is not itself optimal. 
+
+The first term in Equation 4 measures distortion of predictable credit from closing the routes, while the second measures innovation retained by leaving them open. Thus Internal-DW is the minimum-risk bounded linear trade-off between preserving predictable credit and suppressing transported in-novation, rather than a prescribed gradient decay. For a single route, the unconstrained solution reduces to P/ (P + R) (Wiener, 1949). The box constraint prevents sign reversal and route-wise amplification. Appendix C.1 gives the proof and Appendix C.4 gives the exact constrained solve. 
+
+Plug-in estimation. The oracle moments P and R in Theorem 1 are not separately observed. Fully open total-moment and noise probes produce route messages dtot and dnoise , with the latter obtained by transporting a sample from Qd. Suppressing (k, ℓ ), we estimate 
+
+bT = EMA (dtot )⊤dtot  , bR = EMA (dnoise )⊤dnoise  , bP = Π PSD ( bT − bR). (7) The total-moment probe uses the quadratic output loss specified in Appendix C.3, independently of the task loss used for parameter updates. Substituting ( bP , bR) into Equation 4 and solving over 
+
+w ∈ [0 , 1] 2 gives the applied Internal-DW gains. Section 3.3 states the assumptions on Qd; Ap-pendix Sections C.2–C.5 give the probes, implementation, and constrained solve; and Appendix Sections D.1–D.4 give the sampler constructions. 3.3 NOISE IDENTIFIABILITY AND SAMPLER ASSUMPTIONS 
+
+Theorem 1 determines the oracle Internal-DW route weights w⋆ from the latent decomposition T =
+
+P + R. However, the open route law does not identify this decomposition by itself. Thus identifying structure is required; Internal-DW supplies it through the noise model Qd. To see the ambiguity, for any 0 ⪯ R ⪯ T , independent variables s ∼ N (0 , T − R) and n ∼ N (0 , R ) produce the same observed distribution z = s + n ∼ N (0 , T ), while different choices of R can yield different unconstrained optima wunc = T −1(T − R)1. Hence even the full distribution of the observed route vector does not, in general, identify its predictable–innovation split, and therefore does not uniquely specify the oracle routing problem without additional assumptions on the dynamics, observations, or covariance structure. Appendix E.1 gives the formal construction. We encode the identifying assumption in Qd, which generates the output-noise trajectories used to estimate R.
+
+DW-Generic. DW-Generic uses centered, lagged training-residual trajectories, with a random trajectory-wide sign, as samples of output noise. Its assumption is correspondingly strong: cen-tered prediction residuals must be a useful proxy for unpredictable output variation. If they contain systematic error that the forecasting model could still learn, DW-Generic incorrectly treats that vari-ation as noise. 
+
+DW-Prior. DW-Prior uses either cross-fitted residuals from a domain-supported predictor or sam-ples from a domain-supported covariance model. The predictor-based version treats held-out vari-ation unexplained by the predictor as noise and is appropriate when the predictor captures the con-ditional mean under the declared conditioning information. The covariance-based version treats zero-mean draws from the fitted covariance model as noise and is appropriate when the selected co-variance family captures the relevant dependence. For the spatial samplers used here, this requires approximate translation stationarity and a spectrum that remains stable during calibration. Exact sampler constructions and implementation details are given in Appendix Sections D.1–D.4. Appendix Table 1 summarizes the dataset-specific assumptions, supporting references, and retained covariance. For each dataset, we select between DW-Generic and DW-Prior using validation loss and then fix that choice for test evaluation. Let R0 denote the oracle noise moment, RQ the population noise moment targeted by the selected sampler, and bR its finite-sample estimate. Their difference decomposes as 
+
+bR − R0 = (RQ − R0)
+
+| {z }
+
+> sampler-model mismatch
+
++ ( bR − RQ)
+
+| {z }
+
+> finite-sample estimation error
+
+. (8) 5Thus data can reduce the second term in Equation 8, but cannot remove the first when the sampler model is misspecified. In particular, DW-Generic can count predictable model error as noise, while DW-Prior can omit predictable structure or covariance outside its chosen representation. The next subsection explains how these two error sources determine the scope of the current estimator. 3.4 SCOPE AND BOUNDARIES OF INTERNAL -DW A first scope boundary arises when state history supplies little reliable delayed signal and no other signal source compensates. In this case, the conditional signal moment P is small relative to the oracle noise moment R0, so the Wiener solution assigns little weight to the corresponding routes. Internal-DW then has little reliable delayed credit to preserve. A boundary arises from sampler-model mismatch. Useful drive-dependent information should con-tribute to P and favor a more open oracle route. If Qd does not account for propagated history, observed drive, and their interaction, however, predictable driven variation can instead inflate RQ
+
+relative to R0 along route directions. The applied gain may then close too far and suppress use-ful gradients. Even under a correctly specified sampler, finite data contribute the estimation error 
+
+bR − RQ. Appendix E.2 gives consistency conditions for the residual-based estimator, while Ap-pendix E.3 shows how route-moment errors perturb the Wiener gain and contribute to excess local route risk. The first case is a low-signal scope boundary; sampler-model mismatch and finite-sample error are boundaries of the current estimator, not of the broader delayed-credit reliability problem. 
+
+## 4 EXPERIMENTAL SETUP 
+
+Testbeds. We use one controlled system with known SNR to examine the mechanism and eight application testbeds to evaluate forecasting performance. The controlled system is a stationary, undriven linear-Gaussian AR process. The application testbeds are Mackey–Glass (MG) for au-tonomous delayed dynamics (Mackey & Glass, 1977); NARMA for driven nonlinear control (Atiya & Parlos, 2000); iEEG and movie fMRI for neural recordings (Keles et al., 2024; Van Essen et al., 2013); ETTm1 and ETTm2 for temporal forecasting (Zhou et al., 2021); and The Well shear flow and WeatherBench-2 for gridded fluid and weather fields (Ohana et al., 2024; Rasp et al., 2024). Ap-pendix F.1 details the controlled system; Appendix Sections G.1–G.2 cover the application datasets and training details, respectively. 0.0 0.2 0.4 0.6  
+
+> drive-only gain over the mean predictor 
+> 0.0 0.2 0.4 0.6
+> additional history gain    MG Driven MG NARMA iEEG Shear WB2 ETTm1 ETTm2 fMRI
+
+Figure 3: Predictive regimes. Probes quantify observed-drive gain over mean predictor and additional history gain. MG+drive provides a controlled inter-vention on observed-drive gain. 
+
+Predictive regimes. Fig. 3 maps predictive gains from simple held-out probes using observed future drive alone versus drive plus aligned history. Appendix Sec-tions H.1–H.3 detail their construction, interpretation, and validation under controlled drive. The probes identify three predictive regimes and one controlled intervention: • History-dominated, weak drive: MG, shear flow, ETTm1, and ETTm2. • Drive-dominated, weak history: NARMA, movie fMRI, and WeatherBench-2. • Weak drive and weak history: iEEG. • Joint history-and-drive intervention: driven MG (see Appendix I for the driven-system configuration and intervention results). These groupings describe predictive structure recovered by the probes, not intrinsic dataset proper-ties, and predict the clearest Internal-DW benefit in the history-dominated, weak-drive regime. 
+
+Evaluation and model selection. Estimator variants and checkpoints are selected by validation loss and fixed before test evaluation. For a model trained with horizon K, each held-out origin is rolled out through Heval = ⌈1.5K⌉. For test units U and origins Ou, the primary metric is 6RelL2 1: Heval = 1
+
+|U| 
+
+X
+
+> u∈U
+
+1
+
+|O u|
+
+X
+
+> o∈O u
+
+1
+
+Heval 
+
+> Heval
+
+X
+
+> h=1
+
+∥ˆxu,o (h) − x⋆u,o (h)∥2
+
+max {∥ x⋆u,o (h)∥2, 10 −8} . (9) Appendix J gives the origin-selection details. 
+
+Baselines and controls. We compare Internal-DW with full BPTT, global gradient clipping (Clip), and forward-Jacobian regularization (JReg). On the four history-dominated, weak-drive testbeds, we additionally compare with TBPTT and a tied static gain α = m = c (Static), analogous to fixed backward damping (Ingraham et al., 2019). The TBPTT segment length, Static coefficient 
+
+c, and choice between DW-Generic and DW-Prior are selected by validation loss and then fixed for test evaluation. Within each dataset, all methods otherwise use the same experimental settings. Appendix Table 1 lists the selected sampler, and Appendix G gives architectures, selection grids, and training details. 
+
+## 5 RESULTS 
+
+The experiments first test whether delayed gradients become less reliable and whether Internal-DW responds appropriately, then determine when this local correction improves forecasting across predictive regimes and training horizons. 5.1 MECHANISM AND ESTIMATOR RESPONSE 
+
+Known-SNR mechanism closure. In the known-SNR system, independently resampling future innovations from a fixed xt gives the exact conditional-mean gradient and therefore direct measure-ments of gradient SNR and prefix risk. A decrease in prefix risk means that an added forecast step contributes more conditional-mean signal than innovation; an increase means the reverse. Appendix Sections F.1–F.2 give the construction. Fig. 4 follows the resulting chain from gradient amplification to forecasting performance. 1 16 32     
+
+> step
+> 10 0
+> 10 1
+> 10 2
+> gradient magnitude / step 1  (a) Large gradients need not be reliable
+> 116 32
+> last step
+> 0.00 0.25 0.50 0.75 1.00
+> risk / Full
+> ⋆=
+> (b) Long horizons can increase gradient risk
+> missing signal innovation total
+> 1.00 Full BPTT
+> (c) Internal-DW reduces route risk
+> misplaced DW true-moment transfer 0.0 0.1 0.2 0.3
+> risk / open  0.20 0.16 0.26 Full Clip JReg TBPTT DW 1.02 1.05 1.08
+> relative
+> (d) Internal-DW lowers forecast error
+> −
+> 1
+> gradient SNR
+> SNR
+> SNR < 1
+
+Figure 4: Known-SNR mechanism closure. (a) Per-horizon gradient magnitude grows while reliability falls; (b) Prefix gradient risk, decomposed into remaining predictable gradient signal and accumulated innovation noise; (c) Reliability weighting lowers held-out route risk; and (d) Internal-DW gives the lowest forecast error. Appendix Sections F.1–F.3 give the complete protocol and values. Fig. 4a–b shows that later gradients grow while their SNR falls. As the included horizon increases, omitted signal decreases but accumulated innovation grows; beyond K⋆ 
+
+> grad
+
+= 24 , the marginal innovation cost exceeds the recovered signal and total prefix risk rises. Reliability also fluctuates across intermediate horizons, so neither forecast distance nor a monotone decay schedule identifies which contributions remain useful. The estimated gains have mean relative error 0.298 , whereas fixing all other moments to their true values and estimating only bR reduces the error to 0.0013 . Thus, most gain error comes from finite-sample error in bT , rather than sampler mismatch or finite-sample error in bR. Nevertheless, Internal-DW attains the lowest held-out route risk; shifting the gains across forecast steps increases risk, showing that their placement matters beyond generic attenuation. The transferred-oracle control also 7reduces risk, although less than Internal-DW, showing that gains computed from true calibration-route moments transfer imperfectly to test routes. Internal-DW also achieves the lowest forecasting error among full BPTT, clipping, Jacobian regularization, and TBPTT. 
+
+Application-data diagnostics. On application data, the true gradient SNR and oracle gains are unavailable, so we use two complementary held-out diagnostics. For each forecast step k, A(k)
+
+measures the magnitude of that step’s gradient relative to the first forecast step, while U (k) mea-sures whether its direction is useful on a disjoint held-out rollout. Positive U (k) indicates that a small update along the negative step-k training gradient would locally reduce held-out rollout loss, whereas U (k) < 0 indicates that it would increase held-out loss. Appendix K gives the exact defini-tions and evaluation protocol. Fig. 5a therefore asks whether gradients that become large at distant forecast steps also remain useful on unseen examples, while panel (b) asks whether the estimated gains close as independent noise increases. 1 32 10 1                                    
+
+> 10 3
+> MG
+> <: 50%
+> 132
+> NARMA-5
+> <: 41%
+> 164
+> ETTm1
+> <: 8%
+> 164
+> ETTm2
+> <: 31%
+> 164
+> iEEG
+> <: 70%
+> 164
+> fMRI
+> <: 30%
+> 132
+> Shear
+> <: 47%
+> 148
+> WB2
+> <: 0%
+> 0LMH0.0 0.5 1.0
+> gain
+> MG
+> LMH
+> NARMA-5
+> LMH
+> ETTm1
+> LMH
+> ETTm2
+> LMH
+> iEEG
+> LMH
+> fMRI
+> LMH
+> Shear
+> LMH
+> WB2
+> ( )
+> ( )
+> forecast step
+> (a) Gradient size and held-out utility (b) Estimated gains as added noise increases
+> magnitude ( ) held-out utility ( )
+> identity nonlinear
+
+Figure 5: Application-data reliability and estimator response. (a) Per-horizon relative gradient magnitude A(k) and held-out utility U (k). Solid curves show medians; shaded bands show the 10– 90% range for A(k) and the interquartile range for U (k). Percentages give the fraction of forecast steps with negative median U (k). (b) Mean identity and nonlinear gains across added-noise lev-els. Within each dataset, L, M, and H correspond to residual-to-added-noise ratios 4, 1, and 0.25 ,respectively; smaller ratios indicate stronger added noise. Both gains decrease as controlled noise increases, showing the intended directional response of the estimator. Fig. 5a shows that gradient amplification and held-out utility can decouple on application data. Across most testbeds, per-horizon gradients grow even as their held-out utility fluctuates or becomes negative; ETTm1 and WeatherBench-2 provide complementary cases in which growing gradients re-main mostly useful. This contrast shows that neither gradient magnitude nor forecast distance alone identifies a transferable delayed contribution. Fig. 5b supports the corresponding estimator-response claim: both route gains decrease on every testbed as controlled noise increases. The dataset-specific operating points remain informative. WeatherBench-2 stays nearly open, whereas NARMA is nearly closed even under weak perturbation, consistent with its selected sampler treating predictable drive-dependent residual variation as noise. Together, Fig. 5 provides application-level support for two linked claims: large delayed gradients need not remain useful on held-out data, and Internal-DW closes its routes in response to increased noise. Because native-data gradient SNR and oracle gains remain unobserved, these diagnostics support the qualitative mechanism and estimator response rather than establishing exact gain optimality. 5.2 FORECASTING EFFECTS ACROSS REGIMES AND HORIZONS 
+
+Forecasting across predictive regimes. Forecasting outcomes follow the applicability diagnostic in Fig. 3. Fig. 6 shows that Internal-DW improves all four history-dominated, weak-drive testbeds over full BPTT, reducing relative L2 by 5.16% –13 .76% . It outperforms validation-selected TBPTT 8−5.0 −2.5 0.0 2.5          
+
+> -5.2
+> better ↓
+> MG
+> −10 −5 05
+> -6.7
+> ETTm1
+> −15 015
+> -13.8
+> ETTm2
+> −25 025 50
+> -11.4
+> Shear
+> −10 010
+> NARMA-5 fMRI
+> 02
+> iEEG WB2
+> history-dominated, weak drive identified boundaries
+>  relative  (%)
+> Full BPTT Clip JReg TBPTT Static Internal-DW
+
+Figure 6: Forecasting across predictive regimes. Bars show the mean percentage change in rela-tive L2 from full BPTT, and error bars show the standard deviation across three matched seeds; neg-ative values indicate improvement. TBPTT and Static are additionally evaluated on the four history-dominated, weak-drive testbeds. The underlying relative L2 values are reported in Appendix L. on Mackey–Glass, ETTm1, and ETTm2, and the Static control on ETTm1, ETTm2, and shear flow. Thus neither truncation nor a single global damping coefficient consistently reproduces the gains. At the identified boundaries, Internal-DW provides no consistent benefit. NARMA’s near-closed gains coincide with 7.87% worse forecasting, consistent with the sampler assigning predictable drive-dependent variation to noise. iEEG and WeatherBench-2 remain comparable to full BPTT, while movie fMRI worsens. A controlled Mackey–Glass intervention strengthens this interpretation: adding strong observed drive while retaining substantial history value moves the system across the regime map and reverses Internal-DW from a 5.17% improvement to a 7.71% degradation relative to full BPTT (Appendix I). Detailed runtime measurements are reported in Appendix M. 
+
+Fitted optimal training-horizon range. Longer training horizons add both conditional-mean sig-nal and innovation, creating a marginal trade-off that reliability weighting can reshape but not elim-inate. We vary the training horizon K while evaluating all checkpoints at a fixed forecast horizon 
+
+H across MG, ETTm1, ETTm2, and Shear. Fig. 7 and the seed-specific curves in Appendix N show that K⋆ 
+
+> DW
+
+≥ K⋆ 
+
+> Full
+
+for every matched seed and in the seed-averaged fits, with a lower fitted minimum error for Internal-DW on all four datasets. This is consistent with the reliability trade-off in Theorem 1: suppressing transported innovation while preserving predictable delayed credit can increase the marginal value of extending the rollout. Internal-DW therefore extends or preserves the useful training-horizon range rather than improving every horizon pointwise. 8 12 16 24 32 48 64 1.04 1.08 1.12                               
+
+> MG, H= 64
+> 16 24 32 48 64 96 128 0.88 0.96 1.04
+> ETTm1, H= 128
+> 16 24 32 48 64 96 128 0.7 0.8 0.9 1.0
+> ETTm2, H= 128
+> 812 16 24 32 40 48 0.16 0.24 0.32 0.40
+> Shear flow, H= 48
+> training horizon K
+> relative  L2
+> Full BPTT Internal-DW K⋆Full K⋆DW
+
+Figure 7: Fitted optimal training horizons. Points show relative L2 for checkpoints trained at different K and evaluated at the fixed horizon H shown in each panel; curves are upward-opening quadratic fits across matched seeds. Internal-DW shifts the fitted minimum toward larger K in all four testbeds. The corresponding seed-specific fitted curves are shown in Appendix N. 
+
+## 6 DISCUSSION AND CONCLUSION 
+
+Internal-DW minimizes a local quadratic route risk rather than the observed rollout loss, so it does not guarantee a better training trajectory. Its gains are only as accurate as the selected noise sampler, and solving each horizon and layer independently ignores interactions after their contributions are combined. These limitations suggest two extensions. Samplers that model innovation conditional 9on history, observed drive, and their interaction—or architectures that separate these pathways— could broaden the favorable regime. Richer conditional samplers and justified pooling across related channels, horizons, or layers could also reduce model mismatch and finite-sample error. Long-rollout BPTT can amplify distant gradient contributions without making them reliable. Internal-DW addresses this mismatch by reliability-weighting residual backward routes while pre-serving the forward rollout and all horizon losses. The noise sampler provides the identifying struc-ture needed to estimate latent route reliability, allowing domain-appropriate samplers to be plugged into a common routing framework. The known-SNR experiment connects gradient amplification, route-risk reduction, and forecasting improvement, while the application results show benefits pri-marily in history-dominated, weak-drive regimes. Internal-DW can also extend or preserve the useful training-horizon range, although it need not improve every K pointwise and can be neutral or harmful when usable history is weak or the sampler is mismatched to dominant driven informa-tion. Thus Internal-DW is not a universal stabilizer; it shows that long-horizon supervision can be retained without trusting every backward contribution equally. AI USE STATEMENT 
+
+We used generative AI tools to help refine hypotheses and diagnostics, assist with figure preparation and improve the organization and wording of the manuscript. The authors checked the resulting derivations, references, figures, and claims against the cited sources and experiments. The authors take responsibility for the final content of the paper and all AI-assisted artifacts. ETHICS STATEMENT 
+
+This work performs secondary analysis of existing human neurophysiological data and includes no new participant recruitment or data collection. The OpenNeuro iEEG release contains publicly shared de-identified recordings for which participants or their legal guardians consented to research use and public sharing, under the approval reported by the originating study (Keles et al., 2024). The HCP movie-fMRI data were collected with informed consent and institutional approval (Van Essen et al., 2013); we used the open-access release under its data-use terms, did not use restricted identi-fying variables, and made no attempt to re-identify participants. The experiments study forecasting methodology and are not intended for clinical decision making or subject-level interpretation. REPRODUCIBILITY STATEMENT 
+
+Section 3.2 specifies the backward operator, calibration target, and estimator assumptions. The appendices provide derivations, noise-sampler constructions, implementation details, dataset pre-processing and splits, training hyperparameters, evaluation protocols, and seed-level results. Check-points retain the route gains, estimated moments, probe counts, and sampler configuration needed to audit calibration. 
+
+## REFERENCES 
+
+Pau Vilimelis Aceituno, Jack William Miller, Noah Marti, Youssef Farag, and Victor Boussange. Temporal horizons in forecasting: a performance-learnability trade-off. Transactions on Machine Learning Research , 2025. ISSN 2835-8856. URL https://openreview.net/forum? id=BeudQIxT1R .Ronald J. Adrian and Parviz Moin. Stochastic estimation of organized turbulent structure: Ho-mogeneous shear flow. Journal of Fluid Mechanics , 190:531–559, 1988. doi: 10.1017/ S0022112088001442. Jose A Arjona-Medina, Michael Gillhofer, Michael Widrich, Thomas Unterthiner, Johannes Brand-stetter, and Sepp Hochreiter. Rudder: Return decomposition for delayed rewards. Advances in Neural Information Processing Systems , 32, 2019. Amir F. Atiya and Alexander G. Parlos. New results on recurrent network training: Unifying the algorithms and accelerating convergence. IEEE Transactions on Neural Networks , 11(3):697– 709, 2000. doi: 10.1109/72.846741. 10 Philipp Becker, Harit Pandya, Gregor Gebhardt, Cheng Zhao, C. James Taylor, and Gerhard Neu-mann. Recurrent kalman networks: Factorized inference in high-dimensional deep feature spaces. In Proceedings of the 36th International Conference on Machine Learning , volume 97, pp. 544– 552. PMLR, 2019. Pierre R. B´ elanger. Estimation of noise covariance matrices for a linear time-varying stochastic process. Automatica , 10(3):267–275, 1974. doi: 10.1016/0005-1098(74)90037-5. Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. Scheduled sampling for sequence prediction with recurrent neural networks. In Advances in Neural Information Processing Sys-tems , volume 28, 2015. Yoshua Bengio, Patrice Simard, and Paolo Frasconi. Learning long-term dependencies with gradient descent is difficult. IEEE Transactions on Neural Networks , 5(2):157–166, 1994. Frederik Benzing, Marcelo Matheus Gauy, Asier Mujika, Anders Martinsson, and Angelika Steger. Optimal kronecker-sum approximation of real time recurrent learning. In International Confer-ence on Machine Learning , pp. 604–613. PMLR, 2019. Johannes Brandstetter, Daniel E. Worrall, and Max Welling. Message passing neural pde solvers. In 
+
+International Conference on Learning Representations , 2022. Po-Hsuan Cameron Chen, Janice Chen, Yaara Yeshurun, Uri Hasson, James V. Haxby, and Peter J. Ramadge. A reduced-dimension fMRI shared response model. In Advances in Neural Information Processing Systems , volume 28, pp. 460–468, 2015. Tianqi Chen, Bing Xu, Chiyuan Zhang, and Carlos Guestrin. Training deep nets with sublinear memory cost. arXiv preprint arXiv:1604.06174 , 2016. Erwan Fagnou, Paul Caillon, Blaise Delattre, and Alexandre Allauzen. Accelerated training through iterative gradient propagation along the residual path. In International Conference on Learning Representations , 2025. Andreas Griewank. Achieving logarithmic growth of temporal and spatial complexity in reverse automatic differentiation. Optimization Methods and Software , 1(1):35–54, 1992. doi: 10.1080/ 10556789208805505. URL https://doi.org/10.1080/10556789208805505 .Audrunas Gruslys, R´ emi Munos, Ivo Danihelka, Marc Lanctot, and Alex Graves. Memory-efficient backpropagation through time. In Advances in Neural Information Processing Systems , vol-ume 29, 2016. Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 , 2023. Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. arXiv preprint arXiv:1912.01603 , 2019. Nicolas Heess, Gregory Wayne, David Silver, Timothy Lillicrap, Tom Erez, and Yuval Tassa. Learn-ing continuous control policies by stochastic value gradients. Advances in neural information processing systems , 28, 2015. John Ingraham, Adam Riesselman, Chris Sander, and Debora Marks. Learning protein structure with a differentiable simulator. In International Conference on Learning Representations , 2019. Max Jaderberg, Wojciech Marian Czarnecki, Simon Osindero, Oriol Vinyals, Alex Graves, David Silver, and Koray Kavukcuoglu. Decoupled neural interfaces using synthetic gradients. In Pro-ceedings of the 34th International Conference on Machine Learning , pp. 1627–1635, 2017. Umit Keles, Julien Dubois, Kevin J. M. Le, J. Michael Tyszka, David A. Kahn, Chrystal M. Reed, Jeffrey M. Chung, Adam N. Mamelak, Ralph Adolphs, and Ueli Rutishauser. Multimodal single-neuron, intracranial EEG, and fMRI brain responses during movie watching in human patients. 
+
+Scientific Data , 11:214, 2024. doi: 10.1038/s41597-024-03029-1. 11 Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations (ICLR) , 2015. arXiv:1412.6980. Alex M. Lamb, Anirudh Goyal, Ying Zhang, Saizheng Zhang, Aaron Courville, and Yoshua Ben-gio. Professor forcing: A new algorithm for training recurrent networks. In Advances in Neural Information Processing Systems , volume 29, 2016. Klaus Linkenkaer-Hansen, Vadim V Nikouline, J Matias Palva, and Risto J Ilmoniemi. Long-range temporal correlations and scaling behavior in human brain oscillations. Journal of Neuroscience ,21(4):1370–1377, 2001. Bjoern List, Li-Wei Chen, Kartik Bali, and Nils Thuerey. Differentiability in unrolled training of neural physics simulators on transient dynamics. Computer Methods in Applied Mechan-ics and Engineering , 433:117441, 2025. ISSN 0045-7825. doi: https://doi.org/10.1016/j.cma. 2024.117441. URL https://www.sciencedirect.com/science/article/pii/ S0045782524006960 .Edward N. Lorenz. Predictability: A problem partly solved. In Proc. Seminar on Predictability, ECMWF , volume 1, pp. 1–18, 1996. Zhixin Lu, Brian R. Hunt, and Edward Ott. Attractor reconstruction by machine learning. Chaos: An Interdisciplinary Journal of Nonlinear Science , 28(6):061104, 2018. Xufang Luo, Yuge Zhang, Zhiyuan He, Zilong Wang, Siyun Zhao, Dongsheng Li, Luna K Qiu, and Yuqing Yang. Agent lightning: Train any ai agents with reinforcement learning. arXiv preprint arXiv:2508.03680 , 2025. Michel Ma, Tianwei Ni, Clement Gehring, Pierluca D’Oro, and Pierre-Luc Bacon. Do transformer world models give better policy gradients? ArXiv , abs/2402.05290, 2024. URL https://api. semanticscholar.org/CorpusID:267548115 .Michael C. Mackey and Leon Glass. Oscillation and chaos in physiological control systems. Science ,197(4300):287–289, 1977. doi: 10.1126/science.267326. Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. Towards stability of autoregressive neural operators. Transactions on Machine Learning Research , 2023. ISSN 2835-8856. URL https://openreview.net/forum?id=RFfUUtKYOG .Raman K. Mehra. On the identification of variances and adaptive kalman filtering. IEEE Transac-tions on Automatic Control , 15(2):175–184, 1970. doi: 10.1109/TAC.1970.1099422. Jonas M. Mikhaeil, Zahra Monfared, and Daniel Durstewitz. On the difficulty of learning chaotic dynamics with RNNs. In Advances in Neural Information Processing Systems (NeurIPS) , 2022. Asier Mujika, Florian Meier, and Angelika Steger. Approximating real-time recurrent learning with random kronecker factors. In Neural Information Processing Systems , 2018. URL https: //api.semanticscholar.org/CorpusID:44111521 .Samuel A. Nastase, Valeria Gazzola, Uri Hasson, and Christian Keysers. Measuring shared re-sponses across subjects using intersubject correlation. Social Cognitive and Affective Neuro-science , 2019. doi: 10.1093/scan/nsz037. Fengxiang Nie and Yasuhiro Suzuki. Jacobian-adaptive weighting for stability: Enhancing long-term rollout of neural partial differential equation solvers via spatially-adaptive regularization. 
+
+arXiv preprint arXiv:2603.05538 , 2026. Brian J. Odelson, Murali R. Rajamani, and James B. Rawlings. A new autocovariance least-squares method for estimating noise covariances. Automatica , 42(2):303–308, 2006. doi: 10.1016/j. automatica.2005.09.006. 12 Ruben Ohana, Michael McCabe, Lucas Meyer, Rudy Morel, Fruzsina J. Agocs, Miguel Beneitez, Marsha Berger, Blakesley Burkhart, Stuart B. Dalziel, Drummond B. Fielding, Daniel Fortu-nato, Jared A. Goldberg, Keiya Hirashima, Yan-Fei Jiang, Rich R. Kerswell, Suryanarayana Maddu, Jonah Miller, Payel Mukhopadhyay, Stefan S. Nixon, Jeff Shen, Romain Watteaux, Bruno R´ egaldo-Saint Blancard, Franc ¸ois Rozet, Liam H. Parker, Miles Cranmer, and Shirley Ho. The well: A large-scale collection of diverse physics simulations for machine learning. In Advances in Neural Information Processing Systems: Datasets and Benchmarks Track , volume 37, 2024. Tim N Palmer. Predicting uncertainty in forecasts of weather and climate. Reports on Progress in Physics , 63(2):71–116, 2000. Paavo Parmas, Carl Edward Rasmussen, Jan Peters, and Kenji Doya. Pipps: Flexible model-based policy search robust to the curse of chaos. In International Conference on Machine Learning , pp. 4065–4074. PMLR, 2018. Razvan Pascanu, Tomas Mikolov, and Yoshua Bengio. On the difficulty of training recurrent neural networks. In Proceedings of the 30th International Conference on Machine Learning , pp. 1310– 1318, 2013. Adeel Pervez and Francesco Locatello. Controlling transient amplification improves long-horizon rollouts. arXiv preprint arXiv:2605.08856 , 2026. David Raposo, Sam Ritter, Adam Santoro, Greg Wayne, Theophane Weber, Matt Botvinick, Hado van Hasselt, and Francis Song. Synthetic returns for long-term credit assignment. arXiv preprint arXiv:2102.12425 , 2021. Stephan Rasp, Stephan Hoyer, Alexander Merose, Ian Langmore, Peter Battaglia, Tyler Russell, Alvaro Sanchez-Gonzalez, Vivian Yang, Rob Carver, Shreya Agrawal, Matthew Chantry, Zied Ben Bouallegue, Peter Dueben, Carla Bromberg, Jared Sisk, Luke Barrington, Aaron Bell, and Fei Sha. WeatherBench 2: A benchmark for the next generation of data-driven global weather models. Journal of Advances in Modeling Earth Systems , 16(6):e2023MS004019, 2024. doi: 10.1029/2023MS004019. Guy Revach, Nir Shlezinger, Xiaoyong Ni, Adria Lopez Escoriza, Ruud J. G. van Sloun, and Yon-ina C. Eldar. KalmanNet: Neural network aided kalman filtering for partially known dynamics. 
+
+IEEE Transactions on Signal Processing , 70:1532–1547, 2022. doi: 10.1109/TSP.2022.3158588. St´ ephane Ross, Geoffrey Gordon, and Drew Bagnell. A reduction of imitation learning and struc-tured prediction to no-regret online learning. In Proceedings of the fourteenth international con-ference on artificial intelligence and statistics , pp. 627–635. JMLR Workshop and Conference Proceedings, 2011. Alexander Schaefer, Ru Kong, Evan M Gordon, Timothy O Laumann, Xi-Nian Zuo, Avram J Holmes, Simon B Eickhoff, and BT Thomas Yeo. Local-global parcellation of the human cerebral cortex from intrinsic functional connectivity mri. Cerebral cortex , 28(9):3095–3114, 2018. John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter Abbeel. High-dimensional continuous control using generalized advantage estimation. arXiv preprint arXiv:1506.02438 , 2015. Corentin Tallec and Yann Ollivier. Unbiasing truncated backpropagation through time. arXiv preprint arXiv:1705.08209 , 2017. Corentin Tallec and Yann Ollivier. Unbiased online recurrent optimization. In International Con-ference on Learning Representations , 2018. Leitian Tao, Baolin Peng, Wenlin Yao, Tao Ge, Hao Cheng, Mike Hang Wang, Jianfeng Gao, and Sharon Li. Trace: Turn-level reward assignment via credit estimation for long-horizon agents. 
+
+arXiv preprint arXiv:2607.13988 , 2026. Aaron Towne, Oliver T. Schmidt, and Tim Colonius. Spectral proper orthogonal decomposition and its relationship to dynamic mode decomposition and resolvent analysis. Journal of Fluid Mechanics , 847:821–867, 2018. doi: 10.1017/jfm.2018.283. 13 Anna Trevisan and Luigi Palatella. On the Kalman filter error covariance collapse into the unstable subspace. Nonlinear Processes in Geophysics , 18(2):243–250, 2011. David C. Van Essen, Stephen M. Smith, Deanna M. Barch, Timothy E. J. Behrens, Essa Yacoub, and Kamil Ugurbil. The WU-Minn human connectome project: An overview. NeuroImage , 80: 62–79, 2013. doi: 10.1016/j.neuroimage.2013.05.041. Th´ eophane Weber, Nicolas Heess, Lars Buesing, and David Silver. Credit assignment techniques in stochastic computation graphs. In Proceedings of the Twenty-Second International Conference on Artificial Intelligence and Statistics , volume 89 of Proceedings of Machine Learning Research ,pp. 2650–2660, 2019. Norbert Wiener. Extrapolation, Interpolation, and Smoothing of Stationary Time Series: With En-gineering Applications . MIT Press, 1949. Ronald J. Williams and David Zipser. A learning algorithm for continually running fully recurrent neural networks. Neural Computation , 1(2):270–280, 1989. Zaijun Ye, Chen-Song Zhang, and Wansheng Wang. Recurrent neural operators: Stable long-term pde prediction. arXiv preprint arXiv:2505.20721 , 2025. Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 35, pp. 11106–11115, 2021. 14 APPENDIX CONTENTS 
+
+A Extended Related Work 17 B Why Delayed Gradients Accumulate 17 C Internal-DW: Theory and Implementation 18 
+
+C.1 Proof of Theorem 1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 C.2 Where the Route Weights Are Applied . . . . . . . . . . . . . . . . . . . . . . . . 19 C.3 How the Route Moments Are Calibrated . . . . . . . . . . . . . . . . . . . . . . . 20 C.4 How the Two Route Weights Are Solved . . . . . . . . . . . . . . . . . . . . . . . 20 C.5 When Calibration Runs and What It Costs . . . . . . . . . . . . . . . . . . . . . . 20 
+
+D How the Noise Samplers Are Constructed 20 
+
+D.1 Generic Sampler: Resampling Forecast Residuals . . . . . . . . . . . . . . . . . . 21 D.2 Prior Samplers: Predicting Reproducible Structure First . . . . . . . . . . . . . . . 22 D.3 Spatial Fields: Matching Residual Spatial Structure . . . . . . . . . . . . . . . . . 23 D.4 How Sampler Outputs Enter Internal-DW . . . . . . . . . . . . . . . . . . . . . . 24 
+
+E Why a Noise Sampler Is Needed and How Its Errors Affect the Gains 24 
+
+E.1 Proof of Route-Law Non-Identifiability . . . . . . . . . . . . . . . . . . . . . . . 24 E.2 When a Fixed Sampler Recovers the Intended Noise . . . . . . . . . . . . . . . . . 25 E.3 How Sampler Error Changes the Estimated Gains . . . . . . . . . . . . . . . . . . 25 
+
+F Controlled Known-SNR Study 26 
+
+F.1 Separating Conditional Gradient Signal and Noise . . . . . . . . . . . . . . . . . . 26 F.2 Risk of Including More Forecast Steps . . . . . . . . . . . . . . . . . . . . . . . . 27 F.3 Gain Accuracy and Held-Out Route Risk . . . . . . . . . . . . . . . . . . . . . . 27 
+
+G Datasets and Training Details 27 
+
+G.1 Datasets . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 G.2 Implementation Details for Training . . . . . . . . . . . . . . . . . . . . . . . . . 30 
+
+H How History and Observed Drive Are Measured 31 
+
+H.1 Computing the Two Regime Scores . . . . . . . . . . . . . . . . . . . . . . . . . 31 H.2 Interpreting the Regime Scores . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 H.3 Validation of the Predictive-Regime Probes . . . . . . . . . . . . . . . . . . . . . 31 
+
+I Controlled Test of Strong Observed Drive 32 J How Forecasting Error Is Evaluated 33 K How Per-Horizon Gradient Utility Is Measured 33 
+
+15 L Dense-Horizon Relative-L2 Results 33 M End-to-end training time 34 N Per-seed fitted curves 35 
+
+16 A EXTENDED RELATED WORK 
+
+Sensitivity in autonomous and driven rollouts. Dynamical-systems analyses distinguish asymp-totic instability from realized finite-time amplification, which can depend strongly on the starting state, forcing, observation error, and model error (Lorenz, 1996; Palmer, 2000). The same Jaco-bian products govern BPTT sensitivity, but the magnitude of a transported gradient also depends on the residual and its alignment with amplified directions (Pascanu et al., 2013; Mikhaeil et al., 2022). Related work further shows that forecast errors can concentrate in unstable subspaces and that driven recurrent systems can exhibit generalized synchronization with their inputs (Trevisan & Palatella, 2011; Lu et al., 2018). These results characterize the leverage of delayed information, not the reliability of the resulting gradient. 
+
+Credit assignment in reinforcement learning and differentiable world models. Long-term credit assignment also arises in reinforcement learning, where much of the literature asks how delayed returns should be attributed to earlier states or actions. PIPPS uses total propagation to combine gradient estimators across pathwise derivative depths, assigning greater weight to lower-variance estimators (Parmas et al., 2018). RUDDER redistributes delayed rewards through return decomposition, while synthetic-return methods associate past states directly with distant future re-wards (Arjona-Medina et al., 2019; Raposo et al., 2021). Recent LLM-agent training methods simi-larly decompose long interaction trajectories into training transitions or construct turn-level rewards (Luo et al., 2025; Tao et al., 2026). Differentiable world models provide a closer computational connection. Stochastic value-gradient methods differentiate policy objectives through learned dy-namics, while Dreamer backpropagates value gradients through latent imagined trajectories (Heess et al., 2015; Hafner et al., 2019). Ma et al. further redesign the world-model architecture to pro-vide more direct long-range policy-gradient paths (Ma et al., 2024). Collectively, these works alter how delayed returns are assigned or how policy gradients are propagated through model roll-outs. Internal-DW instead retains the observed per-horizon targets, forward rollout, and all horizon losses, and estimates the reliability of transported identity and nonlinear route VJPs. 
+
+Alternative recurrent-gradient estimators. TBPTT shortens the backward window, whereas ARTBP randomizes the cutoff and reweights surviving paths to obtain an unbiased estimator of full BPTT at the cost of additional variance (Tallec & Ollivier, 2017). RTRL and its scalable vari-ants propagate recurrent gradients online (Williams & Zipser, 1989; Tallec & Ollivier, 2018; Mujika et al., 2018; Benzing et al., 2019), while activation checkpointing trades recomputation for mem-ory without changing the full BPTT gradient (Griewank, 1992; Chen et al., 2016; Gruslys et al., 2016). These methods change how a long-horizon gradient is computed or approximated; they do not estimate the reliability of individual route contributions after transport. 
+
+Related methods that weight or modify backward signals. Kalman-inspired neural models learn filtering updates for latent-state estimation: Recurrent Kalman Networks maintain structured latent uncertainty, and KalmanNet learns a Kalman gain under partially known dynamics (Becker et al., 2019; Revach et al., 2022). Classical adaptive filtering also shows that process and observation covariances cannot generally be recovered from one total covariance without additional dynamical or rank assumptions (Mehra, 1970; B´ elanger, 1974; Odelson et al., 2006). This identification prin-ciple motivates the explicit sampler contract in Appendix E.1. Synthetic gradients and related local methods instead learn or approximate module-level backward messages (Jaderberg et al., 2017; Weber et al., 2019), while Highway-BP uses residual shortcuts to approximate ordinary backprop-agation more efficiently (Fagnou et al., 2025). Internal-DW retains the rollout VJPs and applies covariance-derived reliability weights to routes within each residual merge. 
+
+## B WHY DELAYED GRADIENTS ACCUMULATE 
+
+The sensitivity in Equation 1 obeys the exact forced recurrence 
+
+Dt,k +1 = Jt+kDt,k + Gt+k, Dt, 0 = 0 . (10) Thus contraction of an old path does not remove the new parameter contribution injected at the next rollout step. To isolate the resulting long-horizon regimes, consider a stationary local linearization 17 and one parameter direction, 
+
+zk+1 = Jz k + μ + ϵk, E[ϵk] = 0 , E[ϵkϵ⊤ 
+
+> j
+
+] = 1{k = j}Q. (11) Here μ is the coherent part of the local parameter injection and ϵk is its temporally uncorrelated component. Iteration gives 
+
+E[zk] = 
+
+> k−1
+
+X
+
+> h=0
+
+Jhμ, Cov( zk) = 
+
+> k−1
+
+X
+
+> h=0
+
+JhQ(Jh)⊤. (12) The second expression is a finite controllability Gramian. If ρ(J) < 1, both sums converge and the root-mean-square (RMS) sensitivity approaches a finite plateau. A unit-eigenvalue mode excited by 
+
+μ accumulates in the mean, while any semisimple unit-modulus mode excited by Q accumulates in the variance. If ρ(J) > 1 and an unstable mode is excited, the corresponding moment grows ex-ponentially. A nontrivial Jordan block on the unit circle can produce still faster polynomial growth. These statements are matrix results; no scalar reduction is required. The scalar case makes the limits explicit. For a nonnegative gain a, coherent injection μ, and inno-vation variance σ2,
+
+E[z2
+
+> k
+
+] = μ2
+
+> k−1
+
+X
+
+> h=0
+
+ah
+
+!2
+
++ σ2
+
+> k−1
+
+X
+
+> h=0
+
+a2h,
+
+> k−1
+
+X
+
+> h=0
+
+ah = 1 − ak
+
+1 − a ,
+
+> k−1
+
+X
+
+> h=0
+
+a2h = 1 − a2k
+
+1 − a2 , (13) with the continuous limits k at a = 1 . Hence |a| < 1 gives saturation, a = 1 gives linear accumu-lation in the coherent component and √k RMS growth in the uncorrelated component, and |a| > 1
+
+gives exponential growth. Equal deviations around unity are also asymmetric at long horizons: for 
+
+0 < δ < 1 and k > 1,
+
+(1 + δ)k − 1 > 1 − (1 − δ)k, (14) so a comparably expansive mode eventually dominates a comparably contractive one. This compar-ison does not assert that learning makes the two deviations equally likely. These regimes describe the shared-parameter sensitivity. They carry over to the gradient in Equa-tion 1 when the forecast residual excites the corresponding transported modes. Time-varying Ja-cobians, correlated injections, and cancellation can change the rate, so these are sufficient regimes rather than a claim that every nonlinear autoregressive model produces large gradients. 
+
+## C INTERNAL -DW: T HEORY AND IMPLEMENTATION 
+
+This section first proves the optimality result underlying Internal-DW and then gives the complete training and calibration procedure. Algorithm 1 summarizes how ordinary training steps alternate with fully open calibration probes that update the route moments and gains. The remaining subsec-tions specify the routing placement, probe construction, constrained solve, and calibration cost. C.1 PROOF OF THEOREM 1
+
+Proof. Recall that d = s + n, where s = E[d | C ] and n = d − s. Hence E[n | C ] = 0 , and therefore 
+
+E[s⊤n] = Es⊤E[n | C ] = 0 .
+
+For any w ∈ R2,
+
+dw − s1 = s(w − 1) + nw. 
+
+Using this orthogonality, 
+
+R(w) = E
+
+h
+
+∥dw − s1∥22
+
+i
+
+= ( w − 1)⊤E[s⊤s]( w − 1) + w⊤E[n⊤n]w
+
+= ( w − 1)⊤P (w − 1) + w⊤Rw, 
+
+which gives Equation 4. 18 Expanding and using T = P + R gives 
+
+R(w) = w⊤T w − 2w⊤P 1 + 1⊤P 1.
+
+Since T ≻ 0, R is strictly convex, and its unique unconstrained minimizer satisfies 
+
+∇wR(w) = 2 T w − 2P 1 = 0 .
+
+Thus 
+
+wunc = T −1P 1.
+
+Using T w unc = P 1, completing the square yields 
+
+R(w) = R(wunc ) + ( w − wunc )⊤T (w − wunc ).
+
+Therefore 
+
+w⋆ = arg min 
+
+> w∈[0 ,1] 2
+
+(w − wunc )⊤T (w − wunc ),
+
+so w⋆ is the T -metric projection of wunc onto [0 , 1] 2.Finally, 1 ∈ [0 , 1] 2, so optimality of w⋆ gives 
+
+R(w⋆) ≤ R (1).
+
+From the risk decomposition, 
+
+R(1) = 1⊤R1,
+
+and hence 
+
+R(w⋆) ≤ 1⊤R1.
+
+Because R is strictly convex, the constrained minimizer is unique; consequently, the inequality is strict whenever 1 is not itself optimal. For a single route, T = P + R is scalar, so the unconstrained solution reduces immediately to 
+
+wunc = P/ (P + R).
+
+Algorithm 1 Internal-DW training and calibration 
+
+Require: Forecaster fθ , sampler Qd, and stored {wk,ℓ , bTk,ℓ , bRk,ℓ }
+
+1: Use wk,ℓ = (1 , 1) ⊤ during the fully open warm-up 2: for training minibatch b do 
+
+3: Roll out K steps and form the task loss 4: if b is a calibration minibatch after warm-up then 
+
+5: Form qtot and qnoise and run two fully open VJP probes 6: Stage updates of bT , bR, and bP ← ΠPSD ( bT − bR)
+
+7: Stage new gains by minimizing Equation 4 over w ∈ [0 , 1] 2
+
+8: end if 
+
+9: Backpropagate the task loss with the previously committed gains 10: Update θ and commit any staged sampler statistics, moments, and gains 11: end for 
+
+C.2 WHERE THE ROUTE WEIGHTS ARE APPLIED 
+
+At each forecast step and residual layer, two forward-identity autograd nodes separately weight the identity and nonlinear backward messages, record their unscaled VJPs, and leave the forward value unchanged. The recurrent-state path uses the nonlinear coefficient. Routing is confined to internal residual merges; the outer autoregressive update remains fully open because a single gain there would combine paths represented separately by the two-route estimator. 19 C.3 HOW THE ROUTE MOMENTS ARE CALIBRATED 
+
+For calibration sample i and forecast horizon k, the total-moment and noise probes are 
+
+qtot = 12 mean i,k ˆxi,k − x⋆i,k  
+
+> 22
+
+, qnoise = mean i,k ˆx⊤
+
+> i,k
+
+eϵi,k , eϵi, 1: K ∼ Q d. (15) The quadratic qtot is the common calibration probe used to estimate route moments and need not equal the task loss used for parameter updates. Both probes are differentiated with all route gains set to one. For the residual block 
+
+yk,ℓ = xk,ℓ + Fℓ(xk,ℓ ),
+
+the recorded two-route message for a scalar probe q is 
+
+dk,ℓ (q) = 
+
+∇yk,ℓ q
+
+| {z } 
+
+> dIk,ℓ (q)
+
+JFℓ (xk,ℓ )⊤∇yk,ℓ q
+
+| {z }
+
+> dFk,ℓ (q)
+
+ . (16) Accordingly, 
+
+dtot  
+
+> k,ℓ
+
+= dk,ℓ (qtot ), dnoise  
+
+> k,ℓ
+
+= dk,ℓ (qnoise ).
+
+These messages update the EMAs in Equation 7. If the block input has dimension Dℓ, the imple-mentation accumulates 
+
+1
+
+Dℓ
+
+(dtot 
+
+> k,ℓ
+
+)⊤dtot  
+
+> k,ℓ
+
+and 1
+
+Dℓ
+
+(dnoise  
+
+> k,ℓ
+
+)⊤dnoise  
+
+> k,ℓ
+
+.
+
+The common factor 1/D ℓ scales bT , bR, and bP equally and therefore does not change the Wiener solution. The probes estimate local route moments under the selected sampler; the resulting Wiener objective is a local MMSE criterion, not a claim of global optimality for the nonlinear training objective. C.4 HOW THE TWO ROUTE WEIGHTS ARE SOLVED 
+
+Each symmetric 2 × 2 route matrix is stored as three scalars (II, IJ, JJ ). Before solving, bT and bR
+
+are symmetrized and projected onto the positive-semidefinite cone, after which 
+
+bP = Π PSD ( bT − bR).
+
+A numerical ridge of 10 −6 tr( bP + bR) is added only to stabilize the two-dimensional inverse. The constrained solution is not obtained by clipping the unconstrained one, because correlations between routes can make coordinatewise clipping suboptimal. Instead, the implementation evaluates the feasible unconstrained optimum, the optimum on each edge, and all four corners of [0 , 1] 2, and selects the point with minimum quadratic risk. C.5 WHEN CALIBRATION RUNS AND WHAT IT COSTS 
+
+Both calibration probes temporarily open every route and use autograd.grad without accumu-lating parameter gradients. The task backward uses the previously committed gains; newly esti-mated moments and gains are committed only afterward. This prevents probe noise or an in-place gain change from entering the current task update. A calibration minibatch adds two VJP traversals. Soft gains do not prune the computational graph, so the current implementation adds periodic computation but does not reduce activation memory. Checkpoints store the gains, moments, probe counts, and sampler configuration. 
+
+## D HOW THE NOISE SAMPLERS ARE CONSTRUCTED 
+
+Throughout this section, xi,t ∈ RD denotes observed sequence i at time t, r is a rollout origin, and k ∈ { 1, . . . , K } is a forecast horizon. Sampler d supplies a prediction ˆx(d) 
+
+> i,r,k
+
+of the common 20 target xi,r +k, forms e(d) 
+
+> i,r,k
+
+= xi,r +k − ˆx(d)
+
+> i,r,k
+
+, and returns a zero-mean trajectory eϵ(d) 
+
+> i,r, 1: K
+
+∼ Q d.Thus d only labels the sampler, while Qd is the distribution of its final noise trajectories. The same draw enters qnoise in Equation 15; thus every construction below has the common pipeline 
+
+x → ˆx(d) → e(d) → eϵ(d).Table 1: Noise samplers used in the experiments. The structural assumption changes only the noise sampler; route-moment estimation and the Wiener solve are shared.        
+
+> Data Assumed structure Sampler Qdand retained dependence
+> DW-Generic
+> Mackey–Glass, NARMA, ETTm1, ETTm2 Centered residuals Lagged residual bootstrap (Equation 17); coordinates and horizons
+> DW-Prior
+> iEEG theta Long-range temporal dependence (Linkenkaer-Hansen et al., 2001); cross-electrode factor model (ours) Cross-fitted factor model; electrodes and horizons HCP movie fMRI Shared stimulus response (Chen et al., 2015; Nastase et al., 2019); AR residual model (ours) Subject cross-fit + AR model; regions and horizons Shear flow, WeatherBench-2 Approximate translation stationarity, motivated by stationary-flow spectral analysis (Adrian & Moin, 1988; Towne et al., 2018) Lagged 2-D spectrum; spatial modes, horizons independent
+
+Algorithm 2 Constructing a noise-sampler module 
+
+Require: Training data, module type, and any predeclared domain structure 
+
+1: if DW-Generic then 
+
+2: Center lagged K-step training residual trajectories 
+
+3: Return a whole-trajectory residual bootstrap Qd
+
+4: else if template-based DW-Prior then 
+
+5: Split subjects or separated time blocks into folds 
+
+6: for fold f do 
+
+7: Fit the sampler predictor without fold f
+
+8: Store e(d) 
+
+> i,r,k
+
+= xi,r +k − ˆx(d, −f ) 
+
+> i,r,k
+
+for held-out origins 
+
+9: end for 
+
+10: Return a whole-trajectory held-out-residual bootstrap Qd
+
+11: else if spatial DW-Prior then 
+
+12: From the previous minibatch, update per-horizon/channel residual means, variances, and 2-D Fourier powers 
+
+13: Return the corresponding random-phase Gaussian sampler Qd
+
+14: end if 
+
+15: return Qd, which generates eϵ(d) 
+
+> i,r, 1: K
+
+, its fitted state, and the declared assumption D.1 GENERIC SAMPLER : R ESAMPLING FORECAST RESIDUALS 
+
+The generic sampler uses the forecaster’s own past errors as examples of plausible output noise. It resamples a whole centered residual trajectory so that dependence across output coordinates and forecast horizons is retained. Here ˆx(G)  
+
+> i,r, 1: K
+
+is the main forecaster’s detached training rollout. Let 
+
+BG be the bank of stored sequence–origin pairs. DW-Generic uses 
+
+eG 
+
+> i,r, 1: K
+
+= xi,r +1: r+K − ˆx(G)  
+
+> i,r, 1: K
+
+, ¯eG1: K = 1
+
+|B G|
+
+X
+
+> (j,s )∈B G
+
+eG 
+
+> j,s, 1: K
+
+,
+
+eϵG 
+
+> i,r, 1: K
+
+= ξi,r 
+
+ eG 
+
+> J,S, 1: K
+
+− ¯eG1: K
+
+ (17) 
+
+(J, S ) is sampled from BG, and the independent sign ξi,r is +1 or −1 with equal probability. The same sampled pair and sign are shared across horizons, preserving empirical coordinate and cross-horizon covariance. The identifying approximation is the same as in Equation 17: any predictable error remaining in the forecaster residual is counted as noise. 21 D.2 PRIOR SAMPLERS : P REDICTING REPRODUCIBLE STRUCTURE FIRST 
+
+The two neural samplers first predict structure that should repeat across separated time blocks or subjects, then treat the held-out prediction residual as noise. Cross-fitting ensures that each residual comes from a predictor that was not trained on that held-out block or subject. For a sequence–origin pair (i, r ) in fold f , sampler d predicts the same targets using a model fit without that fold. Let Bd
+
+be the resulting bank of cross-fitted residual trajectories. Then 
+
+e(d) 
+
+> i,r,k
+
+= xi,r +k − ˆx(d, −f ) 
+
+> i,r,k
+
+, ¯e(d) 
+
+> k
+
+= 1
+
+|B d|
+
+X
+
+> (j,s )∈B d
+
+e(d)
+
+> j,s,k
+
+,
+
+eϵ(d) 
+
+> i,r, 1: K
+
+= ξi,r 
+
+ e(d) 
+
+> J,S, 1: K
+
+− ¯e(d)1: K
+
+ (18) 
+
+(J, S ) is sampled from Bd, and the independent sign ξi,r is +1 or −1 with equal probability. The same sampled trajectory and sign are used at every horizon. This preserves the empirical coordinate and cross-horizon covariance while making eϵ(d) zero mean. Each reported bank contains at most 1024 training-only cross-fitted trajectories sampled without replacement. D.2.1 IEEG: P REDICTING SHARED TEMPORAL FACTORS 
+
+The iEEG sampler assumes that reproducible activity is concentrated in a small set of cross-electrode factors with predictable temporal evolution. It forecasts those factors from past activity and treats the remaining held-out variation as noise. Write each observed theta-envelope sequence as xi,t ∈ RD .The training sequence–time pairs are divided into contiguous held-out blocks Hf . For fold f , the fit set If excludes Hf and a purge gap on both sides, so no lag used by the predictor crosses the held-out block. From If , define 
+
+μf = 1
+
+|I f |
+
+X
+
+> (i,t )∈I f
+
+xi,t , Cf = 1
+
+|I f | − 1
+
+X
+
+> (i,t )∈I f
+
+(xi,t − μf )( xi,t − μf )⊤. (19) Let Lf,ρ ∈ RD×ρ contain the top ρ orthonormal eigenvectors of Cf , and let a(f ) 
+
+> i,t
+
+= L⊤
+
+> f,ρ
+
+(xi,t − μf )
+
+be the retained factor scores. Each factor is fit independently with a ridge-regularized AR( p) model: 
+
+bϕ(p) 
+
+> f,j
+
+= arg min 
+
+> ϕ∈Rp
+
+X
+
+> (i,t )∈I (p)
+> f
+
+a(f ) 
+
+> i,t,j
+
+−
+
+> p
+
+X
+
+> ℓ=1
+
+ϕℓa(f )
+
+> i,t −ℓ,j
+
+!2
+
++ λs f,j ∥ϕ∥22, (20) where I(p) 
+
+> f
+
+contains only targets whose complete lag window is inside one fit segment, sf,j is the mean diagonal entry of that factor’s lag Gram matrix, and λ = 10 −3. If the fitted scalar AR has root radius above 0.995 , its coefficient vector is multiplied by the largest κ ∈ [0 , 1] whose companion matrix has spectral radius at most 0.995 .For a held-out rollout origin (i, r ) ∈ H f , the observed factor history initializes the recursion 
+
+ba(f ) 
+
+> i,r +k,j
+
+=
+
+> p
+
+X
+
+> ℓ=1
+
+bϕ(p)
+
+> f,j,ℓ
+
+ba(f ) 
+
+> i,r +k−ℓ,j
+
+, k = 1 , . . . , K, (21) with ba(f ) 
+
+> i,r +k,j
+
+= a(f ) 
+
+> i,r +k,j
+
+for k ≤ 0. The component outside the retained factor subspace is not set to zero. It is held at its last observed value 
+
+b⊥ 
+
+> i,r,f
+
+= ( I − Lf,ρ L⊤
+
+> f,ρ
+
+)( xi,r − μf ), ˆx(iEEG)  
+
+> i,r,k
+
+= μf + Lf,ρ ba(f ) 
+
+> i,r +k
+
++ b⊥ 
+
+> i,r,f
+
+. (22) The residual trajectory placed in the common bank is therefore e(iEEG)  
+
+> i,r,k
+
+= xi,r +k − ˆx(iEEG)  
+
+> i,r,k
+
+, which Equation 18 converts into eϵ(iEEG)  
+
+> i,r, 1: K
+
+. The pair (ρ, p ) minimizes the held-out MSE averaged equally over horizons and coordinates, with valid origins pooled across the purged folds: 
+
+(ρ⋆, p ⋆) = arg min 
+
+> ρ∈R , p ∈P
+
+1
+
+Nρ,p KD 
+
+X
+
+> f
+
+X
+
+> (i,r )∈H f
+> K
+
+X
+
+> k=1
+
+∥e(iEEG; ρ,p ) 
+
+> i,r,k
+
+∥22. (23) The reported artifact uses five contiguous folds, a 128-step purge gap, R = {8, 16 , 32 , 64 , 80 }, and 
+
+P = {8, 16 , 32 , 64 }; training-only cross-fitting selects (ρ⋆, p ⋆) = (80 , 64) . Long-range temporal dependence in neural oscillation envelopes motivates the memory component (Linkenkaer-Hansen et al., 2001); the cross-electrode factor model is our identifying assumption. 22 D.2.2 MOVIE F MRI: P REDICTING SHARED AND SUBJECT -S PECIFIC RESPONSES 
+
+The movie-fMRI sampler uses different subjects as repeated responses to the same stimulus. It predicts the response shared across subjects together with the temporally predictable part of each subject’s deviation, and treats the remaining held-out variation as noise. Let xi,t ∈ RD be the parcellated response of subject i at time t, aligned because all subjects view the same movie. We first remove each subject’s static mean and use the centered xi,t throughout the remaining construction: 
+
+xi,t ← xi,t − 1
+
+T
+
+> T
+
+X
+
+> u=1
+
+xi,u . (24) Subjects, rather than time points, are assigned to cross-fitting folds. For a held-out subject fold f ,the shared response and subject deviations fitted from the remaining subjects S−f are 
+
+M (−f ) 
+
+> t
+
+= 1
+
+|S −f |
+
+X
+
+> a∈S −f
+
+xa,t , ∆x(−f ) 
+
+> a,t
+
+= xa,t − M (−f ) 
+
+> t
+
+. (25) For every parcel c, a separate AR( p) model is fit jointly across the fit subjects: 
+
+bϕ(p) 
+
+> f,c
+
+= arg min 
+
+> ϕ∈Rp
+
+X
+
+> a∈S −f
+> T
+
+X
+
+> t=p+1
+
+∆x(−f ) 
+
+> a,t,c
+
+−
+
+> p
+
+X
+
+> ℓ=1
+
+ϕℓ∆x(−f )
+
+> a,t −ℓ,c
+
+!2
+
++ λs f,c ∥ϕ∥22, (26) with the same relative ridge λ = 10 −3, Gram-scale sf,c , and root-radius cap 0.995 as above. Order 
+
+p = 0 sets the predicted deviation to zero and therefore reduces to the shared response alone. For held-out subject i ∈ S f and rollout origin r, the observed deviation history initializes the recursive AR prediction c∆x(−f )
+
+> i,r +k
+
+, and 
+
+ˆx(fMRI)  
+
+> i,r,k
+
+= M (−f ) 
+
+> r+k
+
++ c∆x(−f )
+
+> i,r +k
+
+, e(fMRI)  
+
+> i,r,k
+
+= xi,r +k − ˆx(fMRI)  
+
+> i,r,k
+
+. (27) We select 
+
+p⋆ = arg min 
+
+> p∈{ 0,1,2,4,8}
+
+1
+
+NpKD 
+
+X
+
+> f
+
+X
+
+> i∈S f
+
+X
+
+> rK
+
+X
+
+> k=1
+
+∥e(fMRI; p) 
+
+> i,r,k
+
+∥22, (28) using five subject folds and training data only; the reported artifact selects p⋆ = 8 . Equation 18 then returns eϵ(fMRI)  
+
+> i,r, 1: K
+
+. Prior work supports the use of cross-subject alignment to capture stimulus-locked responses (Chen et al., 2015; Nastase et al., 2019); the diagonal AR model for predictable subject deviation is our additional identifying assumption. D.3 SPATIAL FIELDS : M ATCHING RESIDUAL SPATIAL STRUCTURE 
+
+The spatial sampler treats a residual map as structured noise rather than as independent pixels. It estimates the residual scale and spatial frequency pattern separately for each horizon and channel, then uses them to shape a white Gaussian field. The Shear and WeatherBench-2 modules construct a different sampler online. Let Bn contain the sequence–origin pairs in calibration minibatch n. For 
+
+(i, r ) ∈ B n, horizon k, channel c, and grid location u ∈ Ω, define the detached residual 
+
+e(sp ,n )
+
+> i,r,k,c
+
+(u) = xi,r +k,c (u) − ˆx(sp ,n )
+
+> i,r,k,c
+
+(u), |Ω| = HW. 
+
+Its coordinatewise mean and second moment are updated after the minibatch by 
+
+μn,k,c (u) = βμ n−1,k,c (u) + (1 − β) 1
+
+|B n|
+
+X
+
+> (i,r )∈B n
+
+e(sp ,n )
+
+> i,r,k,c
+
+(u), (29) 
+
+Mn,k,c (u) = βM n−1,k,c (u) + (1 − β) 1
+
+|B n|
+
+X
+
+> (i,r )∈B n
+
+e(sp ,n )
+
+> i,r,k,c
+
+(u)2, β = 0 .99 , (30) with the first observed minibatch used for initialization. Current residuals are standardized using the 
+
+previous committed moments, 
+
+z(n)
+
+> i,r,k,c
+
+(u) = e(sp ,n )
+
+> i,r,k,c
+
+(u) − μn−1,k,c (u)
+
+pvn−1,k,c (u) + δn−1,k 
+
+, vn−1,k,c (u) = [ Mn−1,k,c (u) − μn−1,k,c (u)2]+, (31) 23 where δn−1,k = 10 −8 max {10 −20 , |Ω|−1C−1 P 
+
+> c,u
+
+Mn−1,k,c (u)} is only a numerical floor. Let 
+
+F be the orthonormal two-dimensional real FFT and let w(ω) = 1 for the DC and, when present, Nyquist columns and w(ω) = 2 for the other stored horizontal frequencies. The minibatch power and its unit-spatial-variance normalization are 
+
+ˇSn,k,c (ω) = 1
+
+|B n|
+
+X
+
+> (i,r )∈B n
+
+|F z(n)
+
+> i,r,k,c
+
+(ω)|2, N (S)( ω) = S(ω)
+
+|Ω|−1 P 
+
+> ω′
+
+w(ω′)S(ω′) . (32) The stored color spectrum is then 
+
+Sn,k,c = βS n−1,k,c + (1 − β)N ( ˇSn,k,c ), (33) again initialized by the first available normalized spectrum. At the next calibration probe, draw independent white real fields Wi,r,k,c (u) ∼ N (0 , 1) and return 
+
+eϵ(sp)  
+
+> i,r,k,c
+
+= pvn,k,c + δn,k ⊙ F −1hpSn,k,c ⊙ F Wi,r,k,c 
+
+i
+
+. (34) Collecting these fields over k = 1 , . . . , K gives the sampler output eϵ(sp)  
+
+> i,r, 1: K
+
+∼ Q sp . The draw is zero mean and preserves coordinatewise residual scale and per-horizon, per-channel spatial power, but not cross-channel or cross-horizon covariance. Sending the same field through both routes retains their induced cross-route covariance. The identifying assumption is approximate translation stationarity on the regular grid (Adrian & Moin, 1988; Towne et al., 2018). Using only previously committed moments isolates the probe graph and assumes that parameters vary slowly relative to the EMA window. D.4 HOW SAMPLER OUTPUTS ENTER INTERNAL -DW All constructions above provide the same object: a K-step output-noise trajectory. Internal-DW passes that trajectory through the same fully open backward graph, so only the assumed noise dis-tribution changes across samplers. Equations 17, 18, and 34 give the corresponding distribution 
+
+Qd. For every module, a draw eϵ(d) 
+
+> i,r, 1: K
+
+∼ Q d is inserted into qnoise in Equation 15; the resulting identity/nonlinear VJPs determine bRk,ℓ through Equation 7. The route probe, PSD projection, and constrained Wiener solve are shared. Blocked out-of-fold prediction can reject the declared sampler assumption when its residual remains predictable, but it cannot prove that the residual is physically irreducible noise. 
+
+## E WHY A NOISE SAMPLER IS NEEDED AND HOW ITS ERRORS AFFECT THE 
+
+## GAINS 
+
+E.1 PROOF OF ROUTE -L AW NON -I DENTIFIABILITY 
+
+Equation 4 depends on the decomposition T = P + R. Fully open route gradients identify the total moment T , but not its signal and noise components separately. Proposition 1 shows that this ambiguity is structural rather than a finite-sample defect of the estimator. 
+
+Proposition 1 (The open route law does not identify the split) . Let T ≻ 0 be the covariance of an observed two-route vector z. For any two distinct matrices R1, R 2 satisfying 0 ⪯ Ri ⪯ T , define independent Gaussian pairs 
+
+ni ∼ N (0 , R i), si ∼ N (0 , T − Ri), zi = si + ni.
+
+Then z1 and z2 have the same complete distribution N (0 , T ), while their unconstrained Wiener gains wi = T −1(T −Ri)1 differ whenever (R1 −R2)1̸ = 0 . Hence neither the total covariance nor, in general, the complete law of the open route vector identifies its signal and innovation covariances without additional structure. Proof of Proposition 1. For each i ∈ { 1, 2}, independence gives 
+
+Cov( zi) = Cov( si) + Cov( ni) = ( T − Ri) + Ri = T. 
+
+24 Because si and ni are Gaussian, their sum therefore satisfies zi ∼ N (0 , T ). Thus z1 and z2 have the same complete distribution despite having different signal–noise decompositions. For decomposition i, the signal moment is Pi = T − Ri, so the unconstrained Wiener gain is 
+
+wi = T −1Pi1 = T −1(T − Ri)1.
+
+Consequently, 
+
+w1 − w2 = T −1(R2 − R1)1,
+
+which is nonzero whenever (R1 − R2)1̸ = 0 . Hence the same open-route law can imply different Wiener gains. No amount of additional sampling from the open-route distribution resolves this ambiguity, be-cause the indistinguishable decompositions agree at the population-law level. Classical innovation-covariance estimators resolve it only after imposing state-space, observation, repeated-measurement, or covariance-rank assumptions (Mehra, 1970; B´ elanger, 1974; Odelson et al., 2006). Internal-DW makes the analogous domain assumption through Qd and transports sampled output innovations through the fully open VJPs to estimate the required route-noise covariance. E.2 WHEN A FIXED SAMPLER RECOVERS THE INTENDED NOISE 
+
+For residual-based samplers, we define the population residual targeted by the sampler and state conditions under which its empirical noise moment converges to that target. For domain d, let c(d)
+
+> t
+
+contain the observations available to the noise predictor, and let Gd be its predeclared predictor class. The best predictor in this class and its residual are 
+
+q∗ 
+
+> d
+
+∈ arg min 
+
+> q∈G d
+
+E
+
+h
+
+∥Xt+1 − q(c(d) 
+
+> t
+
+)∥22
+
+i
+
+, ϵ(d) 
+
+> t+1
+
+= Xt+1 − q∗ 
+
+> d
+
+(c(d) 
+
+> t
+
+). (35) If Gd contains the conditional mean, this residual is the conditional innovation. Otherwise it also contains predictable structure that the chosen predictor class cannot represent. The guarantee below concerns this explicitly defined residual; it does not claim that model error is physical noise. 
+
+Proposition 2 (Consistency under a fixed sampler model) . Fix a domain d and basis Bd. Suppose that (i) training units are stationary and ergodic, with cross-fitting performed over independent units or asymptotically separated mixing blocks; (ii) the foldwise predictor satisfies bq(−f ) 
+
+> d
+
+→ q∗ 
+
+> d
+
+in 
+
+L2; (iii) Bd is fixed and bounded; and (iv) the empirical covariance is consistent in the retained finite-dimensional basis. Then the covariance of the out-of-fold residuals converges to 
+
+Σ∗ 
+
+> d
+
+= Cov 
+
+
+
+B⊤ 
+
+> d
+
+ϵ(d)
+
+> t+1
+
+
+
+.
+
+For a fixed bounded linear VJP map applied to the centered retained-basis residuals, the empirical-average route-noise moment bRk,ℓ also converges to its population counterpart. Proof. Assumption (ii) makes each cross-fitted residual converge in L2 to ϵ(d). Boundedness of Bd
+
+and the ergodic law of large numbers then give convergence of its first two moments; assumption (iv) gives the covariance limit. For a fixed linear VJP map, each entry of the transported second-moment matrix is a linear function of the residual covariance, so convergence follows directly. The proposition separates finite-sample estimation error from sampler-model mismatch. More data reduce the former but cannot repair omitted conditioning variables or an inadequate predictor class, because these change the population residual being estimated. For covariance-based samplers, anal-ogous consistency requires consistent estimation of the moments retained by the declared covariance model; misspecification of that model remains a population-level error. E.3 HOW SAMPLER ERROR CHANGES THE ESTIMATED GAINS 
+
+Why drive-dominated routes can favor the open operator. For one routed direction, write the open message as d = s + n, where s is its conditional signal, n is orthogonal noise, P = E∥s∥22,25 and R = E∥n∥22. Applying a scalar gain c gives 
+
+R(c) = E∥c(s + n) − s∥22 (36) 
+
+= (1 − c)2P + c2R, (37) 
+
+R(c) − R (1) = (1 − c)2P − (1 − c2)R. (38) Differentiation gives c⋆ = P/ (P + R). Hence adding useful drive-dependent signal moves the correctly estimated gain toward the open route; degradation requires the applied gain to remain too small. 
+
+How moment error perturbs the two-route gain. Let bT = T + ∆ T and bR = R + ∆ R, and suppose the unconstrained population solution 
+
+wunc = T −1(T − R)1
+
+lies in the interior of [0 , 1] 2, so that w⋆ = wunc . When the perturbations are small enough that the box constraint and PSD projection remain inactive, 
+
+bw − wunc = T −1[∆ T (1 − wunc ) − ∆R1] + O ∥∆T ∥2 + ∥∆R∥2 . (39) This expansion follows by substituting 
+
+(T + ∆ T )−1 = T −1 − T −1∆T T −1 + O ∥∆T ∥2
+
+into the unconstrained plug-in solve and retaining the first-order terms. Sampler-model mismatch enters through systematic error in ∆R, while finite task and noise probes contribute estimation error through both ∆T and ∆R. If bw = E[ bw] − wunc and Vw = Cov( bw), then 
+
+E[R( bw) − R (wunc )] = b⊤ 
+
+> w
+
+T b w + tr( T V w). (40) Thus moment error contributes to excess local route risk through both gain bias and gain variance. This remains a local route-risk statement and does not imply an end-to-end forecasting guarantee. 
+
+## F CONTROLLED KNOWN -SNR S TUDY 
+
+This appendix specifies the oracle used in Fig. 4. It lets us measure the conditional-mean gradient and innovation noise separately; ordinary data reveal only their sum. The experiment is a frozen-checkpoint probe: it performs no optimizer step and does not modify the model or its forward rollout. Any route gains saved in the checkpoint are overridden by ones, so every g(b) 
+
+> k
+
+below is computed on the fully open BPTT graph. The gradient, gain-identification, and route-risk panels use the same frozen full BPTT checkpoint described below. F.1 SEPARATING CONDITIONAL GRADIENT SIGNAL AND NOISE 
+
+The eight-dimensional process is 
+
+xt+1 = AAR xt + ξt+1 , AAR = diag( .995 , . 98 , . 95 , . 9, −.995 , −.98 , −.95 , −.9) , (41) with independent Gaussian innovations ξt ∼ N (0 , diag(1 − a21, . . . , 1 − a28)) , where aj = ( AAR )jj .The variance choice makes every stationary coordinate have unit marginal variance while retaining distinct positive and sign-alternating memory scales. For an observed state xt, the simulator gives the conditional future exactly: 
+
+¯xt+k := E[xt+k | xt] = Ak
+
+> AR
+
+xt. (42) All future-noise realizations in one comparison begin at this same observed state, so the model prediction and its tangent map are held fixed while only the target innovation changes. Equation 42 is written in raw simulator coordinates; the realized target and its conditional mean are both passed through the checkpoint’s same affine training normalization before the loss is differentiated. Let L(b) 
+
+> k
+
+= K−1∥ˆxt+k − x(b)
+
+> t+k
+
+∥22 be the horizon loss for future-noise draw b, and let g(b) 
+
+> k
+
+= ∇θ L(b)
+
+> k
+
+be its complete full BPTT parameter gradient, including every path from horizon k to the shared 26 parameters. Because the prediction and its derivative are fixed under the conditioning and the loss is quadratic, 
+
+sk := Eb[g(b) 
+
+> k
+
+| xt] = ∇θ K−1∥ˆxt+k − ¯xt+k∥22, n(b) 
+
+> k
+
+:= g(b) 
+
+> k
+
+− sk, Eb[n(b) 
+
+> k
+
+] = 0 . (43) Thus the clean full-window diagnostic target is μ = PKk=1 sk.The per-horizon reliability quantities include the SNR in the left panel of Fig. 4 and the noise fraction reported in the main text: 
+
+SNR k = ∥sk∥22
+
+Eb∥n(b) 
+
+> k
+
+∥22
+
+, ρk = Eb∥n(b) 
+
+> k
+
+∥22
+
+Eb∥g(b) 
+
+> k
+
+∥22
+
+. (44) The first panel plots total-gradient RMS on the same parameter coordinates at every horizon, nor-malized by its value at k = 1 , while Equation 44 reports the signal–innovation split directly. F.2 RISK OF INCLUDING MORE FORECAST STEPS 
+
+Define Sk = Pkj=1 sj and N (b) 
+
+> k
+
+= Pkj=1 n(b) 
+
+> j
+
+. The prefix update is Sk + N (b) 
+
+> k
+
+, whereas the clean target remains the full-window signal μ = SK . Consequently, 
+
+R≤k = Eb∥Sk + N (b) 
+
+> k
+
+− SK ∥22 = ∥Sk − SK ∥22
+
+| {z }
+
+> missing-signal bias
+
++ Eb∥N (b) 
+
+> k
+
+∥22
+
+| {z }
+
+> innovation risk
+
+. (45) The cross term vanishes by conditional centering. Full BPTT is the endpoint k = K: it has zero missing-signal bias but need not have minimum total risk. This equation is the formal meaning of the middle panel; its finite Monte Carlo closure error is at most 0.082 of the full BPTT risk in the four reported splits. 
+
+Probe protocol. The first two panels use K = 32 , 15 independent test trajectories with one rollout start per trajectory, 64 innovation draws per conditional state, and four independent replicates. All curves within a replicate use the same realized gradients. F.3 GAIN ACCURACY AND HELD -O UT ROUTE RISK 
+
+The third and fourth panels of Fig. 4 use a frozen seed-0 full BPTT checkpoint at K = 32 and depth four. The diagonal-AR(1) module is fit from 68,541 training transitions without using the true process parameters. Its process-only diagnostic holds the analytic signal moment fixed, whereas the complete pipeline also estimates the finite-sample total route moment. Both are compared with gains obtained from the true process on disjoint calibration routes, producing 128 forecast-step–layer comparisons. For the held-out risk audit, all gains are fixed before evaluating 15 untouched test trajectories at eight rollout starts with 64 process draws per start. The placement control circularly shifts the estimated gain pairs by half the horizon range within each layer, preserving each layer’s gain multiset. The reference given true P, R is calibrated away from the test routes and then transferred to them; it is therefore not a test-conditioned mathematical oracle. Risk is (w − 1)⊤Ptest (w − 1) + w⊤Rtest w,pooled over all routes and normalized by the fully open operator. Ordinary and route-recording forward paths are bitwise identical for every arm. 
+
+## G DATASETS AND TRAINING DETAILS 
+
+This appendix records the datasets and configurations behind the selected-estimator comparison in Section 5. G.1 DATASETS 
+
+Table 2 summarizes the dataset sizes after preprocessing. The counted units differ across datasets; their construction and split protocols are described below. 27 Table 2: Dataset sizes after preprocessing. Counts refer to trajectories, subjects, or sequence segments, as indicated. State shape excludes the time axis and external-drive features; length is measured in model steps.                                         
+
+> Dataset Counted unit Train / Val. / Test State shape Length MG Trajectory 28 / 6 / 6 82048 NARMA-5 Trajectory 28 / 6 / 6 82048 iEEG Chunk 464 / 87 / 87 40 or 80 1024 Movie fMRI Subject 111 / 24 / 24 400 284 ETTm1 / ETTm2 Segment 135 / 45 / 45 each 7256 Shear flow Clip 288 / 36 / 36 4×64 ×128 64 WeatherBench-2 Segment 205 / 22 / 22 29 ×121 ×240 64 iEEG comprises 29 recordings from 16 participants; counts are pooled across participants, with models trained separately for each participant. State dimensions exclude the 512-dimensional CLIP visual inputs. Shear flow uses 32/4/4 source trajectories; clips overlap within each trajectory but never cross trajectories or splits.
+
+Mackey–Glass. For each coordinate, Mackey–Glass (Mackey & Glass, 1977) follows 
+
+˙x(t) = βx (t − τ )1 + x(t − τ )10 − γx (t),
+
+with τ = 30 , β = .2, and γ = .1. We generate eight independent coordinates with identical dynam-ics and independent initial histories. The equation is integrated by RK4 (fourth-order Runge–Kutta method) with an internal step of .1, sampled every unit time, and run for a 1000-step burn-in before retaining each trajectory. We generate and cache 40 trajectories of length 2048 using a fixed data-generation seed. For each matched experimental seed, trajectories are randomly divided into 28/6/6 training/validation/test trajectories. Output states are standardized using the mean and standard de-viation of the corresponding training trajectories only. 
+
+NARMA-5. We use a bounded variant of the NARMA benchmark (Atiya & Parlos, 2000). For each coordinate, bounded NARMA-5 follows 
+
+yt+1 = tanh 
+
+.3yt + .05 yt
+
+> 4
+
+X
+
+> j=0
+
+yt−j + 1 .5ut−4ut + .1
+
+ , ut ∼ U [0 , . 5] .
+
+The eight coordinates use independently sampled observed input channels, and the first 200 steps are discarded as burn-in. For both datasets, we generate and cache 40 trajectories of length 2048 using a fixed data-generation seed. For each matched experimental seed, trajectories are randomly divided into 28/6/6 training/validation/test trajectories. Output states are standardized using the mean and standard deviation of the corresponding training trajectories only; the NARMA inputs retain their original scale. 
+
+iEEG. The iEEG experiment uses 29 movie-encoding recordings from 16 participants in the dataset of Keles et al. (2024). The neural state consists of macro-contact theta-power signals: 15 participants have 80 channels, and CS62 has 40. Each participant also has aligned 512-dimensional CLIP visual features, supplied as stimulus inputs. For each participant, we split the movie timeline into 70/15/15 training/validation/test intervals. Repeated viewings use the same movie-time boundaries, preventing the same movie segment from appearing in different splits through different recordings. Repeated recordings are first truncated to their common length. We exclude 256 steps (5.12 s) immediately before each split boundary, not on both sides; no additional 2-s edge trimming is applied. The existing FIF signals preserve recording-wide Morlet z-scoring and noncausal filtering. Zero-phase FIR anti-alias downsampling also precedes the split. Therefore, preprocessing is not entirely split-local or strictly causal. At the final sampling rate of 50 Hz, each model step represents 20 ms. The existing 512-dimensional visual features are sampled at 25 frames/s and aligned by holding the most recent movie frame; audio is not included. Each processed recording segment is divided into non-overlapping 1024-step chunks (20.48 s each), discarding incomplete trailing chunks. Chunks never cross recording or split boundaries. Multi-28 ple recordings from one participant are pooled only within their corresponding splits. Across par-ticipants, this yields 464/87/87 training/validation/test chunks, or 475,136/89,088/89,088 retained model steps. These are post-processing counts, not raw sample counts or independent participant counts. Neural channels and CLIP feature dimensions are standardized separately for each participant us-ing the mean and standard deviation computed from that participant’s training chunks only. The same statistics are applied unchanged to validation and test chunks; no statistics or training data are pooled across participants. Constant dimensions use a unit scale. This training-only claim applies to the second-stage normalization, not to the upstream processing described above. Pooled counts are given in Table 2. Forecasting uses K = 64 and test horizons 1–96 (up to 1.92 s); reliability diagnostics use horizons 1–64. 
+
+Movie fMRI. Movie fMRI uses the HCP 7T MOVIE1 AP acquisition (Van Essen et al., 2013). We start from the HCP-provided tfMRI MOVIE1 7T AP hp2000 clean.nii.gz volumes in MNINonLinear space, which have 1.6-mm isotropic resolution and a 1-s TR. The 2-mm Schae-fer2018 400-parcel, seven-network atlas (Schaefer et al., 2018) is resampled to the HCP volume grid using nearest-neighbor interpolation. BOLD values are then averaged within each parcel, and each parcel time series is z-scored over time within the run. Each subject sequence contains 20 pre-movie TRs, 244 MOVIE1 TRs, and 20 post-movie TRs. The accompanying movie-derived CLIP representation contains 256 1664-dimensional features per TR; these are averaged over the 256 tokens before entering the forecasting model. The packaged data record a six-TR hemodynamic alignment lag, and no additional temporal shift is applied by the dataset loader. Of the 159 subjects with complete inputs, a seed-specific shuffle assigns 111/24/24 subjects to the training/validation/test splits, so no subject appears in more than one split. 
+
+ETTm1 and ETTm2. ETTm1 and ETTm2 contain 15-minute measurements from two electricity-transformer records (Zhou et al., 2021). Each state contains oil temperature and six load measure-ments, and all seven coordinates are forecast. The observed future drive consists of six deterministic calendar coordinates: sine and cosine encodings of hour of day, day of week, and day of year. We use the standard chronological partition consisting of the first 12 months for training, the next four months for validation, and the following four months for testing. Each split is divided into non-overlapping 256-step units, producing 135/45/45 training/validation/test units for each dataset. State and calendar coordinates are standardized separately using per-coordinate statistics computed from the training units only. 
+
+Shear flow. Shear flow uses the supplied train/validation/test partitions of shear flow from The Well (Ohana et al., 2024) without reshuffling trajectories. Each state contains the scalar tracer and pressure fields and the two components of the velocity field. Scalar and vector fields are aligned and flattened into four channels before deterministic spatial subsampling by a factor of four, giving 
+
+64 × 128 spatial inputs in our experiments. Within each upstream trajectory, we form 64-frame sequences with stride 16; sequences never cross trajectories or dataset splits. We apply no temporal subsampling, supply no external drive, and apply no additional dataset-level standardization. We use the Re = 10 5, Sc = 2 configuration, containing 32/4/4 training/validation/test trajectories of 200 frames each. With clip length 64 and stride 16, each trajectory yields nine clips, giving 288/36/36 clips in total. Clips overlap within a trajectory, but no trajectory is shared across splits. 
+
+WeatherBench-2. WeatherBench-2 (Rasp et al., 2024) is extracted from the official 1.5◦ ERA5 archive at six-hour resolution on its 121 × 240 grid. The state contains geopotential, temperature, zonal wind, meridional wind, and specific humidity at 1000, 850, 700, 500, and 250 hPa, together with surface pressure, 2-m temperature, and 10-m zonal and meridional winds, for 29 channels in total. The observed future drive consists of sine and cosine encodings of hour of day and day of year. We use 2007–2015 for training, 2016 for validation, and 2017 for testing, corresponding to 13,148/1,464/1,460 time steps. Per-channel means and standard deviations are computed over all training times and spatial locations and then applied unchanged to every split. No additional spatial 29 subsampling is performed. Each split is divided into non-overlapping 64-frame segments, producing 205/22/22 training/validation/test samples. G.2 IMPLEMENTATION DETAILS FOR TRAINING 
+
+Within each dataset, full BPTT and Internal-DW use the same split, initialization seed, forward model, task loss, optimizer update, validation rule, and evaluation code. Full BPTT keeps every route open; activation checkpointing is used where needed to reproduce the same gradient with lower memory. Internal-DW changes only the backward operator and adds the calibration probes described in Appendix C. 
+
+Settings shared across methods. For iEEG, full BPTT and Internal-DW are trained separately for each participant using three matched seeds (0, 1, and 2). Model parameters and training data are not shared across participants; this evaluates within-participant forecasting, not generalization to unseen participants. All matched arms use Adam, train for at most 100 epochs with validation patience 20, and report the minimum-validation-loss checkpoint. The primary arms use global gradient-norm cap 1; stronger clipping is stated with the corresponding control below. Sequence models use four residual Mamba blocks (Gu & Dao, 2023) with state dimension 16, convolution width 4, expansion factor 2, a linear read-in, and a two-layer read-out, and predict an increment added to the current state. They use a 16-step input window, a 32-step burn-in, and 16 rollout starts. Field models use a depth-4 residual U-Net with channel multiplier 2 and a two-frame input. Table 3: Dataset-specific training and calibration settings. Model numbers give the Mamba hidden width or U-Net base width. “W/C” gives the number of fully open warm-up minibatches and the calibration period.                                    
+
+> Data Model K/loss LR/batch Noise sampler W/C MG, NARMA Mamba-128 32/Rel-L210 −4/32 Generic 8/4 ETTm1/2 Mamba-128 64/Rel-L210 −4/32 Generic 8/4 iEEG Mamba-256 64/Rel-L210 −4/32 factor Prior 8/4 fMRI Mamba-4096 64/MSE 10 −4/32 subject-AR Prior 8/4 Shear U-Net-32 32/Rel-L23×10 −4/4 spectral Prior 8/4 WB2 U-Net-32 48/Rel-L210 −4/8 spectral Prior 2/1
+
+The sequence and WeatherBench-2 runs use weight decay 10 −4 and a step-100 schedule; shear uses zero weight decay and cosine decay to 10 −6. The gains start fully open, with route- and residual-moment EMA coefficients .95 and .99. The Clip control uses cap .1, and JReg uses penalty .1, target norm 1, and finite-difference scale .001. 
+
+Selection of TBPTT, Static, and DW variants. TBPTT segment length is selected on seed 0 and then fixed across three seeds: the candidate sets are {8, 16 } for Mackey–Glass and shear and 
+
+{16 , 32 } for ETTm1/2, with selected lengths 8 and 16. The ETT TBPTT runs additionally use cap .1. The Static control ties every routed merge to α = m = c, selects c ∈ { .3, . 6, . 9} on seed-0 validation loss, and then fixes it across seeds. For each dataset, we select between DW-Generic and DW-Prior using validation loss and then fix that choice for test evaluation. Calibration cost and update order are given in Appendix C.5. 
+
+Movie-fMRI sampler fitting. The fMRI noise sampler is fitted separately for each seed using only its training subjects. Five-fold subject cross-fitting estimates a time-aligned shared response from the fitting subjects and a coordinatewise ridge-regularized AR model for subject-specific deviations. The AR order is selected from {0, 1, 2, 4, 8} by cross-fitted multi-horizon MSE and is 8 for all three seeds. Length-64 residual trajectories from the held-out training folds are retained intact as noise templates, preserving cross-parcel and cross-horizon dependence. 30 H HOW HISTORY AND OBSERVED DRIVE ARE MEASURED 
+
+H.1 COMPUTING THE TWO REGIME SCORES 
+
+Let Rmean be the held-out risk of a training-mean predictor, RD that of a predictor using the ob-served future drive, and RD+H that of the same predictor augmented with history. Fig. 3 uses 
+
+ΨD = 1 − RD
+
+Rmean 
+
+, ΨH = 1 − RD+H
+
+RD
+
+, (46) and reports ∆Ψ H = Ψ H − Ψnull  
+
+> H
+
+, where the null uses circularly shifted history. Fig. 3 first averages the values across linear and nonlinear probes and then clips negative values to zero because the map uses only detected predictive value. Table 4 reports the corresponding unclipped scores. Table 4: Unclipped predictive-regime probe values.                                      
+
+> Linear probe Nonlinear probe Data ΨD∆Ψ HΨD∆Ψ H
+> Mackey–Glass .000 .442 .000 .370 NARMA-5 .857 −.001 .283 −.001
+> iEEG −3.2823 .0770 −.1265 .0032 Shear flow .000 .859 .000 .544 WeatherBench-2 .219 −.179 .232 .004 ETTm1 −.341 .697 −.355 .110 ETTm2 −.144 .963 −.019 .272 Movie fMRI .230 .039 .230 .016
+
+H.2 INTERPRETING THE REGIME SCORES 
+
+The raw scores measure held-out risk reduction and are not clipped at zero, so they can be negative. 
+
+ΨD < 0 means that the drive-based probe performs worse than the training-mean predictor, while 
+
+∆Ψ H < 0 means that aligned history performs worse than the shifted-history null. We interpret either outcome as no detected predictive value under the probe, not as negative information. For autonomous testbeds, the drive-only predictor is the training mean, so ΨD = 0 by construction. The drive predictor uses observed future drive for NARMA and WeatherBench-2, calendar encod-ings for ETTm1 and ETTm2, and a subject-disjoint estimate of the movie-locked shared response for fMRI. A linear ridge probe and a nonlinear local-analog probe select history width on validation data and are evaluated once on held-out horizons k ≥ 8.H.3 VALIDATION OF THE PREDICTIVE -R EGIME PROBES 
+
+We perform a controlled Mackey–Glass sweep to verify that the predictive-regime probes respond to increasing observed drive. For each of the eight independent coordinates, the driven dynamics are 
+
+˙x(t) = βx (t − τ )1 + x(t − τ )10 − γx (t) + λD u(t), (47) where τ = 30 , β = .2, and γ = .1. The observed drive is constant within each unit sampling interval, u(t) = uj for t ∈ [j, j + 1) , with 
+
+uj+1 = .9uj + p1 − .92 ϵj+1 , u0, ϵ 1, ϵ 2, . . . iid 
+
+∼ N (0 , 1) . (48) Thus, λD controls the amplitude of the additive, unit-variance AR(1) drive; λD = 0 recovers the autonomous system. The future drive is supplied to the probes as observed input. We hold the autonomous dynamics, underlying drive realizations, and data splits fixed, and vary only the drive scale λD , showing settings from .03 to .34 . The corresponding magnitudes of autonomous 31 Table 5: Term magnitudes and probe scores across drive strengths in Driven MG. Let A(t) = 
+
+βx (t − τ )/(1 + x(t − τ )10 ) − γx (t) and D(t) = λD u(t). RMS values pool unnormalized training trajectories, time points, and channels after excluding the first delay window. Probe scores are long-horizon averages over k ≥ 8, reported separately for the linear and nonlinear readouts before averaging or clipping at zero. 
+
+Term magnitudes Linear Nonlinear 
+
+λD RMS( A) RMS( D) RMS( D)RMS( A) ΨD ∆Ψ H ΨD ∆Ψ H
+
+0.03150 0.0420 0.0315 0.75 0.023 0.802 0.040 0.522 0.05925 0.0591 0.0592 1.00 0.144 0.757 0.135 0.533 0.08000 0.0724 0.0799 1.10 0.339 0.680 0.283 0.463 0.13000 0.1039 0.1299 1.25 0.645 0.568 0.504 0.362 0.34000 0.2424 0.3398 1.40 0.930 0.598 0.710 0.086 
+
+and driven terms are shown in Table 5. At each setting, we compute the drive-only gain ΨD and additional history gain ∆Ψ H defined above, using long-horizon averages over k ≥ 8. Table 5 also reports the linear and nonlinear probe scores separately, before averaging or clipping. For the plotted coordinates in Figure 8, the linear and nonlinear probe estimates are first averaged, after which each coordinate is clipped at zero, following the construction used in the main predictive-regime figure. 0.0 0.2 0.4 0.6 0.8        
+
+> drive-only gain over the mean predictor 
+> 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70
+> additional history gain  
+> linear/nonlinear mean =.
+> =.
+> =.
+
+Figure 8: Probe response to controlled drive strength. Each point shows the predictive-regime coordinates obtained at one Mackey–Glass drive scale λD ; the line connects settings in order of in-creasing drive strength, over 0.03150 ≤ λD ≤ 0.34 . The autonomous dynamics, drive realizations, and data splits are held fixed. Figure 8 shows a rightward movement over the displayed range: as λD increases from .03 to .34 , the measured drive-only gain ΨD increases from approximately .03 to .82 . Meanwhile, ∆Ψ H decreases while remaining positive, suggesting that the additional predictive value of history beyond the ob-served drive weakens. Thus, the probes respond in the intended direction to increasing observed drive while still detecting additional history value. 
+
+## I CONTROLLED TEST OF STRONG OBSERVED DRIVE 
+
+We isolate the effect of observed drive by comparing the autonomous Mackey–Glass testbed with a variant that retains the same delay dynamics and adds a unit-variance AR(1) drive with coefficient .9 and scale .08. For each of the eight independent channels, the observed forcing is an independent stationary AR(1) process with coefficient .9 and unit variance, generated using Gaussian innovations. It enters the Mackey–Glass dynamics additively with scale .08 and is held constant within each unit sampling interval. We retain the autonomous parameters tau 30, beta .2, gamma .1, and exponent 10, and integrate the dynamics using RK4 (fourth-order Runge–Kutta method) with step size .1 after a 1000-step burn-in. We generate 40 trajectories of length 2048 and split them into 28/6/6 training, validation, and test trajectories. The eight future forcing channels are provided to the forecaster as 32 Table 6: Increasing observed drive reverses the effect of Internal-DW on Mackey–Glass. Values are mean ±standard deviation over three matched seeds; lower is better. Relative L2 is normalized within each condition, so comparisons are made within rows.                  
+
+> condition Full BPTT Internal-DW DW vs. Full weak drive (autonomous) 1.05412 ±.00436 .99966 ±.00958 5.17% lower strong observed drive .73489 ±.01064 .79157 ±.00350 7.71% higher
+
+observed future drive. The driven variant continues to have substantial long-horizon history value, but now also has a strong observed drive. Both conditions use K = 32 , the same matched training protocol, and dense 1:48 relative-L2 evaluation. Internal-DW improves the autonomous condition but is worse on every seed after the observed drive is strengthened. This controlled comparison shows that substantial history alone does not guarantee improvement and provides a concrete stress test of the current estimator’s drive-related boundary. 
+
+## J HOW FORECASTING ERROR IS EVALUATED 
+
+Let U denote the held-out test units and Ou the forecast origins selected within unit u. We roll the model out once from each origin without resets through Heval = ⌈1.5K⌉ and compute Equation 9. We use at most 64 deterministic evenly spaced origins per test unit, remove duplicate absolute ori-gins, average origins within a unit, and then weight units equally. The sole headline score averages relative L2 over 1: Heval ; trained-window, post-window, and terminal summaries are not reported as separate performance criteria. 
+
+## K HOW PER -H ORIZON GRADIENT UTILITY IS MEASURED 
+
+This appendix gives the protocol behind Fig. 5a. At a fixed seed-0 full BPTT checkpoint, we pair a calibration example A from the training split with a disjoint example B from the test split, using at most one common-relative-position rollout start from each loader item. For every forecast step k, we compute the parameter gradient gAk produced by that step’s loss and the full-horizon held-out BPTT gradient ¯gB . All horizons and pairs within a dataset use one fixed sample of parameter coordinates with the corresponding full-dimensional scaling. We summarize each horizon by its relative gradient norm and held-out utility: 
+
+A(k) := ∥gAk ∥2
+
+∥gA 
+
+> 1
+
+∥2
+
+, U (k) := 
+
+ gAk
+
+∥gAk ∥2
+
+, ¯gB
+
+
+
+, ¯gB := 1
+
+K
+
+> K
+
+X
+
+> j=1
+
+gBj . (49) Here, A(k) measures relative gradient magnitude, while U (k) = ⟨gAk /∥gAk ∥, ¯gB ⟩ measures align-ment with the held-out full-horizon gradient. Under the infinitesimal update −ϵg Ak /∥gAk ∥, the held-out rollout loss changes by −ϵU (k) + O(ϵ2); hence U (k) < 0 means that the training direction raises held-out loss. The black curve and band in the figure are the median and 10–90% range of 
+
+A(k), while the purple curve and band are the median and interquartile range of U (k). The dis-played percentage is the fraction of forecast steps whose median U (k) is negative. The numbers of disjoint train–test pairs are 6 for Mackey–Glass and NARMA-5, 8 for ETTm1 and ETTm2, 3 per single-recording iEEG participant and 6 per two-recording participant, 4 for movie fMRI and shear flow, and 8 for WeatherBench-2. The iEEG probe uses seed 0 for each of 16 participants. Within-participant medians are aggregated by taking the median across participants at each horizon. Its gray and purple bands are respectively the 10th–90th and 25th–75th percentiles across participant curves. The 45/64 negative-horizon annotation is computed from this displayed median, not by averaging participant-specific negative fractions. 
+
+## L DENSE -H ORIZON RELATIVE -L2 RESULTS 
+
+Table 7 reports the dense-horizon test relative L2 values underlying Fig. 6. The values are computed using the same evaluation horizons and forecast origins and are reported as mean ± standard devia-33 Table 7: Dense-horizon relative-L2 values underlying Fig. 6. Each entry reports the mean ± sample standard deviation over three matched seeds. Lower is better.                                                                                                                                 
+
+> History-dominated, weak drive
+> Method MG ETTm1 ETTm2 Shear flow Full BPTT 1.05412 ±0.00436 0.94220 ±0.02519 0.86842 ±0.09126 0.16386 ±0.03538
+> Clip 1.05923 ±0.00813 0.93199 ±0.02141 0.83840 ±0.02873 0.19576 ±0.02088
+> JReg 1.05216 ±0.00583 0.96169 ±0.00679 0.86930 ±0.09105 0.21068 ±0.01514
+> TBPTT 1.03440 ±0.01724 0.96533 ±0.02596 0.85733 ±0.06582 0.13222 ±0.00455
+> Static 1.00467 ±0.00727 0.92499 ±0.01133 0.80427 ±0.06864 0.23296 ±0.00567
+> Internal-DW 0.99966 ±0.00958 0.87864 ±0.01758 0.74894 ±0.04886 0.14523 ±0.02466
+> Identified boundaries
+> Method NARMA-5 iEEG Movie fMRI WeatherBench-2 Full BPTT 0.87065 ±0.01501 1.88713 ±0.03089 0.92206 ±0.01092 0.61112 ±0.00052
+> Clip 0.80678 ±0.00240 1.91407 ±0.02655 0.93315 ±0.00835 0.62510 ±0.00143
+> JReg 0.87313 ±0.01149 1.88745 ±0.03118 0.96189 ±0.07436 0.61407 ±0.00382
+> Internal-DW 0.93908 ±0.01382 1.87402 ±0.03155 0.98418 ±0.02106 0.61169 ±0.00294
+
+Table 8: End-to-end training time on one NVIDIA H200 NVL. Each entry is the mean ± sample standard deviation across three paired timing repeats. Within each run, we discard one warm-up epoch (iEEG uses 40 warm-up training batches) and take the median time over the next three epochs. The final column summarizes the paired percentage increase of Internal-DW over Full BPTT.                                                                            
+
+> Data Full BPTT (s/epoch) Internal-DW (s/epoch) Increase (%) Mackey–Glass 21 .28 ±0.09 27 .43 ±0.42 28 .9±1.7
+> ETTm1 27 .78 ±0.06 35 .32 ±0.23 27 .1±0.9
+> ETTm2 28 .68 ±0.08 36 .31 ±0.31 26 .6±1.0
+> Shear flow 29 .79 ±0.43 41 .55 ±0.80 39 .5±0.7
+> NARMA-5 22 .26 ±0.13 28 .31 ±0.15 27 .2±0.2
+> iEEG (per subject) 31 .64 ±0.03 44 .83 ±0.39 41 .7±1.2
+> Movie fMRI 498 .67 ±1.98 599 .90 ±3.04 20 .3±0.1
+> WeatherBench-2 32 .84 ±0.39 43 .38 ±0.39 32 .1±0.9
+
+tion over three matched seeds; lower is better. Because the normalization is dataset-specific, values are intended for within-dataset rather than across-dataset comparison. 
+
+## M END -TO -END TRAINING TIME 
+
+We measure the wall-clock cost of the assigned full BPTT and Internal-DW training configurations on an NVIDIA H200 NVL GPU. Within each matched pair, the two arms use the same dataset, model, training horizon, batch geometry, optimizer, and physical GPU. We discard one warm-up epoch (iEEG uses 40 warm-up training batches) and use the median time of the next three epochs. Table 8 reports the mean and sample standard deviation of these within-run medians over three paired repeats; the execution order is alternated across repeats to reduce order and thermal effects. CUDA is explicitly synchronized at both timing boundaries. The timer covers the training loop only and therefore excludes validation and checkpoint I/O. The Internal-DW measurements include its online covariance probes, routewise gain solves, and application of the resulting gains. Construction of a train-only domain-prior artifact, when used, is a one-time preprocessing step and is excluded. Thus, this is an end-to-end comparison of the training implementations used in our forecasting experiments rather than an isolated solver microbenchmark. Across the eight testbeds, the mean paired increase in epoch time ranges from 20.3–41.7%. This additional training cost reflects the online estimation and routewise gradient scaling that distinguish 34 1.04 1.08 1.12                                     
+
+> Seed 0 relative  L2
+> MG, H= 64
+> 0.88 0.96 1.04
+> ETTm1, H= 128
+> 0.7 0.8 0.9 1.0
+> ETTm2, H= 128
+> 0.16 0.24 0.32 0.40
+> Shear flow, H= 48
+> 1.04 1.08 1.12
+> Seed 1 relative  L2
+> 0.88 0.96 1.04
+> 0.7 0.8 0.9 1.0
+> 0.16 0.24 0.32 0.40
+> 812 16 24 32 48 64 1.04 1.08 1.12
+> Seed 2 relative  L2
+> 16 24 32 48 64 96 128 0.88 0.96 1.04
+> 16 24 32 48 64 96 128 0.7 0.8 0.9 1.0
+> 812 16 24 32 40 48 0.16 0.24 0.32 0.40
+> training horizon K
+> Full BPTT Internal-DW K⋆Full K⋆DW
+
+Figure 9: Seed-specific fitted training-horizon curves. Columns correspond to datasets and rows to matched seeds. Points show relative L2 for checkpoints trained at different horizons K and evaluated at the fixed forecast horizon H shown above each column. Curves are fitted independently for every seed and method. Gray and blue vertical dashed lines mark the fitted optima of Full BPTT and Internal-DW, respectively. Internal-DW from full BPTT. The forward model is unchanged, and Internal-DW introduces no inference-time computation. 
+
+## N PER -SEED FITTED CURVES 
+
+Figure 9 decomposes the averaged training-horizon trends in Fig. 7 into individual seeds. For each dataset, seed, and method, we independently fit a least-squares quadratic constrained to have non-negative curvature. A boundary solution may reduce to a linear trend, in which case the fitted optimum lies at an endpoint of the evaluated range. The gray and blue vertical dashed lines indicate the fitted optima for Full BPTT and Internal-DW, respectively. The Internal-DW optimum lies at or to the right of the Full-BPTT optimum in all 12 dataset–seed comparisons. The shift is strict in 11 comparisons, while ETTm1 seed 0 gives the same boundary optimum for both methods. Thus, the shift toward a longer fitted optimal training horizon is not produced by averaging across seeds. 35

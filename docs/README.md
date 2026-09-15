@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-14</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-15</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 14 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-14 22:58:54 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-15 21:52:29 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日扫完14篇论文，精读7篇、速读7篇，重点锁定Agent评测方向。最值得看的是《ParaRecover》与《VRL-Bench》两篇9分工作，分别聚焦并行工具调用中的错误定位恢复、以及有限试错预算下的计算机控制任务评测。普通读者可优先从这两篇切入，理解Agent能力边界与评测方法。</p>
+<p>2026-09-15 日报共收18篇，精读7篇、速读11篇，重点锁定时序预测的参数高效微调与推理增强。</p>
+<p>最值得看：满分10.0的《Parameter-Efficient Adaptation of Pretrained Language Models for Time-Series Forecasting》，以及9.0的《TimeThink: Eliciting Compositional Reasoning in Timeseries Large Language Models》。</p>
+<p>普通读者可先读满分那篇抓方法主线，再借8.0的《Beyond Point Forecasts》补概率预测视角，建立不确定性评估习惯。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -74,9 +76,9 @@
     <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ParaRecover: A Process-Level Benchmark for Error Localization and Recovery in Parallel Tool-Use Agents">ParaRecover: A Process-Level Benchmark for Error Localization and Recovery in Parallel Tool-Use Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="VRL-Bench: Benchmarking agents on computer control tasks under finite trial budgets">VRL-Bench: Benchmarking agents on computer control tasks under finite trial budgets</span></li><li><span class="dpr-home-dashboard-paper-title" title="VertiFuseX: Generalizable Financial Forecasting via Multi-Stream Temporal Fusion">VertiFuseX: Generalizable Financial Forecasting via Multi-Stream Temporal Fusion</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Parameter-Efficient Adaptation of Pretrained Language Models for Time-Series Forecasting">Parameter-Efficient Adaptation of Pretrained Language Models for Time-Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="TimeThink: Eliciting Compositional Reasoning in Timeseries Large Language Models">TimeThink: Eliciting Compositional Reasoning in Timeseries Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlowTSFM: Turning Encoder Depth into Quantile Transport">FlowTSFM: Turning Encoder Depth into Quantile Transport</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Benchmarking Agentic HLS Design Tasks With HLS-Eval">Benchmarking Agentic HLS Design Tasks With HLS-Eval</span></li><li><span class="dpr-home-dashboard-paper-title" title="HoliBench: A Cross-Platform Benchmarking and Deployment Toolkit for Foundation Models in CPS-IoT Applications">HoliBench: A Cross-Platform Benchmarking and Deployment Toolkit for Foundation Models in CPS-IoT Applications</span></li><li><span class="dpr-home-dashboard-paper-title" title="Explaining Time Series Forecasting with Horizon-Resolved Attribution">Explaining Time Series Forecasting with Horizon-Resolved Attribution</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Point Forecasts: A Survey on Probabilistic Forecasting for Time Series and Spatiotemporal Data">Beyond Point Forecasts: A Survey on Probabilistic Forecasting for Time Series and Spatiotemporal Data</span></li><li><span class="dpr-home-dashboard-paper-title" title="T-SMART: Mechanism-Level Attribution for Tool-Augmented Time-Series Question Answering">T-SMART: Mechanism-Level Attribution for Tool-Augmented Time-Series Question Answering</span></li><li><span class="dpr-home-dashboard-paper-title" title="Are Gradient Boosting Models Suitable for Intermittent Demand Forecasting?">Are Gradient Boosting Models Suitable for Intermittent Demand Forecasting?</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>9</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 </div>
 

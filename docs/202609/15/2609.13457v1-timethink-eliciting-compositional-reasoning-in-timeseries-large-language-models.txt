@@ -1,0 +1,3357 @@
+TIMETHINK: Eliciting Compositional Reasoning in Timeseries Large
+Language Models
+Sudarshan Regmi, Arvind Pillai, Yu Yvonne Wu, Yuliang Chen,
+Bibek Panthi, Tess Z. Griffin, Michael V. Heinz,
+Lisa Marsch, Nicholas C. Jacobson, Andrew Campbell
+Dartmouth College
+Correspondence: sudarshan.regmi.gr@dartmouth.edu
+Abstract
+Timeseries multimodal large language models
+(TS-MLLMs) have recently begun leveraging
+the reasoning capabilities of large language
+models (LLMs) for question-answering tasks.
+However, these models often fail to capture
+dynamic temporal patterns, providing only im-
+plicit reasoning that lacks the underlying ex-
+planations critical for high-stakes applications
+like healthcare. While reinforcement learning
+(RL)-based timeseries language models aim
+to address this, they often fall short because
+they are trained on narrow, in-distribution data
+and struggle with out-of-distribution composi-
+tional questions. To address these challenges,
+we present TIMETHINK, a synthetic frame-
+work for eliciting compositional timeseries rea-
+soning. Core timeseries primitives (e.g., trend,
+seasonality) are domain-independent and can
+be deterministically generated. Guided by this
+premise, TIMETHINK first designs a synthetic
+data generator that produces atomic and com-
+posite question-answer pairs, providing objec-
+tive ground truth with reasoning traces. Build-
+ing on this framework, TIMETHINK employs
+a reinforcement learning with verifiable re-
+wards (RLVR) training strategy that encour-
+ages explicit reasoning. Unlike template-reliant
+methods, this approach enables the model to
+learn the underlying logic of composition rather
+than simply imitating traces. Extensive exper-
+iments show that TIMETHINK, trained only
+on synthetic data, significantly outperforms
+strong baselines on both synthetic and real-
+world benchmarks.1
+1
+Introduction
+Timeseries data are ubiquitous in real-world sys-
+tems, capturing temporal dynamics across health-
+care, industrial operations, and finance. Recent
+timeseries multimodal large language models (TS-
+MLLMs) adapt large language models (LLMs)
+1Code:
+https://github.com/sudarshanregmi/
+timethink
+to numerical sequences and have shown promis-
+ing results on detection and question-answering
+tasks (Xie et al., 2025; Zhang et al., 2025). Exist-
+ing TS-MLLMs differ mainly in how the numerical
+signal is encoded for the language model. Some
+convert the series to raw text or visual plots so that
+an LLM or vision-language model (VLM) can in-
+terpret it directly (Yoon et al., 2024; Kim et al.,
+2024). Others embed the series natively into the
+language space, training the projection on paired
+timeseries and language data (Xie et al., 2025; Xu
+et al., 2025; Zhang et al., 2025). Across these de-
+signs, however, the model is supervised only on
+the final answer. Temporal patterns such as trends,
+seasonality and anomalies are absorbed implicitly,
+and the reasoning behind a prediction is left invisi-
+ble (Li et al., 2026). This matters because the action
+taken downstream of a timeseries model usually
+depends on which pattern triggered the prediction,
+not just on the prediction itself. For example, when
+an equipment failure occurs in rotating machinery,
+a model may correctly raise an alarm from vibra-
+tion, current, and temperature streams. But it does
+not reveal whether the alarm stems from sustained
+motor load, rising bearing temperature, or a tran-
+sient vibration spike. This distinction is critical
+for routing maintenance to the right component.
+The same holds in healthcare and other high-stakes
+settings, where actions require justified diagnoses.
+These settings demand not only correct answers
+but the reasoning behind them. To this end, a recent
+line of work uses reinforcement learning with veri-
+fiable rewards to elicit reasoning traces (He et al.,
+2026; Guan et al., 2026; Ni et al., 2026). Mod-
+els such as TimeOmni-1 (Guan et al., 2026) and
+STReasoner (Ni et al., 2026) are optimized against
+outcome-based rewards: typically exact match on
+multiple-choice answers or error on a forecast. In
+practice, however, the bulk of capability in these
+works is installed by supervised fine-tuning (SFT)
+on reasoning templates, with reinforcement learn-
+1
+arXiv:2609.13457v1  [cs.AI]  11 Sep 2026
+
+
+ing (RL) serving as a refinement pass that sharp-
+ens format compliance and offers modest accuracy
+gains. Together, this recipe makes the reasoning
+legible at inference time and improves accuracy on
+the targeted tasks.
+Two limitations follow from this design. First,
+because the reasoning templates are crafted or dis-
+tilled per task, the resulting models are tied to the
+narrow band of temporal patterns covered by their
+training distribution (a single forecasting target, a
+fixed sensor domain, or a closed set of question
+types) and might not transfer to timeseries whose
+properties were unseen at training time. Second,
+real-world questions rarely turn on a single tempo-
+ral phenomenon. They typically require compos-
+ing several at once: locating an anomaly within a
+seasonal trend, or correlating two variables under
+a non-stationary regime. When a question spans
+multiple patterns composed in novel ways, many
+TS-MLLMs lose the thread and fall back to the
+heuristics induced by their reasoning templates.
+To address these gaps, we propose TIMETHINK,
+a synthetic framework for eliciting compositional
+timeseries reasoning. The framework begins with
+a synthetic data generator that combines domain-
+invariant atomic primitives with a separate set of
+sub-skills to form composite QAs. For a small sub-
+set of examples, we use an LLM to diversify the
+wording and complexity of the questions and an-
+swers while preserving the programmatically gen-
+erated reasoning structure and verified ground truth.
+The resulting mixture of atomic and composite
+QAs is then used in two sequential training stages,
+SFT followed by reinforcement learning with veri-
+fiable rewards (RLVR) to enable explicit reasoning.
+RLVR is driven by question-aware rewards that
+decompose by answer type (binary, categorical, nu-
+merical, and set overlap), thereby providing denser
+learning signals. We evaluate TIMETHINK on both
+synthetic and real-world question-answering bench-
+marks, which highlight the efficacy of a synthetic-
+only regime. Our contributions:
+• TIMETHINK-framework: We develop a pro-
+grammatic generator for domain-independent
+timeseries primitives that produces determinis-
+tic question-aware ground truth, making RLVR
+tractable at scale. We create evaluation sets con-
+taining varying compositions of timeseries prim-
+itives. We plan to release all code, data, and
+models to encourage open-source research.
+• Timeseries compositional reasoning:
+We
+study compositional reasoning over timeseries,
+where answering a query requires composing
+learned atomic primitives. To the best of our
+knowledge, we present the first work to train
+such reasoning explicitly with synthetic verifi-
+able rewards in TS-MLLMs.
+• Extensive analysis: We evaluate on diverse syn-
+thetic and real-world datasets across six tasks.
+Results on compositional questions demonstrate
+that TIMETHINK outperforms existing time-
+series models, and further analysis shows TIME-
+THINK (RL) generalizes to extended temporal
+horizons.
+2
+Related Work
+TS-MLLMs without explicit reasoning.
+Exist-
+ing TS-MLLMs differ primarily in how the nu-
+merical signal is presented to the language model.
+Early methods convert timeseries into strings for
+direct LLM processing (Gruver et al., 2023; Xue
+and Salim, 2023; Kim et al., 2024), which suffer
+from token exhaustion and degraded fidelity over
+long sequences (Pillai et al., 2025; Spathis and
+Kawsar, 2024). To improve efficiency, alternative
+strategies use visual prompting via vision-language
+models (Yoon et al., 2024), but these often pick
+up on surface visual patterns rather than the under-
+lying temporal dynamics (Merrill et al., 2024). A
+more recent line treats timeseries as a native modal-
+ity, projecting numerical patches directly into the
+LLM embedding space and aligning the two via
+paired data (Jin et al., 2023; Xie et al., 2025; Xu
+et al., 2025; Zhang et al., 2025). In all three cases,
+models are often supervised only on final answers.
+Temporal patterns are absorbed implicitly, so the
+model cannot expose or audit the reasoning behind
+a prediction. Recent benchmarks show that even
+frontier LLMs struggle with synthetic timeseries
+questions beyond basic pattern recognition (Cai
+et al., 2024), with performance deteriorating fur-
+ther on multi-step temporal reasoning tasks (Li
+et al., 2026).
+Explicit reasoning over timeseries and its lim-
+its.
+A recent work (Potosnak et al., 2024) shows
+deep forecasters can compose temporal structure
+under distribution shift, but that composition is
+implicit and never trained for. More recently, re-
+searchers have started to explore explicit reason-
+ing over timeseries, following the broader RL-for-
+reasoning paradigm (Guo et al., 2025; Shao et al.,
+2024). One line supervises on annotated chain-of-
+2
+
+
+thought traces along with the final answer (SFT-
+style), as in SenTSR-Bench (He et al., 2026) and
+LLaTiSA (Ding et al., 2026). Another uses re-
+inforcement learning with task-specific rewards
+to elicit thinking traces during training, includ-
+ing STReasoner (Ni et al., 2026) and TimeOmni-
+1 (Guan et al., 2026). A parallel line applies RL
+to temporal reasoning over events and dates (Liu
+et al., 2025). Two limitations curb both lines. First,
+they are typically trained on relatively narrow task
+distributions, which can limit generalization to out-
+of-distribution timeseries. Second, they can strug-
+gle with questions that require composing multiple
+temporal patterns. What remains missing is explicit
+reasoning over core temporal primitives, such as
+trend, correlation, and seasonality with verifiable
+rewards. Our work targets this gap.
+3
+TIMETHINK
+Preliminaries.
+We consider the task of ques-
+tion answering over multivariate timeseries. Let
+x = (x1, . . . , xT ) ∈RT×d denote a timeseries
+of length T, where each observation xt ∈Rd
+corresponds to a univariate (d = 1) or multi-
+variate (d > 1) sequence.
+Given a question
+q ∈Q about x, the model generates an autore-
+gressive response y = (y1, . . . , y|y|) comprising
+a reasoning trace and a final answer. To facili-
+tate the independent verification of response struc-
+ture and grounding, we employ a structured output
+format: <think>· · · answer: {value}</think>
+⟨post-think response⟩, enabling verification of
+response format and answer correctness. The con-
+ditional distribution πθ(y | x, q) over output tokens
+is defined as:
+πθ(y | x, q) =
+|y|
+Y
+n=1
+πθ(yn | x, q, y<n),
+(1)
+where θ represents the model parameters. It un-
+derlies both supervised fine-tuning and reinforce-
+ment learning with verifiable rewards.
+Overview.
+TIMETHINK introduces a synthetic
+framework for eliciting compositional timeseries
+reasoning by incorporating (a) synthetic data gener-
+ation and (b) training with SFT followed by RLVR.
+Data generation synthesizes and evolves atomic
+and composite QAs using an LLM, while train-
+ing is designed to incentivize the model to com-
+pose learned atomic operations. We describe TIME-
+THINK’s components below.
+3.1
+Synthetic Data Generation
+Timeseries reasoning has a natural compositional
+structure. Questions may depend not only on a
+single temporal pattern but on mixtures of trends,
+seasonality, and others. Answering them requires
+identifying primitive temporal facts and compos-
+ing them through higher-level reasoning operations.
+To mimic this structure, we design a synthetic QA
+generator. Unlike open-ended language or visual
+reasoning, these primitives can be procedurally gen-
+erated with deterministic intermediate states and
+exact ground truth. Specifically, to simulate real-
+world temporal patterns, we design comprehensive
+temporal QA generators producing atomic and com-
+posite questions. Each composite question in our
+corpus is built from two kinds of operators. An
+atom operator reads the timeseries directly and re-
+turns one fact, for example a maximum value or the
+position of a peak. The atom operator set Fatom
+aggregates over nine common temporal operations:
+MEAN, STD, PERCENTILE, EXTVAL, EXTPOS,
+EVENTENUM, SEGENUM, PERIOD and TREND-
+CLASSIFY. A sub-skill operator takes one or more
+facts (from atoms, or from sub-skills) and com-
+bines them into a final answer. The sub-skill set
+Fop applies diverse reasoning operations to atom-
+ics: COUNT, SUM, FILTER, LOCATE, COMPARE,
+THRESHOLD, ARGMAX, RANK and ARITH. In
+short, atoms tell the model what to look for and
+sub-skills how to combine what it found.
+Atomic QA. An atomic QA instance is a single
+atom application: a = f(x) with f ∈Fatom. We
+refer to the output f(x) of an atom operator as
+an atomic fact. For example, a = EXTPOS(x)
+is answer to “At which timestep does x reach its
+maximum?”. Atomic QAs teach the primitives
+thereby aligning the timeseries encoder with LLM
+backbone that every downstream composition will
+invoke.
+Composite QA. Real-world questions about time-
+series are rarely about one pattern in isolation. A
+practitioner usually asks about a mix of patterns
+at once, for instance comparing two segments, lo-
+cating an extremum within a trend, or checking
+whether two signals agree on their overall shape.
+Composite QAs mimic this structure: each ques-
+tion is built by reading several atomic facts from
+the timeseries and then combining them with one
+or more sub-skills. Concretely, a composite QA
+uses m ≥1 atom operators fi ∈Fatom, each ap-
+plied to x or to a sub-series of x, to extract facts,
+3
+
+
+Atomics Operator
+ (Trend, Period...)
+A
+What is the general trend of
+the time series?
+<think>
+Let me check the time series.
+Looking at the time series (5
+data points). The general
+trend is increasing.
+answer: increasing
+<think>
+The general trend of the time
+series is 
+increasing.
+Are both the min and max in
+the first half?
+<think>
+[ROLLOUT]
+answer: yes
+<think>
+[No rollout after </think>]
+In the time series, does the
+max come before the min?
+Out-of-distribution QA
+Based on the analysis, is it true
+that the overall trend for both
+Search Engine Marketing
+(SEM) Metrics and Viewability
+Metrics are similar, and does
+this consistency in trends
+support maintaining the current
+strategy?
+<think> 
+Let me work through this for
+each metric. Search Engine
+Marketing (SEM) Metrics:
+overall trend = increase,
+Viewability Metrics: overall
+trend = increase, increase ==
+increase -> yes
+answer: yes
+</think>
+Yes, the overall trend for both
+Search Engine Marketing
+(SEM) Metrics and Viewability
+Metrics is increase. Since both
+metrics show a consistent trend
+of increase, this supports
+maintaining the current
+strategy without any changes.
+C
+LLM-Driven QA Evolution
+Do both Search Engine
+Marketing (SEM) Metrics and
+Viewability Metrics share the
+same overall trend?
+<think> 
+Let me work through this for
+each metric. Search Engine
+Marketing (SEM) Metrics:
+overall trend = increase,
+Viewability Metrics: overall
+trend = increase, increase ==
+increase -> yes
+answer: yes
+</think>
+Yes, the metrics share the same
+overall trend.
+Skills Operator
+ (Sum, Rank,..)
+Atomic QA
+Composite QA
+Timeseries Generator
+B
+What..?
+<think>...</think>
+<think>
+</think>
+What..?
+Sample Responses
+Yes/No
+Binary
+(a), (b), (c)
+Categorical
+Proximity
+Set-F1
+<think>
+</think>
+Format
+Verifiable Rewards
+Stage 1: Supervised Fine Tuning 
+Programmatic
+reasoning
+traces
+Stage 2: Reinforcement Learning
+Timeseries 
+Encoder
+Text
+Embedding
+LLM
+Timeseries 
+Encoder
+Text
+Embedding
+LLM
+D
+Thinking Trace
+Question
+Answer
+LLM Enhancement
+Time series 
+Time series length
+TimeThink
+Figure 1: Overview of TIMETHINK. (A, B) Synthetic Data Generation: a programmatic generator builds Atomic
+QA targeting single primitives, Composite QA chaining multiple operators, and out-of-distribution (OOD) QA over
+unseen task axes. (C) LLM-Driven QA Evolution: templated QAs are evolved into more complex, diverse variants,
+with the reasoning trace (<think> block) preserved so that responses stay grounded in timeseries properties. (D)
+Training Stage Optimization: Stage 1 (SFT) fine-tunes on programmatic reasoning traces at an anchor length of
+T ≤256; Stage 2 (RLVR) applies GRPO to incentivize autonomous composition and extend the horizon to T ≤768,
+using a verifiable reward (rfmt + rans) over four answer categories (binary, proximity, categorical, Set-F1) besides
+the format reward.
+and then K ≥1 sub-skill operators gj ∈Fop to
+combine those facts into the final answer a:
+f1(x), . . . , fm(x)
+|
+{z
+}
+m atomic facts
+g1, g2, ..., gK
+−−−−−−−−→a.
+For example, the question “Is the first half of x
+on average higher than the second half?” reflects
+a common real-world question about a timeseries.
+We build it by reading two atomic facts, the means
+of the two halves, and then combining them with
+a comparison: MEAN(I1), MEAN(I2)
+COMPARE
+−−−−−→
+a, where I1
+=
+(x1, . . . , x⌊T/2⌋) and I2
+=
+(x⌊T/2⌋+1, . . . , xT ) denote the first and second
+halves of x.
+Every composite question thus
+has a known program a
+=
+(gK ◦· · · ◦
+g1)(f1(x), . . . , fm(x)). By compositional reason-
+ing, we mean answering questions that require com-
+bining multiple atomic facts. After building the
+QA structures above, we partition composite QA
+families into three splits, QD, QR, and Qood, ac-
+cording to the supervision each family receives.
+Our training pipeline has two stages (detailed in
+Section 3.2): SFT on worked decompositions, fol-
+lowed by RLVR. The three splits differ in how
+much of this pipeline each family participates in:
+(a) Comp-D (CoT-demonstrated): a chain-of-
+thought (CoT) decomposition is shown during SFT,
+and the same composite additionally appears in the
+RL pool. (b) Comp-R (reward-only): the com-
+posite appears only in the RL pool, so the policy
+is expected to solve it from the verifiable outcome
+reward alone. (c) OOD (held-out): the composite
+is held out from both training stages and evaluated
+only at test time, which measures whether compo-
+4
+
+
+sitional reasoning learned in (a) and (b) transfers to
+compositions the policy never saw.
+A composite QA answer a can admit multiple
+equivalent decompositions, so SFT on a single CoT
+decomposition risks overfitting to a stylistic tem-
+plate, while omitting atomic QAs during RL risks
+primitive-skill regression and rote memorization
+of composites. We therefore mix atomic and com-
+posite QAs in both the SFT and RL phases. The
+complete enumeration of every QA family is pro-
+vided in Section D.1–D.5.
+3.1.1
+LLM-driven QA Evolution
+The generator produces questions from a fixed set
+of templates. Training only on these risks mem-
+orization of form rather than learning timeseries
+structure. To prevent this, we apply an LLM-driven
+question evolution step to a small portion of train-
+ing data to diversify question and answer framing
+(Figure 1C). Following Xu et al. (2024), we evolve
+our atomic and composite templated QAs (con-
+taining explicit reasoning breakdown) into LLM-
+enhanced QAs. Specifically, we condition the LLM
+on the original question, reasoning block, and an-
+swer, and prompt it to generate a more complex
+question-answer pair while preserving the same
+reasoning structure. The evolution strategy is se-
+lected automatically based on the seed example
+(Xu et al., 2024). Unlike prior approaches such
+as ChatTS (Xie et al., 2025), our framework pre-
+serves explicit reasoning grounding between the
+question and the final answer.
+This keeps the
+model grounded in fundamental timeseries proper-
+ties rather than shortcuts, and robust to elaborate
+rephrasings. We additionally use question para-
+phrasing as a lightweight augmentation, retaining
+the same reasoning block and final answer.
+3.2
+Training
+Following ChatTS (Xie et al., 2025), we adopt
+timeseries encoder-fused LLM and value-preserved
+timeseries normalization to train the model. The
+data generator in Section 3.1 gives us a test
+bed for compositional timeseries reasoning: ev-
+ery QA in this test bed has a known reasoning
+chain (the atoms and sub-skills that lead to the
+answer) and a verifiable final answer, and the
+Comp-D/Comp-R/OOD splits separate composi-
+tions that are demonstrated, rewarded-only, and
+held out respectively. As discussed, many existing
+TS-MLLMs are trained primarily with final-answer
+supervision, providing no signal for producing a
+reasoning chain. Therefore, to make the reasoning
+explicit, we design a two-stage training framework
+that elicits the reasoning chain.
+Supervised Fine-Tuning. The first stage teaches
+the model what a valid reasoning chain looks like.
+We fine-tune on (timeseries, question, target) triples
+where the target is a worked chain followed by the
+final answer, so the model learns to emit both, in
+order, when prompted with a question. In the su-
+pervised stage, we train on synthetic demonstra-
+tions DSFT = {(x(i), q(i), y∗(i))}NSFT
+i=1
+where each
+reference target y∗(i) is a worked reasoning trace
+followed by the final answer. The SFT objective
+maximizes the log-likelihood of the reference out-
+put:
+LSFT(θ) = −EDSFT
+h |y∗|
+X
+n=1
+log πθ(y∗
+n | x, q, y∗
+<n)
+i
+.
+(2)
+Reinforcement Learning with Verifiable Re-
+wards. The second stage refines the model’s rea-
+soning under a verifiable reward. The model gener-
+ates its own chain on each example and is scored
+only on whether its final answer is correct and
+whether the response follows the required format.
+Because the reward checks only the answer, the
+model is free to discover chains that go beyond
+the ones it imitated during SFT. Given a timeseries
+and a question (x, q), we sample a group of G re-
+sponses {yg}G
+g=1 ∼πθold(· | x, q). Each response
+is evaluated using a verifiable reward function
+r(x, q, y), which decomposes into two additive
+components: r(x, q, y) = rfmt(y) + rans(x, q, y),
+with rfmt, rans ∈[0, 1] and hence r ∈[0, 2].
+The first component rfmt checks structural com-
+pliance for reliable extraction of predicted answer
+such that the response must contain exactly one
+<think>...</think> block whose final line fol-
+lows the template answer: {value}. The accu-
+racy component, rans, performs question-aware ver-
+ification on the extracted value across four distinct
+categories: (1) Binary: exact match is required for
+boolean questions; (2) Categorical: exact match
+is required over a finite semantic label space; (3)
+Proximity: for numerical queries, a graded reward
+signal is assigned based on the distance between
+the predicted value and the ground truth; and (4)
+Set-F1: partial credit is awarded for enumeration
+or grouping tasks by computing the F1 overlap be-
+tween the predicted and gold sets. This reward
+design eliminates the need for manually annotated
+reasoning traces while still providing a rich and in-
+5
+
+
+formative training signal. Ultimately, we optimize
+the Group Relative Policy Optimization (GRPO)
+objective (Shao et al., 2024):
+max
+θ
+E(x,q), yg∼πθold
+
+LGRPO(θ, {r(x, q, yg)}G
+g=1)
+,
+(3)
+which normalizes rewards within each group to ob-
+tain relative advantages and updates the policy with
+a PPO-style clipped surrogate plus a KL penalty
+against a frozen reference policy πref (Guo et al.,
+2025). Here πθold denotes the rollout policy held
+fixed during each PPO update, while πref is the
+SFT-stage model frozen throughout RL. We use the
+implementation provided by the verl library (Sheng
+et al., 2025).
+4
+Experiments
+Task.
+Our evaluation covers six task families:
+multiple-choice, categorical, numerical, cluster-
+ing, ranking/enumeration/ordering and description
+questions.
+Datasets. We evaluate on the following datasets:
+(a) TSEvol (Xie et al., 2025): It includes induc-
+tive (LLM-as-judge score), causal (accuracy) and
+deductive (accuracy) questions collected from real-
+world domains. (b) MCQ2 (Merrill et al., 2024):
+It includes counterfactual MCQ questions relat-
+ing to pair of timeseries. (c) SenTSR-Bench (He
+et al., 2026): It includes MCQ questions involv-
+ing anomaly characterization (WHAT HAPPENED),
+cause diagnosis (HOW HAPPENED) and action rec-
+ommendation (SUGGESTED FIX) questions. (d)
+TIMETHINK bench: See Section D.1–D.5.
+Metrics. (a) Accuracy: match to ground truth; (b)
+Proximity accuracy: computed for numerical tasks
+as max
+ 0, 1−|ˆe−e|/s
+
+, where ˆe is the prediction,
+e is the ground truth, and the scale s is the sequence
+length for positional tasks and max(|e|, 1) other-
+wise; (c) F1: computed for grouping tasks over
+groups extracted by the LLM judge; (d) Judge-
+score: computed by the LLM judge (Qwen2.5-
+72B-Instruct-GPTQ-Int4) depending on the task
+(ranking, enumeration, ordering, or description).
+Baselines. For general-purpose LLMs, we use
+Qwen2.5-Instruct-7B (Qwen et al., 2025) and
+Mistral-Instruct-7B-v0.3 (Jiang et al., 2023). For
+text-based timeseries and temporal reasoning mod-
+els, we include Time-R1-3B (Liu et al., 2025),
+Time-MQA-7B (Kong et al., 2025), and TimeOmni-
+1 (Guan et al., 2026). For timeseries encoder-based
+approaches, we compare against ChatTS (Xie et al.,
+2025).
+Training details. We train three variants of Qwen3-
+8B (Yang et al., 2025) augmented with a timeseries
+encoder (Xie et al., 2025) on a single node with
+8×NVIDIA H200 GPUs using the verl (Sheng
+et al., 2025) framework. The first variant (equiv-
+alent to ChatTS (Xie et al., 2025)) is trained on
+answer-only targets over our task taxonomy. The
+second variant, TIMETHINK (SFT), adds chain-
+of-thought supervision. The third variant, TIME-
+THINK (RL), initializes from the SFT checkpoint
+and applies RLVR with GRPO (Shao et al., 2024)
+optimization. We use AdamW with weight decay
+0.01 for all three post-training stages. Both ChatTS
+and TIMETHINK (SFT) use a learning rate 1e−5
+and effective batch size 192. GRPO optimization
+uses learning rate 1e−6 and effective batch size
+256 with 16 rollouts. The training corpus consists
+entirely of synthetic data (90K SFT samples and
+110K RL samples), with no real-world timeseries
+data included. There are 7.5k LLM-evolved QAs
+in the SFT pool, whereas there are 7.5k question-
+rephrased samples in the RL pool.
+5
+Results
+In all tables, bold marks the best score and
+underline the second-best. Cross-architecture com-
+parisons are restricted to sequence length below
+256 due to the cost of text-based models; among
+TS-native models we use lengths up to 1536.
+Comp-D vs. Comp-R: The results in Table 1, eval-
+uated on ∼5k test samples, mirror the asymme-
+try between the two splits. On Comp-D, TIME-
+THINK (SFT) already reaches 0.696, since the
+demonstrated decompositions cover most of the
+reasoning the model must produce, and RL adds
+a further +3.5 pp (0.696 →0.731). On Comp-R,
+TIMETHINK (SFT) plateaus at 0.532, consistent
+with the difficulty of transferring SFT demonstra-
+tions to composite families absent from the SFT
+pool. RL lifts this to 0.733, a +20.1 pp gain. This
+gain shows that reward-only training substantially
+improves performance on composite families that
+lack SFT reasoning demonstrations. To separate
+the effect of RL from additional exposure to Comp-
+R examples, we compare RL against rejection fine-
+tuning from the same checkpoint using the same
+10K prompts (Table 5). RL improves Comp-R from
+0.528 to 0.597 compared with 0.567 for additional
+SFT. These controlled results suggest that the gains
+6
+
+
+Table 1: Performance on synthetic compositional timeseries QA. TIMETHINK (RL) outperforms all baselines.
+Model
+Comp-D (#3,261)
+Comp-R (#1,948)
+Categorical
+Numerical
+Clustering
+Ord./Enum.
+W. Avg
+Categorical
+Numerical
+W. Avg
+Qwen2.5-Instruct-7B
+0.678
+0.474
+0.263
+0.484
+0.560
+0.656
+0.472
+0.593
+Mistral-7B-Instruct-v0.3
+0.624
+0.406
+0.279
+0.432
+0.507
+0.656
+0.422
+0.576
+Time-MQA
+0.538
+0.364
+0.189
+0.374
+0.438
+0.550
+0.371
+0.488
+Time-R1
+0.605
+0.436
+0.233
+0.487
+0.511
+0.597
+0.409
+0.532
+TimeOmni-1
+0.574
+0.517
+0.247
+0.403
+0.512
+0.552
+0.547
+0.550
+ChatTS
+0.550
+0.650
+0.407
+0.547
+0.573
+0.525
+0.496
+0.515
+TIMETHINK (SFT)
+0.722
+0.641
+0.707
+0.728
+0.696
+0.562
+0.474
+0.532
+TIMETHINK (RL)
+0.771
+0.668
+0.712
+0.750
+0.731
+0.722
+0.754
+0.733
+0.5
+0.6
+0.7
+0.8
+Comp-D
+Comp-R
+OOD
++0.11
++0.10
++0.11
+Atomic skills (∆a)
+0.5
+0.6
+0.7
+0.8
++0.04
++0.18
++0.09
+Composition (∆c)
+TIMETHINK (SFT)
+TIMETHINK (RL)
+Figure 2: RL gains come from both the atomic skills
+(∆a) and the sub-skill that composes them (∆c).
+are not explained solely by additional training ex-
+posure.
+OOD composition: A strictly fair OOD com-
+parison applies only to timeseries-native models,
+whose encoders are trained on a fixed distribu-
+tion; text-based baselines may have seen similar
+patterns during pretraining, so their OOD num-
+bers are not directly comparable. Figure 3 reports
+overall OOD compositional performance (mean
+over numerical, categorical and enumeration) on
+∼8k test samples. First, TIMETHINK (RL) im-
+proves over its SFT counterpart by nearly 10 pp
+on the OOD split (0.533 →0.629). Second, the
+TIMETHINK (SFT) model yields only marginal im-
+provements over the ChatTS baseline, suggesting
+that imitation alone does not transfer under distri-
+bution shift. Third, text-based baselines at best
+match TIMETHINK (SFT) despite Time-MQA and
+TimeOmni-1 being trained on timeseries data, and
+Time-R1 on temporal-reasoning data.
+0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+Time-MQA
+TimeOmni-1
+Time-R1
+ChatTS
+TIMETHINK (SFT)
+TIMETHINK (RL)
+
+
+
+no train–test
+leakage
+
+
+
+possible partial
+train–test leakage
+0.500
+0.530
+0.536
+0.490
+0.533
+Figure 3:
+Overall OOD performance across tasks.
+TIMETHINK (RL) leads all native-TS baselines.
+Table 2: Performance on real-world TSEvol datasets.
+Trained only on synthetic QA, TIMETHINK (RL)
+achieves the best weighted average.
+Model
+Deductive
+Causal
+Inductive
+W. Avg
+Qwen2.5-7B
+0.628
+0.533
+0.420
+0.537
+Mistral-7B
+0.442
+0.685
+0.798
+0.642
+Time-MQA
+0.581
+0.511
+0.385
+0.506
+Time-R1
+0.605
+0.391
+0.552
+0.476
+TimeOmni-1
+0.628
+0.620
+0.798
+0.654
+ChatTS
+0.442
+0.630
+0.747
+0.602
+TIMETHINK (SFT)
+0.605
+0.620
+0.712
+0.632
+TIMETHINK (RL)
+0.605
+0.717
+0.835
+0.709
+Where does compositional ability come from?
+A composite question requires both the constituent
+atomic skill(s) and the sub-skill(s) that combine
+them, so a gain on the overall composition could
+reflect either. For every composition, we score its
+constituent atoms on their dedicated test set and
+compare the RL gain on atoms (∆a) against the
+gain on the composition (∆c) (unweighted means).
+Three patterns drive the reading of Figure 2 and
+per-composition details are in Section E. RL im-
+proves the atomic substrate by the same amount
+regardless of which compositions sit on top of it,
+so the variance in ∆c is not driven by variance
+in ∆a. Atomic propagation alone would predict
+∆c ≤∆a in every row; the Comp-R row falsifies
+this (∆c = +0.18 > ∆a = +0.10). With atomic
+gain held essentially constant, the +0.18 on Comp-
+R against +0.04 on Comp-D reflects RL acquiring
+the sub-skill that combines atoms where SFT did
+not demonstrate it. The +0.09 on OOD addition-
+ally indicates that this learned sub-skill transfers to
+held-out composite questions.
+Real-world evaluation.
+On the real-world
+TSEvol (Xie et al., 2025) datasets (Table 2), TIME-
+THINK (RL) achieves the best results on causal
+and inductive reasoning as well as on average, im-
+proving over TIMETHINK (SFT) from 0.632 to
+0.709, while text-based baselines such as Time-
+MQA and Time-R1 underperform general-purpose
+7
+
+
+0.50
+0.60
+0.70
+Overall performance across tasks
+Atomic
+n=883
+Comp-D
+n=683
+Comp-R
+n=843
+OOD
+n=7,201
+∆=+0.030
+∆=+0.098
+∆=+0.235
+∆=+0.085
+ChatTS
+TIMETHINK (SFT)
+TIMETHINK (RL)
+Figure 4: Overall performance on unseen-length time-
+series ([769, 1536] steps). ∆is TIMETHINK (RL)’s gain
+over the best baseline.
+text baselines. RLVR on basic timeseries skills
+hence transfers to real-world reasoning tasks.
+6
+Ablations and Case Studies
+Length generalization.
+To test if TIME-
+THINK (RL)’s gains transfer beyond training-
+length, we evaluate on unseen range [769, 1536]
+timesteps and compare overall performance against
+TIMETHINK (SFT) and ChatTS. As shown in Fig-
+ure 4, TIMETHINK (RL) consistently outperforms
+both baselines across all categories, with especially
+large gains on compositional tasks, while TIME-
+THINK (SFT) improves over ChatTS on Comp-D
+but underperforms on atomic tasks and Comp-R.
+Sensitivity analysis w.r.t. the number of time-
+series. We examine how performance changes
+with the number of timeseries variables in the
+prompt, splitting the test set into four groups: 1
+variable (UTS), 2–4, 5–8, and ≥9 variables. Fig-
+ure 5 reports overall performance for the three
+native timeseries variants in each group. TIME-
+THINK (RL) achieves the highest accuracy across
+all four groups, and its improvement over TIME-
+THINK (SFT) grows from approximately 8 pp on
+1 var
+n=16,731
+2-4
+n=2,658
+5-8
+n=8,334
+9+
+n=8,361
+Number of TS variables
+50
+55
+60
+65
+70
+Overall performance
+across tasks
+TIMETHINK (RL)
+TIMETHINK (SFT)
+ChatTS
++7.7
++10.2
+Figure 5: Overall performance as the number of TS
+variables in the prompt grows.
+Table 3: Data scaling comparison in SFT vs. RL axis.
+WHAT, HOW and FIX are the SenTSR-Bench splits.
+Model
+SenTSR-Bench
+MCQ2
+WHAT
+HOW
+FIX
+Mean
+ChatTS
+0.236
+0.218
+0.273
+0.242
+0.420
+ChatTS + 110K SFT
+0.309
+0.236
+0.264
+0.270
+0.340
+∆from scaling 110K SFT
++0.073
++0.018
+-0.009
++0.028
+-0.080
+TIMETHINK (SFT)
+0.264
+0.255
+0.273
+0.264
+0.433
+TIMETHINK (10K RL)
+0.445
+0.264
+0.327
+0.345
+0.490
+∆from scaling 10K RL
++0.181
++0.009
++0.054
++0.081
++0.057
+UTS examples to 10 pp for prompts with ≥5 vari-
+ables. This suggests RL is particularly effective
+for multivariate reasoning, where the model must
+combine evidence across several timeseries.
+Data scaling: SFT vs RL. A natural alternative
+to RL post-training is additional SFT on the same
+training distribution. We compare the two regimes
+in Table 3 on SenTSR-Bench (He et al., 2026) and
+MCQ2 (Merrill et al., 2024) benchmarks. Start-
+ing from ChatTS (Xie et al., 2025), adding 110K
+additional SFT samples improves SenTSR-Bench
+mean accuracy by only 2.8 pp and regresses MCQ2
+accuracy by 8.0 pp, consistent with SFT’s tendency
+to reinforce the dominant answer distribution. In
+contrast, starting from TIMETHINK (SFT), adding
+10K RL samples yields larger gains: +8.1 pp
+on SenTSR-Bench mean accuracy and +5.7 pp
+on MCQ2. The RL recipe thus requires an 11×
+smaller data budget and only outcome-verifiable
+supervision rather than reference responses.
+Reward design. Section A.8 reports two further
+case studies: proximity rewards beat exact-match
+rewards on numerical tasks (+18.4 vs. +8.4 pp),
+and rewarding composites alone is not enough,
+since an atomic primitive that is only indirectly
+rewarded degrades on OOD composites built on it.
+7
+Conclusion
+TIMETHINK grounds timeseries language reason-
+ing in domain-invariant atomic primitives (e.g.,
+trend, seasonality) with deterministic ground
+truth, which removes costly annotation and makes
+reinforcement learning with verifiable rewards
+tractable. The resulting model composes primi-
+tives autonomously, outperforming text-based and
+native timeseries models on both synthetic and
+real-world benchmarks, and a curriculum over se-
+quence length carries these gains to longer horizons.
+Primitive-based reasoning is a promising route for
+high-stakes domains like healthcare and finance.
+8
+
+
+8
+Limitations
+Given the scope of this work, it necessarily en-
+tails certain limitations. TIMETHINK is trained on
+a fixed set of synthetic atomic primitives, which
+may not exhaustively capture all temporal phenom-
+ena found in real-world timeseries. Relying on
+synthetic data is a necessity given the lack of real-
+world datasets for compositional reasoning with
+precise ground truth; however, should such re-
+sources become available, TIMETHINK could bene-
+fit from training on mixed datasets. As the primary
+scope of this work is to study compositional rea-
+soning, we do not focus on injecting exhaustive
+knowledge or various real-world sensor domains.
+We leave this as a direction for future work.
+9
+Acknowledgments
+The authors acknowledge support for this research
+from Evergreen: A Generative AI and Behav-
+ioral Sensing Digital Ecosystem to Promote
+Student Wellness and Flourishing. This work
+is made possible through philanthropic gifts to
+Dartmouth College dedicated to advancing AI-
+supported well-being and flourishing of college
+students.
+References
+Yifu Cai,
+Arjun Choudhry,
+Mononito Goswami,
+and Artur Dubrawski. 2024.
+TimeSeriesExam:
+A time series understanding exam.
+Preprint,
+arXiv:2410.14752.
+Yueyang Ding, Haopeng Zhang, Rui Dai, Yi Wang,
+Tianyu Zong, Kaikui Liu, and Xiangxiang Chu. 2026.
+LLaTiSA: Towards difficulty-stratified time series
+reasoning from visual perception to semantics. In
+Findings of the Association for Computational Lin-
+guistics: ACL 2026, pages 32677–32717.
+Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew G
+Wilson. 2023. Large language models are zero-shot
+time series forecasters. Advances in neural informa-
+tion processing systems, 36:19622–19635.
+Tong Guan, Zijie Meng, Dianqi Li, Shiyu Wang,
+Chao-Han Huck Yang, Qingsong Wen, Zuozhu Liu,
+Sabato Marco Siniscalchi, Ming Jin, and Shirui Pan.
+2026. TimeOmni-1: Incentivizing complex reason-
+ing with time series in large language models. In
+The Fourteenth International Conference on Learn-
+ing Representations.
+Daya Guo,
+Dejian Yang,
+Haowei Zhang,
+Junx-
+iao Song, Peiyi Wang, Qihao Zhu, Runxin Xu,
+Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. 2025.
+DeepSeek-R1: Incentivizing reasoning capability in
+LLMs via reinforcement learning. arXiv preprint
+arXiv:2501.12948.
+Zelin He, Boran Han, Xiyuan Zhang, Shuai Zhang, Hao-
+tian Lin, Qi Zhu, Haoyang Fang, Danielle C. Mad-
+dix, Abdul Fatir Ansari, Akash Chandrayan, Abhi-
+nav Pradhan, Bernie Wang, and Matthew Reimherr.
+2026.
+SenTSR-Bench:
+Thinking with injected
+knowledge for time-series reasoning. arXiv preprint
+arXiv:2602.19455.
+Albert Q. Jiang, Alexandre Sablayrolles, Arthur Men-
+sch, Chris Bamford, Devendra Singh Chaplot, Diego
+de las Casas, Florian Bressand, Gianna Lengyel, Guil-
+laume Lample, Lucile Saulnier, Lélio Renard Lavaud,
+Marie-Anne Lachaux, Pierre Stock, Teven Le Scao,
+Thibaut Lavril, Thomas Wang, Timothée Lacroix,
+and William El Sayed. 2023. Mistral 7B. Preprint,
+arXiv:2310.06825.
+Ming Jin, Shiyu Wang, Lintao Ma, Zhixuan Chu,
+James Y Zhang, Xiaoming Shi, Pin-Yu Chen,
+Yuxuan Liang, Yuan-Fang Li, Shirui Pan, et al.
+2023. Time-LLM: Time series forecasting by re-
+programming large language models. arXiv preprint
+arXiv:2310.01728.
+Yubin Kim, Xuhai Xu, Daniel McDuff, Cynthia
+Breazeal, and Hae Won Park. 2024. Health-LLM:
+Large language models for health prediction via wear-
+able sensor data. arXiv preprint arXiv:2401.06866.
+Yaxuan Kong, Yiyuan Yang, Yoontae Hwang, Wenjie
+Du, Stefan Zohren, Zhangyang Wang, Ming Jin, and
+Qingsong Wen. 2025. Time-MQA: Time series multi-
+task question answering with context enhancement.
+In Proceedings of the 63rd Annual Meeting of the
+Association for Computational Linguistics (Volume
+1: Long Papers), pages 29736–29753.
+Sirui Li, Shuhan Xiao, Mihir Joshi, Ahmed Metwally,
+Daniel McDuff, Wei Wang, and Yuzhe Yang. 2026.
+HEARTS: Benchmarking LLM reasoning on health
+time series. In Forty-third International Conference
+on Machine Learning.
+Zijia Liu, Peixuan Han, Haofei Yu, Haoru Li, and Ji-
+axuan You. 2025. Time-R1: Towards comprehen-
+sive temporal reasoning in LLMs. arXiv preprint
+arXiv:2505.13508.
+Mike A Merrill, Mingtian Tan, Vinayak Gupta, Thomas
+Hartvigsen, and Tim Althoff. 2024. Language mod-
+els still struggle to zero-shot reason about time series.
+In Findings of the Association for Computational
+Linguistics: EMNLP 2024, pages 3512–3533, Mi-
+ami, Florida, USA. Association for Computational
+Linguistics.
+Juntong Ni, Shiyu Wang, Qi He, Ming Jin, and Wei Jin.
+2026. STReasoner: Empowering LLMs for spatio-
+temporal reasoning in time series via spatial-aware
+reinforcement learning. In Proceedings of the 64th
+Annual Meeting of the Association for Computational
+Linguistics.
+9
+
+
+Arvind Pillai,
+Dimitris Spathis,
+Subigya Nepal,
+Amanda C Collins, Daniel M Mackin, Michael V
+Heinz, Tess Z Griffin, Nicholas C Jacobson, and An-
+drew Campbell. 2025. Time2Lang: Bridging time-
+series foundation models and large language models
+for health sensing beyond prompting. arXiv preprint
+arXiv:2502.07608.
+Willa Potosnak, Cristian Challu, Mononito Goswami,
+Michał Wili´nski,
+Nina
+˙Zukowska,
+and Artur
+Dubrawski. 2024. Implicit reasoning in deep time
+series forecasting. Preprint, arXiv:2409.10840.
+Qwen, An Yang, Baosong Yang, Beichen Zhang,
+Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan
+Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan
+Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin
+Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, and
+24 others. 2025. Qwen2.5 technical report. Preprint,
+arXiv:2412.15115.
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu,
+Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan
+Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024.
+DeepSeekMath: Pushing the limits of mathemati-
+cal reasoning in open language models. Preprint,
+arXiv:2402.03300.
+Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin
+Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin
+Lin, and Chuan Wu. 2025. HybridFlow: A flexible
+and efficient RLHF framework. In Proceedings of
+the Twentieth European Conference on Computer
+Systems, pages 1279–1297.
+Dimitris Spathis and Fahim Kawsar. 2024. The first step
+is the hardest: Pitfalls of representing and tokenizing
+temporal data for large language models. Journal
+of the American Medical Informatics Association,
+31(9):2151–2158.
+Zhe Xie, Zeyan Li, Xiao He, Longlong Xu, Xidao Wen,
+Tieying Zhang, Jianjun Chen, Rui Shi, and Dan Pei.
+2025. ChatTS: Aligning time series with LLMs via
+synthetic data for enhanced understanding and rea-
+soning. In Proceedings of the VLDB Endowment,
+2025.
+Can Xu, Qingfeng Sun, Kai Zheng, Xiubo Geng,
+Pu Zhao, Jiazhan Feng, Chongyang Tao, Qingwei
+Lin, and Daxin Jiang. 2024. WizardLM: Empow-
+ering large pre-trained language models to follow
+complex instructions. In The Twelfth International
+Conference on Learning Representations.
+Wenxuan Xu, Arvind Pillai, Subigya Nepal, Amanda C
+Collins, Daniel M Mackin, Michael V Heinz, Tess Z
+Griffin, Nicholas C Jacobson, and Andrew Campbell.
+2025. LENS: Llm-enabled narrative synthesis for
+mental health by aligning multimodal sensing with
+language models. arXiv preprint arXiv:2512.23025.
+Hao Xue and Flora D Salim. 2023. PromptCast: A
+new prompt-based learning paradigm for time series
+forecasting. IEEE Transactions on Knowledge and
+Data Engineering, 36(11):6851–6864.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao,
+Chengen Huang, Chenxu Lv, Chujie Zheng, Day-
+iheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao
+Ge, Haoran Wei, Huan Lin, Jialong Tang, and 41
+others. 2025.
+Qwen3 technical report.
+Preprint,
+arXiv:2505.09388.
+Hyungjun Yoon, Biniyam Aschalew Tolera, Taesik
+Gong, Kimin Lee, and Sung-Ju Lee. 2024. By my
+eyes: Grounding multimodal large language models
+with sensor data via visual prompting. In Proceed-
+ings of the 2024 Conference on Empirical Methods
+in Natural Language Processing, pages 2219–2241.
+Yuwei Zhang, Kumar Ayush, Siyuan Qiao, A. Ali
+Heydari, Girish Narayanswamy, Maxwell A. Xu,
+Ahmed A. Metwally, Shawn Xu, Jake Garrison,
+Xuhai Xu, Tim Althoff, Yun Liu, Pushmeet Kohli,
+Jiening Zhan, Mark Malhotra, Shwetak Patel, Cecilia
+Mascolo, Xin Liu, Daniel McDuff, and Yuzhe Yang.
+2025. SensorLM: Learning the language of wearable
+sensors. arXiv preprint arXiv:2506.09108.
+10
+
+
+A
+Additional Results
+A.1
+Comparison with a Coding Agent
+We also compare with a code-interpreter agent: a
+32B model given the raw values of each series
+and a Python interpreter allowing it to compute
+statistics exactly. As Table 4 shows, the agent per-
+forms well on synthetic questions, outperforming
+TIMETHINK on two splits. This is expected be-
+cause our synthetic questions are defined by simple
+programs over the raw values, making code exe-
+cution close to an oracle. Thus, the agent has an
+advantage unavailable to TIMETHINK and is not a
+like-for-like baseline; we therefore exclude it from
+the main results. On real-world data, the trend re-
+verses: the agent scores 25.8 on SenTSR-Bench
+compared with 35.5 for TIMETHINK, as these ques-
+tions require reasoning beyond direct computation
+over the observed values.
+Table 4: Comparison with a code-interpreter agent:
+Qwen2.5-32B-Instruct given the raw values as text
+plus a Python interpreter. TIMETHINK reads the se-
+ries through its encoder, without tools.
+Synthetic
+Real-world
+Model
+Atomic
+Comp-D
+Comp-R
+OOD
+SenTSR-Bench
+MCQ2
+Code agent
+83.7
+66.8
+68.7
+72.3
+25.8
+42.8
+TIMETHINK (RL)
+72.8
+73.1
+73.4
+62.9
+35.5
+45.0
+A.2
+Additional SFT vs. RL
+Starting from the same TIMETHINK (SFT) check-
+point, we compare additional SFT and RL us-
+ing 10K additional reward-only composite train-
+ing samples. Since reward-only composite ques-
+tions do not have gold CoT annotations, we use a
+rejection-fine-tuning procedure. Specifically, for
+each prompt, we sample 32 responses from the
+TIMETHINK (SFT) checkpoint and retain the re-
+sponses that receive a maximum reward under the
+same verifiable reward used for GRPO. The re-
+sulting data are then used for additional SFT fine-
+tuning, providing a controlled comparison with
+RL. As shown in Table 5, RL achieves the best
+performance on most metrics, suggesting that RL
+provides benefits beyond additional fine-tuning on
+reward-filtered responses.
+A.3
+Clustering Task
+Clustering includes two synchronization crite-
+ria: trend, based on matching or opposite trend-
+segment patterns, and local fluctuation, based on
+events near a target position.
+Both criteria ap-
+Table 5: Additional SFT vs. RL from the same TIME-
+THINK (SFT) checkpoint, both using 10K additional
+training samples.
+Model
+Atomic
+Comp-D
+Comp-R
+OOD
+SenTSR-Bench
+MCQ2
+TIMETHINK (SFT)
+0.621
+0.693
+0.528
+0.533
+0.264
+0.432
++ 10K SFT
+0.611
+0.681
+0.567
+0.529
+0.362
+0.458
++ 10K RL
+0.648
+0.711
+0.597
+0.564
+0.345
+0.490
+pear during SFT phase. Table 6 shows that TIME-
+THINK (SFT) already learns this task well, improv-
+ing average F1 over ChatTS by 25.5 points. RLVR
+adds only a small gain of 1.1 points. This is consis-
+tent with our training design: when a task family is
+well covered by supervised reasoning traces, most
+of the improvement comes from SFT, while RLVR
+has a smaller effect.
+Table 6: Clustering by synchronization criterion (F1
+metric).
+Model
+Trend
+Local
+Avg
+(#500)
+(#193)
+(#693)
+ChatTS
+46.2
+23.0
+39.7
+TIMETHINK (SFT)
+70.0
+52.8
+65.2
+TIMETHINK (RL)
+71.3
+53.3
+66.3
+A.4
+Numerical Task
+During RL optimization, numerical tasks (position
+and magnitude) are scored with a proximity re-
+ward rather than exact match, so predictions receive
+partial credit when they are close to the ground
+truth. Table 7 reports relative accuracy for each
+task. TIMETHINK (RL) is the strongest model in
+every category. It outperforms the best text-only
+baseline by 23.1 points on position, 17.1 points
+on count, and 5.9 points on magnitude. Within
+the same TS-native models, RLVR also gives con-
+sistent gains over TIMETHINK (SFT), improving
+position, count, and magnitude by 14.9, 17.2, and
+10.7 points, respectively. We hypothesize that CoT
+supervision encourages step-wise but verbose re-
+sponses, which are more error-prone on numerical
+tasks and RL corrects this.
+A.5
+Descriptive Task
+We present the cross-architecture comparison in
+terms of description performance scored by LLM
+in Table 8. It demonstrates that TIMETHINK (RL)
+exhibits superiority in describing the timeseries
+data.
+11
+
+
+Table 7: Numeric-task relative accuracy; ∆RLVR is the
+RL gain over SFT.
+Model
+Position
+Count
+Magnitude
+Avg
+(#254)
+(#379)
+(#1898)
+(#2531)
+Qwen2.5-7B
+55.5
+45.7
+50.0
+49.9
+Mistral-7B
+54.0
+34.9
+39.8
+40.5
+Time-R1
+53.0
+38.8
+44.6
+44.6
+Time-MQA
+48.3
+25.5
+45.0
+42.4
+ChatTS
+65.6
+62.2
+52.7
+55.4
+TIMETHINK (SFT)
+63.8
+45.6
+45.2
+47.2
+TIMETHINK (RL)
+78.6
+62.8
+55.9
+59.2
+∆RLVR
++14.9
++17.2
++10.7
++12.1
+Table 8: Free-form descriptive task, judge score.
+Model
+Description score
+Qwen2.5-7B-Inst
+0.456
+Mistral-7B-Inst-v0.3
+0.464
+Time-MQA
+0.401
+Time-R1
+0.414
+TimeOmni-1
+0.476
+ChatTS
+0.542
+TIMETHINK (SFT)
+0.587
+TIMETHINK (RL)
+0.708
+A.6
+Full Results on SenTSR-Bench
+We present the complete results of SenTSR-Bench
+in Table 9 which shows TIMETHINK (RL), de-
+spite being trained only on synthetic data, almost
+matches the performance of TimeOmni-1 in aver-
+age performance.
+Table 9: Full SenTSR-Bench accuracy. Columns are the
+WHAT HAPPENED, HOW HAPPENED and SUGGESTED
+FIX splits.
+Model
+WHAT
+HOW
+FIX
+Mean
+Qwen2.5-7B-Inst
+0.218
+0.200
+0.282
+0.233
+Mistral-7B-Inst-v0.3
+0.273
+0.300
+0.245
+0.273
+Time-MQA
+0.255
+0.245
+0.227
+0.242
+Time-R1
+0.218
+0.218
+0.273
+0.236
+TimeOmni-1
+0.409
+0.318
+0.364
+0.364
+ChatTS
+0.236
+0.218
+0.273
+0.242
+TIMETHINK (SFT)
+0.264
+0.255
+0.273
+0.264
+TIMETHINK (RL)
+0.445
+0.291
+0.327
+0.355
+A.7
+Full Results on MCQ2
+We present the complete results of MCQ2 bench-
+mark in Table 10 which shows TIMETHINK (RL)
+outperforms all baselines except TimeOmni-1.
+Table 10: Full MCQ2 evaluation.
+Model
+Accuracy
+Qwen2.5-7B-Inst
+0.343
+Mistral-7B-Inst-v0.3
+0.270
+Time-MQA
+0.366
+Time-R1
+0.305
+TimeOmni-1
+0.538
+ChatTS
+0.420
+ChatTS+110K SFT
+0.340
+TIMETHINK (SFT)
+0.432
+TIMETHINK (10K RL)
+0.490
+A.8
+Reward Design Case Studies
+Proximity-based vs. exact-match reward. Two
+periodicity tasks in our benchmark enable a com-
+parison. Both require the model to output a sin-
+gle scalar derived from a timeseries: either the
+period of the series or the number of complete cy-
+cles within a given window. We assign a proximity
+reward to the former and an exact-match reward to
+the latter. Empirically, RL training yields a gain of
+only +8.4 pp on the exact-match task, compared
+to +18.4 pp on the proximity-rewarded counter-
+part, suggesting the advantage of proximity-based
+rewards for numerical tasks.
+Is rewarding composite QAs enough? We study
+this in a setting where the atomic primitive receives
+only indirect supervision. TIMETHINK (SFT) su-
+pervises trend-segment enumeration of the form
+[(’increase’, start, end), (’decrease’,
+start, end), . . . ]. During TIMETHINK (RL),
+we restrict reward on this atom to count-based QAs
+over the segment list. The drift is sharp on OOD
+composites that require precise trend-segment po-
+sitions: TIMETHINK (RL) underperforms TIME-
+THINK (SFT) by 18.9 pp on CROSS TREND CON-
+VERGENCE (comparing trend agreement across
+temporal halves) and by 13.4 pp on TREND RE-
+VERSAL (detecting whether the dominant trend
+reverses at the largest change point). Both com-
+positions decompose through the same primitive
+whose positional structure was never directly re-
+warded under our count-only RL signal. Atomic
+primitives should therefore be rewarded directly;
+otherwise the policy degrades on them, and the
+OOD composites built on them suffer most.
+12
+
+
+B
+Qualitative Example
+Figure 6 compares the responses of ChatTS, TIMETHINK (SFT) and TIMETHINK (RL) on the same
+question.
+In an Agriculture system, there are 5 metrics: Farm Revenue Metrics, Livestock Counts, Disease Outbreaks in
+Livestock, Farm Equipment Usage, and Soil Moisture (each of length 648). Which trend direction (increase,
+decrease, or keep steady) is most common among the metrics?
+Question | Ground Truth = Increase 
+<think>
+Let me work through this systematically.
+Plan | (1) identify each metric’s trend; (2)
+tally how many metrics fall into each
+trend category; (3) pick
+Farm Revenue Metrics: trend = decrease
+Livestock Counts: trend = increase
+Disease Outbreaks in Livestock: trend =
+decrease
+Farm Equipment Usage: trend = increase
+Soil Moisture: trend = increase
+Tally by trend:
+decrease: 2
+increase: 3
+Most common trend: increase (3 of 5
+metrics)
+answer: increase
+</think>
+The most common trend direction among
+the metrics is increase (3 of 5 metrics).
+<think>
+metric: Farm Revenue Metrics
+start=-0.10, end=-0.98, amp=-0.88,
+overall trend=decrease
+---
+metric: Livestock Counts
+start=-0.58, end=0.97, amp=1.55,
+overall trend=increase
+...
+metric: Soil Moisture
+start=-0.83, end=0.95, amp=1.78,
+overall trend=increase
+===
+Farm Revenue Metrics: decrease (1/1)
+Livestock Counts: increase (1/1)
+Disease Outbreaks in Livestock: decrease
+(1/1)
+Farm Equipment Usage: increase (1/1)
+Soil Moisture: increase (1/1)
+majority=decrease (1/5)
+answer: decrease
+</think>
+The majority of metrics (1 out of 5) show
+a decrease trend.
+<think>
+</think>
+The most common trend direction among
+the metrics is decrease.
+Chat-TS (No Think)
+TimeThink (SFT)
+TimeThink (RL)
+Figure 6: Comparison of responses from ChatTS, TIMETHINK (SFT) and TIMETHINK (RL) on the same question.
+13
+
+
+C
+LLM-as-Judge Prompt Templates
+All free-form and structured-verdict evaluations are
+graded by Qwen2.5-72B-Instruct-GPTQ-Int4
+served via vLLM with greedy decoding. The judge
+is invoked through one of four prompt templates se-
+lected by the task family of each evaluation sample.
+We reproduce each template verbatim below; place-
+holder fields (e.g. {question}, {pred}) are filled
+with sample-specific content at inference time. Out-
+puts are parsed as JSON.
+Free-form judge.
+Used for the descriptive task
+and for the TSEvol’s inductive tasks. Returns a
+single graded score for explanation quality.
+You
+are
+an
+expert
+time-series
+analyst
+evaluator.
+Your
+task
+is
+to
+rate
+the
+quality
+of
+a
+generated explanation compared to a ground
+truth explanation.
+Question: {question}
+Ground Truth: {gt}
+Prediction: {pred}
+Critique
+the
+prediction
+based
+on
+physical
+significance and accuracy.
+Finally, provide a score from 0.0 to 1.0.
+Output ONLY the JSON object. Do not include
+any introductory text, markdown headers, or
+explanations outside of the JSON block:
+{
+"reasoning": "your critique here",
+"score": 0.85
+}
+Multiple-choice
+judge.
+Used
+for
+MCQ2,
+SenTSR-Bench. The judge first identifies which
+option the model committed to, then sets a binary
+verdict_match and a separate explanation-quality
+score.
+You are grading a multiple-choice answer.
+Question:
+{question}
+Options:
+{options_block}
+Correct
+answer:
+{correct_letter})
+{correct_option}
+Model response:
+{pred}
+Task:
+1. Identify which option (A/B/C/D) the model
+ultimately picked. Acceptable forms:
+– Starts with the letter (e.g. "A) ...",
+"Answer: B", "The answer is C").
+– Paraphrases or quotes the option text
+without the letter — match by content.
+–
+Rambles
+or
+revises
+—
+use
+the
+final
+committed choice (the answer it ends on).
+–
+Does
+NOT
+commit
+to
+any
+option
+→
+picked_letter = null.
+2. Set verdict_match = 1.0 iff picked_letter
+==
+correct_letter,
+else
+0.0.
+If
+picked_letter
+is
+null,
+verdict_match
+=
+0.0.
+3.
+Rate
+reasoning
+quality
+in
+score
+(0.0–1.0) INDEPENDENT of correctness — how
+clear,
+grounded
+in
+the
+time
+series,
+and
+well-structured the justification is.
+Output ONLY the JSON object. No preface, no
+markdown:
+{
+"picked_letter": "A",
+"verdict_match": 1.0,
+"reasoning": "brief justification for the
+grading",
+"score": 0.85
+}
+Structured-verdict judge.
+Used for our com-
+positional task families (segment-family, list-and-
+set tasks, and numerical-verdict compositions).
+Returns four signals: a binary verdict_match,
+a graded correctness_score (Kendall’s tau in-
+tuition for ordered lists, Jaccard intuition for
+sets), an overall explanation score, and an
+extracted_number for numeric-verdict tasks (e.g.,
+proportions stated as “3 of 7” are auto-converted to
+0.43).
+You
+are
+an
+expert
+time-series
+analyst
+evaluator.
+Your task is to evaluate a model’s response
+to a structured time-series question.
+Question: {question}
+Expected Answer: {expected_verdict}
+Ground Truth Response: {gt}
+Model Response: {pred}
+Evaluate FOUR things:
+1.
+verdict_match: Does the model’s response
+convey the same answer/verdict as the expected
+answer? Use 1.0 for correct, 0.0 for incorrect.
+Be lenient with formatting – “yes”, “Yes.”,
+and “Yes, because. . . ” all match an expected
+verdict of “yes”. For numeric verdicts, allow
+small rounding differences.
+2.
+correctness_score:
+A graded measure of
+ANSWER CORRECTNESS only – ignore explanation
+quality, depth, or verbosity. Range 0.0–1.0:
+– 1.0 = fully matches the expected answer
+(any acceptable phrasing)
+–
+0.7–0.9
+=
+mostly
+correct
+with
+a
+small/specific error (one swap in a 6-list,
+a partially-overlapping set)
+– 0.4–0.6 = roughly half right (half a list
+correct, right order of magnitude but off)
+– 0.1–0.3 = mostly wrong but some element
+is recognizable
+– 0.0 = wrong, or no answer
+For ordered lists, use Kendall’s tau intuition
+(more swaps →lower score).
+For sets, use
+Jaccard intuition (|intersection|/|union|).
+3.
+score:
+Overall
+explanation
+quality
+(reasoning,
+accuracy,
+completeness)
+from
+14
+
+
+0.0
+to
+1.0.
+Diagnostic;
+can
+differ
+from correctness_score (a terse-but-correct
+answer
+can
+have
+low
+score
+and
+high
+correctness_score).
+4.
+extracted_number: If the Expected Answer
+is numeric, identify the final numeric verdict
+the model is asserting – the number it CLAIMS
+as its answer, not an intermediate calculation.
+For ratios in words (“3 of 7”), compute to 2
+decimal places (≈0.43).
+Output as a JSON
+number; null if no clear numeric verdict.
+Output ONLY the JSON object:
+{
+"reasoning": "your critique here",
+"verdict_match": 1.0,
+"correctness_score": 0.85,
+"score": 0.85,
+"extracted_number": 0.52
+}
+Description-extraction judge.
+For the descrip-
+tive task we additionally extract a structured rep-
+resentation of the model’s free-form description
+(trend, seasonality, noise, local events, physical
+explanation), allowing per-axis precision and re-
+call against the ground-truth structured fields. This
+complements the free-form judge above; the per-
+axis F1 contributes to the description_overall
+column reported in our descriptive-task table.
+Extract
+structured
+time
+series
+description
+data from the following text.
+IMPORTANT:
+Read
+the
+ENTIRE
+response
+holistically
+before
+extracting.
+Do
+NOT
+do raw keyword extraction. Instead, logically
+reason about the content:
+– If “spike” is mentioned in one sentence
+and
+“followed
+by
+increase”
+in
+another,
+understand them as related context.
+– Synthesize scattered descriptions into
+coherent structured fields.
+Only fill in perspectives that are actually
+discussed in the text. Leave others as null.
+For
+trend:
+identify
+the
+overall
+type
+(increasing/decreasing/steady/multiple),
+start value, end value, amplitude, and any
+segments.
+For seasonality/periodicity: identify whether
+periodicity exists, its type, period length,
+and amplitude.
+For noise: identify the noise level category
+(smooth
+or
+noisy)
+and
+the
+noise
+strength
+value (ratio of signal amplitude).
+For
+local
+characteristics:
+identify
+each
+local event with its type (spike, dip, shake,
+sudden increase/decrease, etc.), approximate
+position, amplitude, and any explanation of
+physical meaning specific to that event.
+For
+physical
+explanation:
+extract
+any
+text
+that
+explains
+the
+physical
+meaning
+or
+significance
+of
+the
+time
+series
+characteristics.
+Return
+a
+valid
+JSON
+object
+matching
+the
+output schema.
+D
+QA Types
+D.1
+Atomic QA
+Atomic QA exercises a single primitive operator
+f ∈Fatom extracting one fact directly from the
+timeseries. We instantiate |Fatom| = 9 primitives
+across 14 single-metric question variants.
+• MEAN: “What mean value does metricX take?”
+• MEAN: “What is the average value of metricX
+from position a to b?”
+• MEAN (per chunk): “What are the means of
+consecutive 16-point chunks of metricX from
+index a to b?”
+• STD: “What is the spread of metricX measured
+by standard deviation?”
+• STD: “What is the standard deviation of met-
+ricX over [a, b]?”
+• PERCENTILE: “Report the 50th percentile value
+for metricX.”
+• EXTVAL: “What is the largest value of met-
+ricX?”
+• EXTVAL: “What is the minimum value of met-
+ricX?”
+• EXTPOS: “Where is the highest value in met-
+ricX?”
+• EXTPOS: “At which index does metricX attain
+its minimum?”
+• EVENTENUM: “Enumerate the local events in
+metricX, including type, position, amplitude.”
+• SEGENUM: “Describe the segments of the trend
+in metricX over time.”
+• PERIOD: “Describe the periodic behavior of
+metricX.”
+• TRENDCLASSIFY: “What is the overall trend
+direction of metricX (increase, decrease, or keep
+steady)?”
+D.2
+Sub-skills
+Sub-skills Fop act on the outputs of atoms (or ear-
+lier sub-skills), not on the raw series. We instantiate
+|Fop| = 9.
+• COUNT: cardinality of a (possibly filtered) list.
+• SUM:
+sum over a list of weighted scalars
+(used for total durations, mode counts, weighted
+means).
+• FILTER: subset of a list matching a predicate.
+• LOCATE: find the structure (segment / chunk /
+half / quarter / interval) containing a given index,
+15
+
+
+or the bin a derived value falls in.
+• COMPARE:
+binary inequality between two
+scalars or labels.
+• THRESHOLD: x > c for a constant c.
+• ARGMAX/ARGMIN: select the element with the
+largest/smallest key.
+• RANK: total order over a list by a key.
+• ARITH:
+scalar
+arithmetic
+over
+reals:
++, −, ×, ÷, | · |.
+D.3
+Comp-D compositions (36)
+• MEAN/STD on two metrics + COMPARE: “Is
+metricB’s mean higher than metricA’s?”
+• MEAN/STD on each metric + ARGMAX: “Iden-
+tify the metric with the largest standard devia-
+tion.”
+• TRENDCLASSIFY on each metric + FILTER:
+“Which metrics show an increase trend?”
+• MEAN/TRENDCLASSIFY on each metric +
+COUNT: “Count the metrics whose mean ex-
+ceeds τ.”
+• TRENDCLASSIFY on two metrics + COMPARE:
+“Is the overall trend of metricA the same as met-
+ricB?”
+• EVENTENUM →LOCATE (within tolerance)
+→THRESHOLD(>0). “Does metricX have a
+noticeable event around point p within tolerance
+τ?”
+• PERIOD (and COUNT for cycle count). “Com-
+pute the estimated period for metricX.”
+• SEGENUM →ARGMAX (largest level shift)
+and/or COUNT. “How many times does metricX
+change its dominant trend?”
+• MEAN/STD/PERCENTILE on sub-intervals +
+ARITH/COMPARE. “How does the std of met-
+ricX change from the first half to the second
+half?”
+• multi-condition
+compound:
+MEAN×2 +
+ARITH + THRESHOLD.
+“If
+a
+‘signifi-
+cant
+upward
+shift’
+is
+when
+(mean(Q3)-
+mean(Q1))/range
+>
+15%,
+does
+metricX
+qualify?”
+• SEGENUM
+→
+FILTER (intersect [a, b]) →
+SUM per type →ARGMAX. “Between points
+a and b in metricX, which trend behavior domi-
+nates?”
+• EVENTENUM
+→
+{FILTER, COUNT, ARGMAX}.
+“What
+is
+the shortest local event in metricX in terms of
+duration?”
+• SEGENUM →{FILTER, COUNT, ARGMAX}.
+“How many trend segments show an increase in
+metricX?”
+• SEGENUM
+→adjacent-pair extraction →
+{FILTER/COUNT, ARGMAX}.
+“Which adja-
+cent segment pair pattern is most common in
+metricX?”
+• EVENTENUM, SEGENUM
+→
+FILTER/LOCATE
+→
+{COUNT, ARGMAX}.
+“Count the local events in metricX that fall within
+decrease segments.”
+• EVENTENUM
+→
+LOCATE (first/last/gap).
+“Where does the last local event appear in met-
+ricX?”
+• SEGENUM →FILTER per type →SUM +
+COMPARE. “In metricX, which has a longer
+total duration: increase or decrease?”
+• TRENDCLASSIFY on two metrics over aligned
+windows + similarity check.
+“Evaluate the
+trend similarity between metricA and metricB;
+transitions within 2 timesteps are aligned.”
+• TRENDCLASSIFY on two metrics + opposite-
+trend predicate. “Determine whether metricA
+and metricB exhibit opposite trend behavior.”
+• TRENDCLASSIFY/EVENTENUM on each met-
+ric + similarity to anchor + FILTER. “Identify
+metrics whose local behavior near point p re-
+sembles metricAnchor.”
+• TRENDCLASSIFY on each metric + opposite-
+anchor FILTER. “Find metrics that move oppo-
+site to metricAnchor.”
+• atom on each metric + {FILTER, ARGMAX}.
+“Which metric has the highest standard devia-
+tion?”
+• atom on two metrics + ARITH (ratio/difference)
++ THRESHOLD. “An ‘instability gap’ occurs
+when std(metricA) is at least r× std(metricB);
+does it occur?”
+• anticorrelation
+predicate
+∧
+noise-strength
+threshold. “An ‘anticorrelated high-noise state’
+is when metricA and metricB are anti-correlated
+AND noise of metricB exceeds τ; does it hold?”
+• TRENDCLASSIFY on metricA + conditional
+TRENDCLASSIFY on metricB over the same
+windows. “When metricA is increasing, what
+does metricB’s trend look like?”
+16
+
+
+• MEAN×2 →COMPARE. “Does the first-half
+mean of metricX exceed the second-half mean?”
+• STD×2 →COMPARE. “Is the std of the second
+half of metricX higher than the first?”
+• EVENTENUM, SEGENUM
+→
+LOCATE/FILTER
+→
+THRESHOLD(>0).
+“Does any local event of metricX fall in an
+increase segment?”
+• EXTPOS, SEGENUM
+→
+LOCATE
+→
+COMPARE on type. “Does the global max of
+metricX fall within a decrease segment?”
+• EVENTENUM, STD
+→
+ARGMAX
+→
+ARITH(×k)
+→
+THRESHOLD.
+“Is the
+seasonal amplitude of metricX greater than
+kσ?”
+• EVENTENUM →FILTER →COUNT. “How
+many decrease events are there in metricX?”
+• SEGENUM →ARGMAX (duration) →extract
+type. “Is the longest segment in metricX an
+increase, decrease, or steady segment?”
+• SEGENUM
+→
+FILTER
+→
+SUM
+→
+ARITH(÷ total). “What share of metricX is de-
+creasing?”
+• STD×2
+→
+ARITH(÷)
+→
+THRESHOLD.
+“Does metricA have a std at least r× that of met-
+ricB?”
+• MEAN×N →RANK. “Rank the metrics by
+mean from highest to lowest.”
+• TRENDCLASSIFY×N →FILTER/COUNT per
+type →ARGMAX →ARITH(÷ N). “How
+dominant is the most common trend? Report
+the mode share.”
+D.4
+Comp-R compositions (32)
+• EVENTENUM →COUNT. “How many spikes,
+dips, or sudden changes are in metricX?”
+• SEGENUM →COUNT. “How many distinct
+trend segments does metricX have?”
+• SEGENUM →LOCATE (by index) →duration.
+“How many points are in the segment of metricX
+containing index p?”
+• SEGENUM →LOCATE →type. “What is hap-
+pening in metricX at index p?”
+• SEGENUM, MEAN×2
+→
+LOCATE×2
+→
+COMPARE. “Is the mean of the segment at index
+p greater than at q?”
+• SEGENUM →ARGMAX (duration). “What is
+the duration of the longest trend segment in met-
+ricX?”
+• SEGENUM →FILTER/COUNT per type →
+ARGMAX. “What is the dominant trend type
+by segment count in metricX?”
+• EVENTENUM →ARGMAX →type. “Find the
+local event of metricX with the largest ampli-
+tude; report its type.”
+• EVENTENUM →LOCATE (nearest) →type.
+“What is the nearest event type to position p in
+metricX?”
+• EXTPOS, EVENTENUM →LOCATE (window)
+→THRESHOLD(>0). “Does a local event of
+metricX occur near its global max or min?”
+• EXTPOS×2 →LOCATE →COMPARE. “Are
+the global max and min of metricX in the same
+half?”
+• EXTPOS →LOCATE (half). “Does the global
+max of metricX occur before the midpoint?”
+• EXTVAL×2 →ARITH(−).
+“What is the
+spread of metricX (max minus min)?”
+• EXTVAL×2, STD →ARITH(−, ÷). “What is
+the normalized range of metricX?”
+• EVENTENUM, EXTVAL×2 →ARGMAX →
+ARITH →THRESHOLD. “Does the peak event
+amplitude of metricX exceed half the value
+range?”
+• MEAN×2
+→
+ARITH(|−|).
+“Compute
+|mean(first half)−mean(second half)|.”
+• MEAN×2
+(thirds)
+→
+ARITH(|−|)
+→
+THRESHOLD. “Is there a mean shift greater
+than τ between the first and last thirds of
+metricX?”
+• MEAN×2
+(Q1, Q4)
+→
+ARITH(|−|)
+→
+THRESHOLD(<τ).
+“Is
+|mean(Q1)−mean(Q4)| < τ for metricX?”
+• MEAN, MEAN over chunks →FILTER (within
+τ) →COMPARE to |L|. “Are all 16-point chunk
+means of metricX within τ of the global mean?”
+• PERCENTILE(50), MEAN →ARITH(|−|) →
+THRESHOLD. “Is metricX’s median within τ of
+its mean?”
+• MEAN×2 →COMPARE. “Is the mean of met-
+ricX on [a1, b1] greater than on [a2, b2]?”
+• PERIOD →COUNT. “Count the approximate
+number of complete cycles in metricX.”
+• PERIOD. “Estimate the period of metricX in
+time steps.”
+• PERIOD →THRESHOLD. “Does metricX con-
+17
+
+
+tain a periodic component?”
+• TRENDCLASSIFY×N →FILTER/COUNT per
+type →ARGMAX. “Which trend pattern is
+most common across the metrics?”
+• TRENDCLASSIFY×N →distinct count. “Into
+how many groups do the metrics cluster by
+trend?”
+• TRENDCLASSIFY×N →FILTER/COUNT per
+type →ARGMAX. “What is the dominant trend
+cluster?”
+• EVENTENUM×2 →LOCATE (within w) →
+THRESHOLD(>0). “Do metricA and metricB
+have temporally close events?”
+• PERIOD×2 →COMPARE. “Does metricA os-
+cillate faster than metricB?”
+• MEAN×N, STD×N
+→
+ARGMAX×2
+→
+COMPARE (equal). “Is the metric with the high-
+est mean also the one with the highest std?”
+• TRENDCLASSIFY×N, MEAN/STD×N
+→
+FILTER →ARGMAX. “Among metrics with an
+increase trend, which has the largest range?”
+• MEAN×2×N
+→COMPARE per metric →
+FILTER + COUNT. “How many metrics show
+an upward shift in mean between halves?”
+D.5
+OOD compositions (34)
+• EXTPOS×2 →COMPARE. “Is the index of the
+global max before the index of the global min?”
+• MEAN×4, EXTPOS
+→
+ARGMAX
+→
+LOCATE →COMPARE. “Does the global max
+fall in the quarter with the highest mean?”
+• MEAN×4 →RANK. “Do the quarter means of
+metricX strictly increase (or decrease)?”
+• MEAN over chunks →ARGMAX. “Find the
+16-point chunk with the largest mean and report
+its index.”
+• MEAN over chunks, MEAN →FILTER →
+COUNT →ARITH(÷ |L|). “What fraction of
+16-point chunks have a mean above the global
+mean?”
+• STD, EXTVAL×2 →ARITH →THRESHOLD.
+“Is the standard deviation greater than 1
+3 of the
+range?”
+• MEAN×4
+→
+ARITH(|−|)×2
+→
+THRESHOLD×2
+→
+∧.
+“Does metricX
+exhibit
+symmetric
+recovery
+(Q1≈Q4
+and
+Q2≈Q3)?”
+• PERIOD, MEAN
+per
+cycle
+→
+TRENDCLASSIFY on cycle-mean list.
+“Do
+the cycle-level means show an increasing or
+decreasing trend?”
+• EVENTENUM, SEGENUM, STD
+→
+ARGMAX
+→
+LOCATE
+→
+THRESHOLD.
+“Does the largest event amplitude exceed the std
+of its containing segment?”
+• EVENTENUM, STD
+→
+ARGMAX
+→
+ARITH(×k)
+→
+THRESHOLD.
+“Does the
+largest event amplitude exceed kσ?”
+• EVENTENUM, EXTVAL×2 →ARGMAX →
+ARITH →THRESHOLD. “Does the largest
+event amplitude exceed half the value range?”
+• EVENTENUM, SEGENUM
+→
+FILTER
+→
+COUNT/SUM
+→
+ARITH(÷)
+→
+ARGMAX/ARGMIN.
+“Which trend type
+has the lowest density of local events?”
+• EVENTENUM, SEGENUM
+→
+FILTER
+→
+COUNT, SUM →ARITH(÷).
+“What is the
+event density in increase segments?”
+• SEGENUM, EVENTENUM →ARGMAX →
+FILTER →ARGMAX. “What is the largest
+event amplitude in the longest trend segment?”
+• SEGENUM, EXTPOS
+→
+ARGMAX
+→
+LOCATE. “Does the global max fall inside the
+longest trend segment?”
+• SEGENUM
+→
+SUM
+(weighted)
+→ARITH(÷ total). “Compute the duration-
+weighted mean across trend segments.”
+• SEGENUM →ARGMAX →FILTER (same
+type) →SUM →ARITH(÷). “What fraction
+of metricX is covered by the trend type of the
+longest segment?”
+• SEGENUM →FILTER →MEAN on union.
+“Compute the mean of metricX restricted to in-
+crease segments.”
+• SEGENUM
+→
+FILTER
+→
+SUM
+→
+ARITH(÷ count). “What is the average of seg-
+ment means for all increase segments?”
+• SEGENUM, MEAN
+→
+FILTER
+→
+THRESHOLD →COUNT.
+“Count increase
+segments whose mean exceeds the global
+mean.”
+• SEGENUM
+→
+LOCATE
+(first/last)
+→
+COMPARE.
+“Is the mean of the first
+segment greater than the last segment?”
+• SEGENUM, MEAN
+→
+FILTER
+→
+COMPARE (∀). “Do all increase segments have
+18
+
+
+above-average means?”
+• SEGENUM
+→
+ARGMAX (level shift) →
+COMPARE on types. “Does the dominant trend
+reverse after the largest change point?”
+• SEGENUM
+→
+palindrome
+via
+pairwise
+COMPARE. “Is the trend pattern of metricX
+palindromic?”
+• TRENDCLASSIFY×N
+→
+pairwise
+COMPARE →COUNT. “How many pairs of
+metrics share the same overall trend direction?”
+• TRENDCLASSIFY×N
+over
+halves
+→COUNT →COMPARE.
+“Do the met-
+rics become more aligned in trend in the second
+half than the first?”
+• EXTPOS×N →pairwise LOCATE within win-
+dow. “Do metricA and metricB have their max-
+ima at similar positions?”
+• EXTVAL×2×N
+→
+COMPARE on interval
+ends. “Is there any overlap between the value
+ranges of two metrics?”
+• MEAN×2×N
+→COMPARE per metric →
+COUNT. “How many metrics show an upward
+shift in mean between halves?”
+• TRENDCLASSIFY×N →FILTER/COUNT ∃.
+“Is any metric in its own unique trend cluster?”
+• TRENDCLASSIFY×3 →COMPARE×2 →∧.
+“If A’s trend matches B’s and B’s matches C’s,
+does A’s match C’s?”
+• TRENDCLASSIFY×N
+→pairwise opposite
+check →COUNT. “Count the anti-correlated
+pairs among the metrics.”
+• MEAN×N, TRENDCLASSIFY →FILTER (up-
+per half) →
+FILTER/COUNT per type →
+ARGMAX. “Among metrics in the upper-half
+mean group, identify the dominant trend type.”
+• EVENTENUM×2
+→
+LOCATE (precedence
+within w). “Does an event in metricA precede
+an event in metricB within w timesteps?”
+E
+Compositional Performance
+Breakdown
+Tables 11 to 13 give the per-composition break-
+down behind Figure 2, for the Comp-D, Comp-R
+and OOD splits respectively. For each composi-
+tion we report the score of TIMETHINK (SFT) and
+TIMETHINK (RL) on its constituent atoms (atomic
+gain ∆a) and on the composition itself (composi-
+tion gain ∆c).
+19
+
+
+Table 11: Compositional reasoning in Comp-D QAs. Composition gains ∆c are small on average because SFT CoT
+supervision already teaches the decomposition.
+Task
+Atomic skills
+Composition
+TIMETHINK (SFT)
+TIMETHINK (RL)
+∆a
+TIMETHINK (SFT)
+TIMETHINK (RL)
+∆c
+Events within trend type
+0.48
+0.60
++0.12
+0.20
+0.60
++0.40
+Max within trend type
+0.56
+0.61
++0.05
+0.55
+0.72
++0.17
+Type of longest segment
+0.34
+0.40
++0.06
+0.64
+0.80
++0.16
+Volatility change (×2 windows)
+0.56
+0.68
++0.13
+0.61
+0.76
++0.15
+First-vs-second-half mean
+0.70
+0.83
++0.13
+0.74
+0.87
++0.12
+Amplitude vs std ratio
+0.65
+0.71
++0.06
+0.64
+0.74
++0.10
+Count events by type
+0.62
+0.79
++0.18
+0.50
+0.60
++0.10
+Trend-type duration fraction
+0.34
+0.40
++0.06
+0.79
+0.86
++0.07
+Numeric statistic (poly)
+0.68
+0.78
++0.10
+0.46
+0.53
++0.07
+Enumerate matching metrics
+0.57
+0.74
++0.17
+0.65
+0.72
++0.07
+Enumerate local events
+0.62
+0.79
++0.18
+0.42
+0.47
++0.04
+Anti-correlation predicate
+0.68
+0.92
++0.23
+0.81
+0.85
++0.04
+Segment-trend predicate
+0.34
+0.40
++0.06
+0.81
+0.84
++0.03
+Cross-metric stat predicate
+0.86
+0.97
++0.11
+0.90
+0.93
++0.03
+Concordant-trend share
+0.68
+0.92
++0.23
+0.88
+0.91
++0.03
+Rank metrics by stat
+0.78
+0.75
+−0.03
+0.78
+0.81
++0.03
+Correlation predicate
+0.68
+0.92
++0.23
+0.71
+0.73
++0.03
+Change-point detection
+0.38
+0.48
++0.10
+0.32
+0.34
++0.02
+Cluster similar metrics
+0.78
+0.75
+−0.03
+0.69
+0.71
++0.02
+Has periodicity?
+0.82
+0.86
++0.04
+0.63
+0.64
++0.01
+Anti-corr × noise predicate
+0.68
+0.92
++0.23
+0.78
+0.78
++0.00
+Generic binary predicate
+0.77
+0.94
++0.17
+0.65
+0.63
+−0.02
+Cross-metric stat ratio
+0.77
+0.93
++0.16
+0.88
+0.86
+−0.02
+When does X happen?
+0.79
+0.82
++0.03
+0.89
+0.87
+−0.03
+Cluster: anti-similar metrics
+0.78
+0.75
+−0.03
+0.75
+0.72
+−0.03
+Filter metrics by trend
+0.68
+0.92
++0.23
+0.86
+0.82
+−0.05
+Trend duration share
+0.34
+0.40
++0.06
+0.70
+0.65
+−0.05
+Enumerate trend transitions
+0.34
+0.40
++0.06
+0.79
+0.73
+−0.06
+Enumerate trend segments
+0.34
+0.40
++0.06
+0.85
+0.77
+−0.08
+Dominant trend type
+0.34
+0.40
++0.06
+0.74
+0.64
+−0.10
+Events ∩segments
+0.48
+0.60
++0.12
+0.64
+0.55
+−0.10
+Bucket mean
+0.59
+0.70
++0.11
+0.69
+0.72
++0.04
+20
+
+
+Table 12: Compositional reasoning in Comp-R QAs. Large ∆c values reflect compositional skills RL acquires
+without any CoT supervision, since the composition itself was never demonstrated during SFT.
+Task
+Atomic skills
+Composition
+TIMETHINK (SFT)
+TIMETHINK (RL)
+∆a
+TIMETHINK (SFT)
+TIMETHINK (RL)
+∆c
+Segment-at-pos duration
+0.34
+0.40
++0.06
+0.24
+0.86
++0.62
+Trend type at position
+0.34
+0.40
++0.06
+0.32
+0.86
++0.54
+Dominant trend type
+0.34
+0.40
++0.06
+0.45
+0.91
++0.45
+Segment count
+0.34
+0.40
++0.06
+0.31
+0.66
++0.34
+Cluster count
+0.78
+0.75
+−0.03
+0.50
+0.80
++0.30
+Amplitude vs range ratio
+0.67
+0.71
++0.04
+0.48
+0.76
++0.28
+Normalized range
+0.65
+0.71
++0.06
+0.51
+0.78
++0.27
+Asymmetric cross-metric
+0.68
+0.92
++0.23
+0.47
+0.73
++0.25
+Max in first half?
+0.79
+0.82
++0.03
+0.60
+0.85
++0.25
+Dominant cluster
+0.78
+0.75
+−0.03
+0.40
+0.62
++0.23
+Half-mean difference
+0.70
+0.83
++0.13
+0.47
+0.68
++0.21
+Event count
+0.62
+0.79
++0.18
+0.60
+0.80
++0.20
+Concordant pair count
+0.68
+0.92
++0.23
+0.61
+0.81
++0.19
+Has periodicity?
+0.82
+0.86
++0.04
+0.61
+0.81
++0.19
+Period estimate
+0.82
+0.86
++0.04
+0.55
+0.74
++0.18
+Event near extremum
+0.70
+0.81
++0.11
+0.57
+0.75
++0.18
+Min,max in same half?
+0.77
+0.85
++0.08
+0.58
+0.75
++0.16
+Conditional cross-stat
+0.86
+0.97
++0.11
+0.44
+0.59
++0.16
+Event-recovery check
+0.62
+0.79
++0.18
+0.52
+0.66
++0.14
+Median≈mean predicate
+0.79
+1.00
++0.21
+0.52
+0.66
++0.14
+Range (max−min)
+0.59
+0.63
++0.04
+0.68
+0.81
++0.13
+Mean shift (×2 intervals)
+0.70
+0.83
++0.13
+0.54
+0.64
++0.10
+Cycle count
+0.82
+0.86
++0.04
+0.55
+0.64
++0.08
+Max-amplitude event
+0.62
+0.79
++0.18
+0.58
+0.65
++0.07
+Event type at position
+0.62
+0.79
++0.18
+0.67
+0.73
++0.05
+Cross-metric correlation est.
+0.68
+0.92
++0.23
+0.75
+0.80
++0.05
+Interval-mean compare
+0.70
+0.83
++0.13
+0.80
+0.81
++0.01
+Longest segment duration
+0.34
+0.40
++0.06
+0.83
+0.83
++0.00
+Cross-metric period compare
+0.82
+0.86
++0.04
+0.64
+0.64
++0.00
+Cross-metric event sync
+0.62
+0.79
++0.18
+0.66
+0.66
++0.00
+Mean stability (×2)
+0.56
+0.68
++0.13
+0.59
+0.58
+−0.01
+Segment-mean compare
+0.52
+0.61
++0.10
+0.67
+0.62
+−0.05
+Bucket mean
+0.65
+0.75
++0.10
+0.55
+0.73
++0.18
+21
+
+
+Table 13: Compositional reasoning in OOD composite QAs. Compositions are held out at every training phase; ∆c
+measures how much of the procedure RL learns transfers to unseen composition shapes.
+Task
+Atomic skills
+Composition
+TIMETHINK (SFT)
+TIMETHINK (RL)
+∆a
+TIMETHINK (SFT)
+TIMETHINK (RL)
+∆c
+Concordant mean shift
+0.69
+0.87
++0.18
+0.39
+0.76
++0.38
+Mixed corr/anti-corr count
+0.59
+0.81
++0.23
+0.30
+0.60
++0.30
+Dominant trend in cluster
+0.56
+0.57
++0.02
+0.41
+0.67
++0.25
+Max before min?
+0.77
+0.85
++0.08
+0.49
+0.72
++0.22
+Mean around event
+0.70
+0.90
++0.19
+0.29
+0.48
++0.18
+Duration-weighted mean
+0.52
+0.61
++0.10
+0.32
+0.50
++0.18
+Event amp. vs seg. std
+0.65
+0.71
++0.06
+0.70
+0.86
++0.16
+Cross-corr pair count
+0.59
+0.81
++0.23
+0.38
+0.54
++0.16
+Cross-metric causality
+0.62
+0.79
++0.18
+0.51
+0.65
++0.14
+Cross-metric range overlap
+0.59
+0.63
++0.04
+0.65
+0.78
++0.13
+Quarter-mean ordering
+0.70
+0.83
++0.13
+0.67
+0.79
++0.13
+Conditional event count
+0.62
+0.79
++0.18
+0.47
+0.59
++0.13
+Segment-stat compare
+0.70
+0.83
++0.13
+0.61
+0.74
++0.12
+Cycle-mean monotone
+0.58
+0.63
++0.05
+0.64
+0.76
++0.12
+Mean conditional on trend
+0.52
+0.61
++0.10
+0.25
+0.36
++0.11
+Symmetric event recovery
+0.62
+0.79
++0.18
+0.57
+0.66
++0.09
+Event density by trend
+0.48
+0.60
++0.12
+0.36
+0.44
++0.08
+Singleton cluster check
+0.78
+0.75
+−0.03
+0.61
+0.69
++0.07
+Correlation transitivity
+0.68
+0.92
++0.23
+0.64
+0.71
++0.07
+Position of top-mean chunk
+0.07
+0.14
++0.06
+0.48
+0.55
++0.07
+Max amp. in longest seg.
+0.47
+0.53
++0.05
+0.29
+0.36
++0.06
+Extrema alignment
+0.79
+0.82
++0.03
+0.53
+0.59
++0.06
+Chunks-above-mean fraction
+0.07
+0.14
++0.06
+0.64
+0.70
++0.06
+Symmetric trend pattern
+0.34
+0.40
++0.06
+0.54
+0.59
++0.05
+Max in top-mean quarter
+0.74
+0.82
++0.08
+0.59
+0.63
++0.04
+Std vs half-range
+0.65
+0.71
++0.06
+0.66
+0.68
++0.03
+Trend follows mean
+0.52
+0.61
++0.10
+0.56
+0.58
++0.02
+Longest-type fraction
+0.34
+0.40
++0.06
+0.66
+0.67
++0.01
+Peak in longest segment
+0.56
+0.61
++0.05
+0.52
+0.52
++0.00
+Range-normalized amplitude
+0.59
+0.63
++0.04
+0.57
+0.54
+−0.02
+Event density
+0.62
+0.79
++0.18
+0.33
+0.30
+−0.04
+Event amplitude vs std
+0.68
+0.82
++0.14
+0.73
+0.69
+−0.04
+Trend reversal
+0.34
+0.40
++0.06
+0.64
+0.50
+−0.13
+Trend convergence
+0.68
+0.92
++0.23
+0.78
+0.59
+−0.19
+Bucket mean
+0.57
+0.68
++0.11
+0.52
+0.61
++0.09
+22

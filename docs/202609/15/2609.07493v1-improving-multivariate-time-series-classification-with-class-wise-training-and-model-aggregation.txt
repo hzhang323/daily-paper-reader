@@ -1,0 +1,1239 @@
+Improving Multivariate Time Series Classification
+with Class-Wise Training and Model Aggregation
+Mouhamadou Mansour LO1, Gildas MORVAN2
+Mathieu ROSSI1, Fabrice MORGANTI1, and David MERCIER2
+1 Univ. Artois, UR 4025, LSEE, F-62400 Béthune, France
+2 Univ. Artois, UR 3926, LGI2A, F-62400 Béthune, France
+firstname.lastname@univ-artois.fr
+Abstract. In this paper, we propose a class-wise dimension (channel)
+selection framework for Multivariate Time Series Classification (MTSC).
+Rather than applying a single global dimension selection process, the
+proposed approach independently identifies informative dimensions for
+each class. A dedicated learning process is subsequently performed for
+each class, followed by a fusion stage for final prediction. The objective
+is to improve the generation of discriminative feature representations
+while reducing the influence of noisy or non-informative dimensions. The
+proposed framework is evaluated using MiniRocket, a random kernel-
+based baseline method. Experimental results indicate that class-wise di-
+mension selection improves the quality of extracted representations and
+can enhance classification performance, particularly in high-dimensional
+settings. These findings suggest that incorporating class-specific infor-
+mation into the training process represents a promising direction for
+MTSC, improving robustness through consistent gains across heteroge-
+neous datasets, and interpretability through the explicit identification of
+class-relevant dimensions.
+Keywords: Multivariate Time Series · Random Convolutional Kernels
+· Fusion · Multi-Class Classification · Problem Decomposition · Dimen-
+sion/Channel Selection.
+1
+Introduction
+Time Series Classification (TSC) is a supervised learning problem that focuses on
+assigning predefined class labels to time series instances. The primary objective
+of TSC is to identify discriminative patterns from labeled training data in order
+to accurately classify unseen time series sequences. A time series is defined as an
+ordered sequence of observations collected at regular time intervals, describing
+the temporal evolution of an event over time. Formally, a time series is an ordered
+sequence X = (x1, . . . , xT ) of length T, where xt ∈Rd is the observation vector
+at time step t, with d ≥2 in the multivariate case. In many domains such as
+autonomous driving, fault diagnosis, patient monitoring, behavioral analysis, or
+meteorology, the state of a system is often monitored through multiple variables
+arXiv:2609.07493v1  [cs.LG]  7 Sep 2026
+
+
+2
+M. LO et al.
+simultaneously measured by different sensors, whose evolution over time forms
+a Multivariate Time Series. Figure 1 illustrates a synthetic example of a Mul-
+tivariate Time Series Classification (MTSC) problem with d = 3. A wide range
+of methods has been proposed in the literature to address TSC problems [12].
+However, most widely adopted TSC approaches were originally developed for
+the univariate setting, and their extension to the MTSC problem generally relies
+on relatively straightforward adaptations of the original frameworks [14].
+CLASS #1
+CLASS ?
+CLASS #2
+?
+?
+Fig. 1: An Illustrative Three-Dimensional Case Study of an MTSC Problem.
+Among the various existing approaches, random convolution kernel-based
+transformations, including ROCKET [2] and its successors MiniRocket [3], Mul-
+tiRocket [16], and HYDRA [4], have attracted considerable attention in recent
+years due to their remarkable trade-off between classification performance and
+computational efficiency. Deep learning approaches, such as InceptionTime [9],
+are generally natively compatible with Multivariate Time Series. In parallel,
+hybrid approaches such as HIVE-COTE v2.0, which combine multiple hetero-
+geneous classifiers, typically achieve state-of-the-art accuracy at the expense of
+a high computational cost [11]. For a comprehensive survey of MTSC methods,
+the interested reader may refer to [14].
+The internal dimension-handling mechanisms of most Multivariate meth-
+ods either rely on random dimension/channel selection (e.g. MiniRocket [3], or
+DrCIF [11]), in order to avoid scaling issues as the number of dimensions in-
+creases, or exploit all available dimensions simultaneously (e.g., Catch22 [10] or
+WEASEL-MUSE [15]), both of which may lead to suboptimal performance in
+high-dimensional settings. In the case of ROCKET-based methods, random com-
+binations of dimensions/channels are used during the feature extraction process.
+In this paper, we investigate an alternative approach that focuses exclusively on
+dimensions that are relevant to a specific class, with the objective of increasing
+the probability of generating informative and discriminative dimension combi-
+nations for that class. Otherwise, dimensions that are useful for certain classes
+but irrelevant for others may be combined, potentially leading to information
+loss.
+Our main contribution is the development of a framework that performs
+dimension selection independently for each class, rather than applying a single
+global selection process, combined with a class-wise learning strategy followed by
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+3
+a fusion stage for final prediction. We compare the proposed approach against the
+baseline method and provide a comprehensive analysis of the obtained results.
+This article is organized as follows. Section 2 first reviews the adaptations of
+the main random convolution kernel-based methods to the Multivariate setting,
+as well as the most recent dimensionality reduction algorithms for Multivariate
+Time Series Classification. Section 3 then introduces our proposed framework
+based on class-wise dimension selection and learning. The performance of its
+different variants on the UEA Multivariate Time Series Classification Archive [1]
+is analyzed in Section 4. Finally, Section 5 concludes the paper and outlines
+several future research directions.
+2
+Related Work
+2.1
+Multivariate ROCKET-Based Methods
+MTSC methods differ substantially in predictive performance as well as training
+and inference efficiency. Among them, methods from the ROCKET family have
+been widely recognized for providing an excellent trade-off between classification
+accuracy and computational cost.
+ROCKET (Random Convolutional Kernel Transform) [2] introduced the
+use of a large number of randomly generated convolution kernels (typically
+10,000) to create activation maps from time series. The resulting activation maps
+are subsequently summarized using two pooling operators: PPV (Proportion of
+Positive Values) and GMP (Global Maximum Pooling).
+MiniRocket [3] improves the computational efficiency of ROCKET while
+maintaining comparable classification performance. This is achieved through a
+more deterministic design, including a fixed kernel length and a predefined set
+of 84 kernels with values restricted to {−1, 2}.
+MultiRocket [16] extends MiniRocket by incorporating first-order differ-
+ences and additional Pooling Operators extracted from activation maps, namely
+the Mean of Positive Values (MPV), Mean of Indices of Positive Values (MIPV),
+and Longest Stretch of Positive Values (LSPV), thereby enriching the feature
+representation.
+HYDRA (Hybrid Dictionary-ROCKET Architecture) [4] combines dictionary-
+based principles with random convolutional kernels. Kernels are organized into
+groups, and convolutions are computed for all kernels within each group. At
+every time step, the kernel yielding the maximum convolution response is se-
+lected, enabling the construction of histograms of maximal responses that serve
+as feature representations for classification. Similar to MultiRocket, first-order
+differences are incorporated, and the combination of HYDRA and MultiRocket
+representations further improves classification performance.
+
+
+4
+M. LO et al.
+Although MiniRocket and related ROCKET-based methods were originally
+developed for univariate time series, their GitHub implementations generally pro-
+vide a straightforward multivariate extension based on a Completely-At-Random
+(CAR) strategy. In MiniRocket, for instance, a random subset of dimensions,
+with a size ranging from 1 to 9, is selected for each (kernel, dilation, bias) triplet,
+and the convolution outputs computed independently on these dimensions are
+summed to produce a single activation map.
+While this strategy preserves computational efficiency by preventing com-
+plexity from scaling directly with dimensionality, its random selection mechanism
+may become increasingly suboptimal in high-dimensional settings, reducing the
+likelihood of generating informative and discriminative dimension combinations.
+Consequently, selecting only relevant dimensions through dimensionality re-
+duction may improve the construction of meaningful feature representations
+while preserving the computational advantages of ROCKET-based methods.
+2.2
+Recent Dimension Reduction Methods for MTSC
+Dimensionality reduction methods are external preprocessing techniques applied
+prior to MTSC methods, although many classifiers may already incorporate ded-
+icated mechanisms for handling input dimensions. Their objective is to identify
+the most relevant dimensions before classification, thereby reducing data dimen-
+sionality while preserving discriminative information.
+ECS and ECP [6, 7] are dimensionality reduction methods based on the
+assumption that useful dimensions should allow different classes to be discrimi-
+nated through distinct temporal shapes. For each class, a prototype (e.g., Mean,
+Median, or Median Absolute Deviation) is computed to be its representative
+time series, and the separability of a dimension is evaluated by measuring the
+distance between pairs of class prototypes using metrics such as Euclidean dis-
+tance or Dynamic Time Warping (DTW). The larger the distance, the more
+distinguishable the two classes are.
+ECS evaluates each dimension globally by summing the distances between
+all pairs of class prototypes and selects dimensions using an elbow-based crite-
+rion. In contrast, ECP performs pairwise class-based selection and constructs
+the final subset by taking the union of the dimensions identified as relevant for
+each class pair. Consequently, ECS favors dimensions that are globally infor-
+mative across all classes, whereas ECP preserves dimensions that may only be
+discriminative for specific classes and therefore only removes dimensions that are
+non-informative, regardless of the considered classes.
+TSelect [13] is a dimensionality reduction method designed to retain the
+most predictive dimensions while minimizing redundancy. The method oper-
+ates in two stages. First, the training set is divided into learning and validation
+subsets. For each dimension, statistical features (minimum, maximum, mean,
+variance, skewness, and kurtosis) are extracted from time series, and a logistic
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+5
+regression classifier is trained to estimate predictive performance on the valida-
+tion set using the AUROC metric.
+In the second stage, an irrelevant channel selector removes redundant or non-
+informative dimensions, retaining only complementary dimensions with mean-
+ingful predictive value.
+3
+Proposed Method
+3.1
+Framework Overview
+Let D = {(Xi, yi)}n
+i=1 denote a multivariate and multiclass time series dataset
+containing n observations, d dimensions, a sequence length T, and C classes,
+where Xi ∈Rd×T and yi ∈{1, . . . , C}.
+The proposed framework, illustrated in Figure 2, is motivated by the hypoth-
+esis that the dimensions carrying discriminative information may vary across
+classes and that class-specific combinations of dimensions may provide more in-
+formative representations for distinguishing a given class from the others. Rather
+than relying on a single representation shared across all classes, the framework
+constructs a dedicated learning branch for each target class K.
+Each branch consists of two successive stages. First, a class-wise dimension
+selection procedure identifies a subset SK ⊆{1, . . . , d} containing the dimensions
+considered informative for distinguishing class K from the remaining classes.
+Second, the original multiclass problem is reformulated as a binary one-versus-
+rest problem for class K, and a classifier fK is trained using only the dimensions
+contained in SK. Repeating this procedure for all C classes produces the set of
+class-specific models {f1, . . . , fC}. At inference time, each model processes the
+dimensions associated with its target class, and the resulting decision scores are
+combined to determine the final multiclass prediction.
+The framework therefore differs from conventional global dimension selection
+in two respects: the selected subset is allowed to vary across classes, and each
+subset is directly associated with a dedicated class-specific learning problem.
+The following subsections describe these two stages in detail.
+3.2
+Class-Wise Dimension Selection
+We instantiate the proposed framework using ECS and ECP because their pair-
+wise class-prototype formulation can be naturally conditioned on a target class.
+Algorithm 1 is a class-wise adaptation of the original ECS and ECP methods
+introduced in [7].
+For each class K and dimension j, let cK,j denote the prototype of class K on
+dimension j. The discriminative information between two classes K and L on di-
+mension j is measured by δj(K, L) = dist (cK,j, cL,j) , where dist(·, ·) denotes the
+distance measure used by the corresponding ECS/ECP original configuration.
+The key difference between the original and proposed formulations lies in the
+set of class pairs considered during selection. In the original methods, dimen-
+sion relevance is ultimately determined from class pairs covering the complete
+
+
+6
+M. LO et al.
+Training
+MTS
+D =
+{(Xi, yi)}n
+i=1
+Class-wise
+dimension
+selection
+(ECS / ECP)
+S1
+SK
+SC
+...
+...
+1 vs Rest
+MiniRocket
+f1
+K vs Rest
+MiniRocket
+fK
+C vs Rest
+MiniRocket
+fC
+z1
+zK
+zC
+Score
+fusion
+arg max
+K
+zK
+Predicted
+class
+ˆy
+Class-
+specific
+subsets
+Class-
+wise OvR
+learning
+Decision
+scores
+Fig. 2: Overview of the proposed method: for each class K, a class-specific dimen-
+sion subset SK is selected and a binary one-versus-rest classifier fK is trained
+on these selected dimensions only; the C resulting scores are fused to produce
+the final multiclass prediction.
+multiclass problem, resulting in a single subset S shared by all classes. In the
+proposed class-wise formulation, selection for a target class K considers only the
+pairs PK = {(K, L) | L̸ = K}. Consequently, a potentially different subset SK
+is obtained for each class.
+For the class-wise adaptation of ECS, the relevance score of dimension j with
+respect to target class K is computed by aggregating only distances involving
+K:
+s(K)
+j
+=
+X
+L̸=K
+δj(K, L).
+(1)
+The dimensions are ranked according to s(K)
+j
+, and the same elbow-based selection
+criterion as in the original ECS method is applied to determine SK. In contrast,
+the original ECS formulation aggregates information over all class pairs and
+therefore produces a single global subset S.
+For the class-wise adaptation of ECP, dimensions are first ranked separately
+for each pair (K, L) ∈PK. Let SK,L denote the subset selected for the pair
+(K, L) using the original ECP elbow criterion. The class-specific subset is then
+defined as
+SK =
+[
+L̸=K
+SK,L.
+(2)
+The original ECP method instead takes the union of selections obtained from
+all class pairs, yielding a single global subset. Restricting this union to pairs
+involving K preserves the pairwise principle of ECP while producing a subset
+specifically associated with the target class. Algorithm 1 summarizes the com-
+plete class-wise selection procedure.
+TSelect is not adapted in this study because, unlike ECS and ECP, its di-
+mension relevance is obtained from the predictive performance of a classifier
+trained independently on each dimension. Extending this mechanism to a class-
+wise setting would require redefining the relevance estimation for each target
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+7
+Algorithm 1 Class-Wise Adaptation of ECS and ECP
+Input: Training dataset D and selection method M ∈{ECS, ECP}
+Output: Class-specific dimension subsets S = {S1, . . . , SC}
+1: for each class K and dimension j do
+2:
+Compute class prototype cK,j
+3: end for
+4: for each target class K do
+5:
+PK ←{(K, L) | L̸ = K}
+6:
+if M = ECS then
+7:
+for each dimension j do
+8:
+s(K)
+j
+←P
+L̸=K dist(cK,j, cL,j)
+9:
+end for
+10:
+Rank dimensions according to s(K)
+j
+11:
+Determine the elbow point
+12:
+SK ←dimensions retained by the elbow criterion
+13:
+else if M = ECP then
+14:
+SK ←∅
+15:
+for each pair (K, L) ∈PK do
+16:
+for each dimension j do
+17:
+δj(K, L) ←dist(cK,j, cL,j)
+18:
+end for
+19:
+Rank dimensions according to δj(K, L)
+20:
+Determine the elbow point
+21:
+SK,L ←dimensions retained by the elbow criterion
+22:
+SK ←SK ∪SK,L
+23:
+end for
+24:
+end if
+25: end for
+26: return {S1, . . . , SC}
+class and would introduce additional classifier-training costs. We therefore focus
+on ECS and ECP, whose pairwise formulation allows a direct class-conditioned
+adaptation.
+3.3
+Class-Wise Learning and Score Fusion
+Algorithm 1 selects, for each class K ∈{1, . . . , C}, a subset of dimensions SK ⊆
+{1, . . . , d}. This defines the class-specific training subset
+DK =
+n
+(X(SK)
+i
+, y(K)
+i
+)
+on
+i=1 ,
+(3)
+where X(SK)
+i
+= (Xi,j)j∈SK and
+y(K)
+i
+=
+(
+1,
+if yi = K,
+0,
+otherwise.
+(4)
+
+
+8
+M. LO et al.
+For each class K, a classifier fK is trained on DK. Given a new observation Xp,
+the predicted label is
+ˆyp = arg
+max
+K∈{1,...,C} zK,
+zK = σ
+
+fK(X(SK)
+p
+)
+
+,
+(5)
+where σ denotes the sigmoid function used to transform decision scores into
+probability estimates.
+3.4
+Complexity Analysis
+The proposed framework comprises class-wise dimension selection and class-wise
+MiniRocket transformation. Following Algorithm 1, class-prototype computa-
+tion (Lines 1–3) costs O(ndT), pairwise class-distance computation (Lines 7–
+9 and Lines 15–18) costs O(C(C −1)dT), and ranking with elbow detection
+O(Cd log d) for ECS (Lines 10–11) and O
+ C2d log d
+
+for ECP (Lines 19–20).
+The resulting selection complexity is therefore
+O(ndT + C(C −1)dT + Cd log d)
+for ECS, with the last term replaced by C2d log d for ECP. The subsequent
+class-wise MiniRocket transform [3] has complexity
+O
+ 
+k n T
+C
+X
+c=1
+min(|Sc|, 9)
+!
+,
+where k is the total number of MiniRocket kernels and Sc is the subset se-
+lected for class c. The term min(|Sc|, 9) reflects the MiniRocket implementation
+constraint that each convolution involves at most nine dimensions. Hence, the
+computational cost depends on the selected class-specific dimensions rather than
+on the full dimensionality d.
+4
+Results of the Experiments
+4.1
+Experimental Settings
+We conducted our experiments on the UEA Multivariate Time Series Clas-
+sification Archive, which contains 30 multivariate time series datasets. From
+this archive, we selected 25 datasets with equal-length time series and sequence
+lengths greater than or equal to 9.
+Across the selected datasets, the number of dimensions ranges from 2 to
+1345, while sequence lengths vary from 30 to 17,984 time steps. Following the
+taxonomy of the UEA Multivariate Time Series Classification Archive [1], the
+selected datasets were grouped according to their application domain into six
+categories: Motion Classification (MOTION), Electrocardiography (ECG), Elec-
+troencephalography (EEG), Human Activity Recognition (HAR), Audio Spectra
+Classification (AUDIO), and Other miscellaneous categories (OTHER).
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+9
+Since multivariate classification methods may exhibit high variability across
+repeated experiments [14], each dataset was resampled 30 times, and all methods
+were evaluated on the resulting folds to ensure robust and reliable performance
+estimation. For each method and dataset, the standard error across folds was
+computed to assess performance stability.
+In addition, we employed Critical Difference Diagrams (CDD) [5] to visualize
+the average rank of methods across datasets, where horizontal cliques indicate
+the absence of statistically significant differences. We also used Multiple Compar-
+ison Matrices (MCM) [8], in which heatmap colors represent mean performance
+differences between methods.
+4.2
+Baseline Classifier Selection
+In this study, we compared several methods from the ROCKET family on the 25
+selected datasets from the UEA Multivariate Time Series Classification Archive.
+As shown in Figure 3, the Multiple Comparison Matrix (MCM) reveals no statis-
+tically significant differences among the evaluated methods and variants, includ-
+ing ROCKET, MiniRocket, MultiRocket, HYDRA, and HYDRA + MultiRocket.
+Notably, the Win/Draw/Loss ratio between MiniRocket and both MultiRocket
+and HYDRA + MultiRocket is identical (12/1/12).
+Therefore, MiniRocket was selected as the baseline method due to its favor-
+able trade-off between classification performance and computational efficiency.
+This choice is particularly relevant to our framework, which trains one classifier
+per class and therefore introduces an additional computational overhead. The
+complexity analysis provided in Section 3.4 further quantifies this additional cost
+and shows how it depends on the number of selected dimensions for each class.
+Mean-Accuracy
+Hydra + MultiRocket
+73.3494
+MultiRocket
+73.1342
+MiniRocket
+72.3486
+Hydra
+71.4718
+Rocket
+71.3443
+MiniRocket
+72.3486
+-1.0008
+12 / 1 / 12
+0.2940
+-0.7856
+12 / 1 / 12
+0.6668
+Mean-Difference
+r>c / r=c / r<c
+Wilcoxon p-value
+0.8768
+14 / 1 / 10
+0.3327
+1.0043
+14 / 0 / 11
+0.4842
+−1
+0
+1
+Mean-Difference
+Fig. 3: Multiple Comparison Matrix for ROCKET-based Methods. Bold values
+indicate a Wilcoxon p-value < 0.05.
+4.3
+Comparison between the Different Variants
+Table 1 reports the classification performance of the original MiniRocket imple-
+mentation (Base) and the proposed class-wise training variant without dimen-
+sionality reduction (CW). Overall, the CW variant consistently achieves slightly
+
+
+10
+M. LO et al.
+Table 1: Average classification accuracies with standard errors over 30 resamples
+for MiniRocket without dimensionality reduction. Dataset abbreviations intro-
+duced here are used in the subsequent result tables. Base corresponds to the
+original setting (all dimensions, no class-wise training), whereas CW denotes
+the class-wise training variant using all dimensions.
+Datasets (abbreviations)
+Base
+CW
+ArticularyWordRecognition (AWR)
+99.39±0.07
+99.36±0.08
+AtrialFibrillation (AF)
+26.67±1.83
+26.22±1.75
+BasicMotions (BM)
+100.00±0.00
+100.00±0.00
+Cricket (CR)
+99.63±0.11
+99.63±0.11
+DuckDuckGeese (DDG)
+66.53±0.93
+66.93±1.00
+EigenWorms (EW)
+92.24±0.43
+92.57±0.54
+Epilepsy (EP)
+99.59±0.11
+99.69±0.11
+EthanolConcentration (EC)
+47.12±0.50
+49.89±0.46
+ERing (ER)
+98.07±0.14
+98.25±0.14
+FaceDetection (FD)
+62.55±0.17
+65.51±0.17
+FingerMovements (FM)
+57.00±1.04
+58.43±0.78
+HandMovementDirection (HMD)
+40.09±0.99
+39.64±1.00
+Handwriting (HW)
+55.97±0.45
+56.42±0.43
+Heartbeat (HB)
+75.82±0.48
+75.97±0.47
+Libras (LIB)
+92.24±0.41
+92.19±0.41
+LSST (LSST)
+64.07±0.12
+64.50±0.12
+MotorImagery (MI)
+51.77±0.83
+52.70±0.72
+NATOPS (NATO)
+91.04±0.32
+91.43±0.41
+PEMS-SF (PEMS)
+84.26±0.49
+84.59±0.50
+PhonemeSpectra (PS)
+31.70±0.13
+31.78±0.13
+RacketSports (RS)
+90.88±0.31
+91.69±0.35
+SelfRegulationSCP1 (SRS1)
+90.14±0.23
+90.31±0.26
+SelfRegulationSCP2 (SRS2)
+51.89±0.52
+51.80±0.58
+StandWalkJump (SWJ)
+46.44±1.79
+46.44±1.92
+UWaveGestureLibrary (UW)
+93.62±0.20
+93.75±0.19
+better performance, both on average and across individual datasets, with no-
+table improvements on datasets such as EthanolConcentration and FaceDetec-
+tion, highlighting the benefit of class-specific learning.
+Table 2 presents the results obtained with the Base model, CW + G (class-
+wise training with global dimension selection), and CW + L (class-wise training
+with local dimension selection) using ECS and ECP dimensionality reduction.
+While CW + G mainly reflects the contribution of class-wise training alone,
+CW + L highlights the additional benefits of combining class-wise learning with
+local dimension selection. Overall, both CW + L variants outperform their re-
+spective baselines (ECS Base and ECP Base) on most datasets, emphasizing the
+effectiveness of local dimension selection.
+Figure 4 compares the developed MiniRocket variants using a Critical Dif-
+ference Diagram. The CW variant without dimensionality reduction achieves
+the best average rank and significantly outperforms the second-ranked method,
+namely the original baseline (Base), demonstrating strong robustness across
+datasets.
+The ECP CW + L variant achieves a ranking comparable to the original base-
+line while exhibiting superior performance on specific dataset categories (e.g.,
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+11
+Table 2: Average classification accuracies with standard errors over 30 resam-
+ples for MiniRocket with dimensionality reduction. Base: ECS/ECP global di-
+mensionality reduction without class-wise training; CW + G: ECS/ECP global
+dimensionality reduction with class-wise training; CW + L: ECS/ECP local di-
+mensionality reduction with class-wise training.
+ECS
+ECP
+Dataset
+Base
+CW+G
+CW+L
+Base
+CW+G
+CW+L
+AWR
+98.40±0.18
+98.31±0.21
+98.47±0.13
+99.31±0.07
+99.31±0.07
+99.34±0.07
+AF
+27.33±1.97
+27.11±1.80
+26.67±2.08
+26.44±1.85
+27.56±1.80
+27.56±1.88
+BM
+99.92±0.08
+100.00±0.00 100.00±0.00 100.00±0.00 100.00±0.00 100.00±0.00
+CR
+98.89±0.23
+98.89±0.22
+99.21±0.14
+99.63±0.11
+99.68±0.11
+99.68±0.11
+DDG
+69.33±1.17
+68.93±1.20
+68.13±0.98
+69.13±0.84
+68.67±1.10
+68.20±0.97
+EW
+83.97±0.88
+84.55±0.87
+84.61±0.80
+86.95±0.61
+87.05±0.69
+86.90±0.69
+EP
+96.59±0.34
+96.69±0.34
+97.39±0.30
+99.15±0.15
+99.11±0.16
+98.67±0.17
+EC
+47.83±0.45
+51.04±0.51
+51.62±0.55
+47.00±0.51
+50.08±0.44
+51.34±0.52
+ER
+87.72±1.17
+87.56±1.17
+96.09±0.27
+98.12±0.16
+98.10±0.12
+98.00±0.17
+FD
+61.99±0.18
+61.95±0.17
+64.28±0.20
+61.04±0.19
+61.10±0.18
+63.38±0.16
+FM
+54.40±0.75
+53.97±0.97
+55.33±0.92
+54.07±1.04
+55.90±0.75
+55.10±0.72
+HMD
+41.04±0.92
+40.05±0.89
+44.50±1.02
+40.50±0.89
+38.78±0.83
+42.03±1.03
+HW
+38.92±0.94
+38.75±0.90
+40.11±0.53
+56.04±0.41
+56.13±0.42
+56.09±0.41
+HB
+74.62±0.47
+74.65±0.45
+74.98±0.41
+74.55±0.44
+74.85±0.49
+74.93±0.41
+LIB
+86.94±1.09
+86.78±1.15
+86.56±0.75
+92.11±0.42
+92.02±0.49
+92.19±0.43
+LSST
+54.57±0.99
+54.38±1.00
+54.46±0.92
+63.84±0.12
+64.03±0.12
+64.43±0.12
+MI
+51.03±0.78
+50.47±0.71
+49.93±0.67
+50.47±0.75
+50.63±0.83
+49.67±0.75
+NATO
+85.91±0.36
+85.91±0.40
+86.15±0.39
+90.41±0.32
+90.44±0.37
+91.00±0.43
+PEMS
+85.39±0.51
+84.62±0.45
+85.20±0.46
+84.45±0.44
+85.38±0.48
+84.93±0.47
+PS
+31.78±0.11
+31.81±0.14
+31.81±0.11
+31.86±0.11
+31.75±0.10
+31.68±0.11
+RS
+88.29±0.35
+87.98±0.34
+88.84±0.37
+88.79±0.41
+88.84±0.36
+88.90±0.43
+SRS1
+89.34±0.25
+89.17±0.28
+89.43±0.26
+89.06±0.27
+89.27±0.26
+88.95±0.27
+SRS2
+51.41±0.54
+52.02±0.51
+52.31±0.52
+51.69±0.71
+51.89±0.48
+51.89±0.60
+SWJ
+43.33±2.19
+43.56±1.85
+42.00±1.78
+44.44±1.92
+44.44±1.95
+44.44±1.87
+UW
+70.33±0.46
+70.44±0.43
+82.94±0.66
+93.77±0.18
+93.75±0.22
+93.93±0.24
+1
+2
+3
+4
+5
+6
+7
+8
+CW
+2.9200
+BASE
+3.7200
+ECP CW + L
+3.8600
+ECP CW + G
+4.0200
+ECS CW + L
+4.7600
+ECP BASE
+4.9200
+ECS BASE
+5.8200
+ECS CW + G
+5.9800
+Fig. 4: Critical Difference Diagram of the different MiniRocket variants.
+OTHER). Similarly, ECS CW + L attains a better rank than both ECS Base
+and ECP Base, further highlighting the benefit of integrating class-wise learning
+with local dimension selection.
+Table 3 compares the performance of Base, CW, and CW + L across dataset
+categories under three configurations: without dimensionality reduction, with
+
+
+12
+M. LO et al.
+Table 3: Comparison by problem category
+Model
+ECG
+EEG
+MOTION
+HAR
+AUDIO
+OTHER
+BASE
+36.55
+58.90
+95.81
+91.22
+58.02
+65.14
+CW
+36.33
+59.73
+95.96
+91.44
+58.22
+66.32
+ECS BASE
+35.33
+58.20
+91.18
+83.72
+58.57
+62.59
+ECS CW + L
+34.33
+59.29
+91.53
+86.36
+58.30
+63.76
+ECP BASE
+35.44
+57.80
+93.12
+90.89
+58.51
+65.09
+ECP CW + L
+36.0
+58.50
+93.12
+90.93
+58.26
+66.90
+ECS, and with ECP. The results indicate that the EEG and OTHER categories
+particularly benefit from the class-wise strategy. Moreover, ECP CW + L sur-
+passes the original MiniRocket on OTHER and AUDIO datasets, whereas ECS
+CW + L improves performance on EEG and AUDIO datasets.
+Overall, ECS and ECP combined with the CW + L framework consistently
+outperform their corresponding baseline variants across nearly all dataset cat-
+egories, supporting the effectiveness of combining class-wise learning with local
+dimensionality reduction (Figures 5 and 6).
+Table 4: Comparison by number of dimensions and number of classes
+# Dimensions
+# Classes
+Model
+2
+3–4
+5–9
+10–49
+50+
+2
+3–4
+5–9
+10+
+BASE
+59.45
+73.47
+86.02
+54.95
+68.18
+64.86
+64.39
+87.62
+73.83
+CW
+59.20
+74.07
+86.23
+55.32
+69.13
+65.78
+64.79
+87.91
+73.97
+ECS BASE
+57.13
+64.12
+83.09
+53.28
+68.47
+63.79
+63.47
+80.44
+68.25
+ECS CW + L
+56.61
+68.35
+83.41
+54.44
+68.50
+64.37
+64.43
+83.85
+68.43
+ECP BASE
+59.27
+73.08
+84.90
+54.20
+67.92
+63.47
+63.76
+87.13
+73.79
+ECP CW + L
+59.80
+73.74
+85.01
+54.95
+68.22
+63.98
+64.70
+87.15
+73.90
+Table 4 compares performance according to the number of dimensions and
+the number of classes. The CW variant without dimensionality reduction outper-
+forms the original MiniRocket on datasets containing at most four classes (≤4)
+and at least three dimensions (≥3), while achieving comparable performance
+elsewhere.
+Regarding dimensionality, ECP CW + L performs better than the baseline on
+low-dimensional datasets (≤4) and remains competitive on higher-dimensional
+datasets (≥10). In contrast, ECS CW + L achieves superior performance on
+high-dimensional datasets (≥50) compared to the baseline.
+Table 5 reports the average number of selected dimensions per classifier across
+dataset categories. While Base approaches train a single classifier, CW-based ap-
+proaches train one classifier per class. ECS and ECP Base already provide sub-
+stantial dimensionality reduction, with ECS selecting markedly fewer dimensions
+than ECP.
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+13
+Table 5: Comparison of average number of selected dimensions by problem cat-
+egory
+Model
+ECG
+EEG
+MOTION
+HAR
+AUDIO
+OTHER
+BASE
+3.0
+43.16
+7.5
+6.33
+472.33
+324.0
+ECS Global
+1.53
+9.28
+2.3
+2.87
+111.53
+39.25
+ECS Local
+1.47
+9.06
+2.77
+2.71
+96.35
+31.99
+ECP Global
+1.98
+8.42
+6.2
+4.92
+170.84
+94.57
+ECP Local
+1.78
+8.24
+6.04
+4.30
+125.20
+67.97
+Furthermore, local selection substantially reduces the number of dimensions
+per classifier for the OTHER and AUDIO categories in both ECS and ECP. In-
+terestingly, the impact of this reduction varies across categories: in AUDIO, fewer
+selected dimensions are associated with lower performance, whereas in OTHER,
+dimensionality reduction improves classification accuracy. These findings suggest
+that the effectiveness of local dimensionality reduction strongly depends on the
+problem category and is in most cases beneficial.
+ECS CW + L
+ECS BASE
+OTHER
+50
+55
+60
+65
+70
+75
+80
+85
+ECS CW + L
+ECS BASE
+EEG
+40
+45
+50
+55
+60
+65
+(a) Performances
+BASE
+ECS CW + L ECS BASE
+OTHER
+0
+200
+400
+600
+800
+1000
+BASE
+ECS CW + L ECS BASE
+EEG
+10
+20
+30
+40
+50
+60
+(b) Number of selected dimensions
+Fig. 5: Comparison of classification performances and mean number of selected
+dimensions per classifier between ECS Base and ECS CW + L across the OTHER
+and EEG dataset categories.
+5
+Conclusion and Prospects
+In this study, we introduced a class-wise framework for multivariate time series
+classification that identifies the most relevant dimensions for each class, trains
+a dedicated classifier on each resulting subset, and produces the final predic-
+tion through classifier fusion. The results demonstrate that such a strategy pro-
+vides consistent improvements in classification performance across heterogeneous
+datasets (the class-wise variant achieves the best average rank and significantly
+
+
+14
+M. LO et al.
+ECP CW + L
+ECP BASE
+OTHER
+50
+55
+60
+65
+70
+75
+80
+85
+ECP CW + L
+ECP BASE
+EEG
+40
+45
+50
+55
+60
+(a) Performances
+BASE
+ECP CW + L ECP BASE
+OTHER
+0
+200
+400
+600
+800
+1000
+BASE
+ECP CW + L ECP BASE
+EEG
+0
+10
+20
+30
+40
+50
+60
+(b) Number of selected dimensions
+Fig. 6: Comparison of classification performances and mean number of selected
+dimensions per classifier between ECP Base and ECP CW + L across the
+OTHER and EEG dataset categories.
+outperforms the original MiniRocket), with gains depending on the problem
+category, and that it is particularly beneficial for methods relying on random
+dimension selection. Moreover, the selected class-specific subsets enhance inter-
+pretability by explicitly indicating which dimensions distinguish each class from
+the others (e.g., which sensors characterize a given activity in HAR problems).
+Future work may extend the proposed framework to other ROCKET-based
+methods as well as additional approaches from the time series classification liter-
+ature. Another promising direction would be the adaptation of ChannelScorer-
+based dimensionality reduction methods to support local dimension selection.
+Acknowledgments. The authors thank the anonymous reviewers for their care-
+ful reading of this paper and their constructive comments, which helped improve
+the manuscript. This research project, supported and financed by the French ANR
+(Agence Nationale pour la Recherche), is part of the Labcom (Laboratoire Commun)
+MYEL (MobilitY and Reliability of Electrical chain Lab) involving LSEE, LGI2A and
+CRITTM2A (ANR-22-LCV2-0001 MYEL).
+Disclosure of Interests. The authors have no competing interests to declare that
+are relevant to the content of this article.
+References
+1. Bagnall, A., Dau, H.A., Lines, J., Flynn, M., Large, J., Bostrom, A., Southam,
+P., Keogh, E.: The uea multivariate time series classification archive, 2018. arXiv
+preprint arXiv:1811.00075 (2018). https://doi.org/10.48550/arXiv.1811.00075
+2. Dempster, A., Petitjean, F., Webb, G.I.: ROCKET: exceptionally fast and accu-
+rate time series classification using random convolutional kernels. Data Mining
+and Knowledge Discovery 34(5), 1454–1495 (2020). https://doi.org/10.1007/
+s10618-020-00701-z
+
+
+Improving MTSC with Class-Wise Training and Model Aggregation
+15
+3. Dempster, A., Schmidt, D.F., Webb, G.I.: MiniRocket: A very fast (almost) deter-
+ministic transform for time series classification. In: Proceedings of the 27th ACM
+SIGKDD conference on knowledge discovery & data mining. pp. 248–257 (2021).
+https://doi.org/10.1145/3447548.3467231
+4. Dempster, A., Schmidt, D.F., Webb, G.I.: Hydra: Competing convolutional kernels
+for fast and accurate time series classification. Data Mining and Knowledge Dis-
+covery 37(5), 1779–1805 (2023). https://doi.org/10.1007/s10618-023-00939-3
+5. Demšar, J.: Statistical comparisons of classifiers over multiple data sets. The Jour-
+nal of Machine learning research 7(1), 1–30 (2006)
+6. Dhariyal, B., Le Nguyen, T., Ifrim, G.: Scalable classifier-agnostic channel selection
+for multivariate time series classification. Data Mining and Knowledge Discovery
+37(2), 1010–1054 (2023). https://doi.org/10.1007/s10618-022-00909-1
+7. Dhariyal, B., Nguyen, T.L., Ifrim, G.: Fast channel selection for scalable multi-
+variate time series classification. In: Advanced Analytics and Learning on Tempo-
+ral Data (AALTD), Revised Selected Papers. p. 36–54. Springer (2021). https:
+//doi.org/10.1007/978-3-030-91445-5_3
+8. Ismail-Fawaz, A., Dempster, A., Tan, C.W., Herrmann, M., Miller, L., Schmidt,
+D.F., Berretti, S., Weber, J., Devanne, M., Forestier, G., Webb, G.I.: An approach
+to multiple comparison benchmark evaluations that is stable under manipulation
+of the comparate set. arXiv preprint arXiv:2305.11921 (2023). https://doi.org/
+10.48550/arXiv.2305.11921
+9. Ismail Fawaz, H., Lucas, B., Forestier, G., Pelletier, C., Schmidt, D.F., Weber,
+J., Webb, G.I., Idoumghar, L., Muller, P.A., Petitjean, F.: Inceptiontime: Finding
+alexnet for time series classification. Data Mining and Knowledge Discovery 34(6),
+1936–1962 (2020). https://doi.org/10.1007/s10618-020-00710-y
+10. Lubba, C.H., Sethi, S.S., Knaute, P., Schultz, S.R., Fulcher, B.D., Jones,
+N.S.: catch22: CAnonical Time-series CHaracteristics. Data Mining and Knowl-
+edge
+Discovery
+33(6),
+1821–1852
+(Nov
+2019).
+https://doi.org/10.1007/
+s10618-019-00647-x
+11. Middlehurst, M., Large, J., Flynn, M., Lines, J., Bostrom, A., Bagnall, A.: HIVE-
+COTE 2.0: a new meta ensemble for time series classification. Machine Learning
+110(11), 3211–3243 (2021). https://doi.org/10.1007/s10994-021-06057-9
+12. Middlehurst, M., Schäfer, P., Bagnall, A.: Bake off redux: a review and exper-
+imental evaluation of recent time series classification algorithms. Data Mining
+and Knowledge Discovery 38(4), 1958–2031 (2024). https://doi.org/10.1007/
+s10618-024-01022-1
+13. Nuyts, L., Perini, L., Davis, J.: Tselect: Selecting relevant and non-redundant chan-
+nels for multivariate time series classification. Data Mining and Knowledge Dis-
+covery 39(6), 76 (2025). https://doi.org/10.1007/s10618-025-01132-4
+14. Ruiz, A.P., Flynn, M., Large, J., Middlehurst, M., Bagnall, A.: The great multi-
+variate time series classification bake off: a review and experimental evaluation of
+recent algorithmic advances. Data mining and knowledge discovery 35(2), 401–449
+(2021). https://doi.org/10.1007/s10618-020-00727-3
+15. Schäfer, P., Leser, U.: Multivariate time series classification with weasel+muse.
+In: Proceedings of the 3rd ECML/PKDD Workshop on Advanced Analytics and
+Learning on Temporal Data (AALTD). pp. 1–11 (2018). https://doi.org/10.
+48550/arXiv.1711.11343
+16. Tan, C.W., Dempster, A., Bergmeir, C., Webb, G.I.: MultiRocket: multiple pooling
+operators and transformations for fast and effective time series classification. Data
+Mining and Knowledge Discovery 36(5), 1623–1646 (2022). https://doi.org/10.
+48550/arXiv.2102.00457

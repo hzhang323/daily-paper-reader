@@ -1,0 +1,1364 @@
+GSLAD: Prototype-Regularized Graph Structure Learning for
+Multivariate Time Series Anomaly Detection
+Zepeng Zhang, Fuad Khuri, Keivan Faghih Niresi, Olga Fink∗
+Intelligent Maintenance and Operations Systems (IMOS) Lab
+École Polytechnique Fédérale de Lausanne (EPFL), Lausanne, Switzerland
+{zepeng.zhang, fuad.khuri, keivan.faghihniresi, olga.fink}@epfl.ch
+Abstract
+Unsupervised multivariate time series anomaly detection
+methods typically identify anomalies through forecasting, re-
+construction, or representation discrepancies. However, in-
+dustrial faults may first alter inter-variable structural patterns
+while individual trajectories remain close to normal, resulting
+in weak anomaly signals. In this paper, we propose GSLAD, a
+prototype-regularized graph structure learning framework that
+uses structural deviations for anomaly scoring. GSLAD adopts
+a two-phase training strategy. First, a condition-aware graph
+learner and a graph-based forecaster are optimized with pre-
+dictive supervision. The inferred normal graphs are then clus-
+tered into multiple structural prototypes representing different
+normal operating regimes, with edge-wise variability charac-
+terizing structural uncertainty. Deviations from these proto-
+types regularize the graph learner in the second phase, en-
+couraging stable and regime-specific structural patterns. Dur-
+ing inference, uncertainty-normalized structural deviation is
+combined with predictive deviation for anomaly scoring. Ex-
+periments on four industrial benchmarks demonstrate strong
+overall performance of GSLAD and confirm the effectiveness
+of structural deviation for anomaly detection and diagnosis.
+Introduction
+Many industrial systems are monitored with sensor networks
+that generate vast amounts of multivariate time series (MTS)
+data. Detecting anomalies in MTS data is essential for pre-
+venting failures, reducing downtime, and maintaining the
+reliable operation of complex industrial systems (Wu, Dai,
+and Tang 2021; Deng and Hooi 2021; Fink et al. 2026). In
+practice, however, fault labels are often scarce, incomplete,
+and expensive to obtain, motivating increasing interest in
+unsupervised MTS anomaly detection (Zhang et al. 2019;
+Audibert et al. 2020; Belay et al. 2023).
+Unsupervised MTS anomaly detection models are typi-
+cally trained to forecast (Deng and Hooi 2021) or reconstruct
+(Zhao and Fink 2024) normal observations. Then, during
+inference, anomalies are identified by measuring discrepan-
+cies between observed signals and model outputs (Jin et al.
+2024; Chen and Eldardiry 2024; Ho, Karami, and Arman-
+fard 2025). Despite their architectural differences, most ex-
+isting methods rely on a similar assumption: anomalous sam-
+ples are expected to produce larger predictive, reconstructive,
+∗Corresponding author.
+or representation discrepancies than normal samples (Zhao
+et al. 2020; Cho et al. 2025). This principle is effective when
+faults cause pronounced deviations in individual sensor tra-
+jectories. However, many industrial faults do not immediately
+induce large marginal deviations. Instead, they may primarily
+alter the structural patterns while individual sensor trajecto-
+ries remain close to their normal ranges. As a result, a model
+may continue to forecast or reconstruct individual trajectories
+accurately, producing weak anomaly signal.
+To capture structural patterns of the system, several MTS
+anomaly detection methods propose to incorporate graph
+structure learning into graph neural network (GNN)-based
+forecasting or reconstruction models (Deng and Hooi 2021;
+Zheng et al. 2023; Zhao and Fink 2024). In these approaches,
+however, the learned graph primarily serves as an intermedi-
+ate computational structure for more effective message pass-
+ing, while anomaly scores are still derived solely from predic-
+tion or reconstruction discrepancies. More recently, several
+methods have explicitly exploited structural information for
+anomaly detection, for example by constructing relational
+graphs from model gradients (Liu, Gao, and Jiao 2025) or
+intermediate representations (Cho et al. 2025). Nonetheless,
+the graph structures in these works used for anomaly scor-
+ing are derived post hoc from trained predictors or latent
+representations, rather than being jointly inferred as explicit
+model outputs.
+Turning structural deviation into a reliable anomaly sig-
+nal is nontrivial. Structural patterns may vary across differ-
+ent operating regimes, and complex systems often exhibit
+multiple distinct normal operating regimes. Moreover, nor-
+mal structural variability is heterogeneous across edges. De-
+viations on stable edges should provide stronger anomaly
+evidence than deviations on edges that fluctuate naturally
+during normal operation. To address these challenges, we
+introduce GSLAD, a prototype-regularized graph structure
+learning framework for unsupervised MTS anomaly detec-
+tion. GSLAD jointly infers condition-dependent graph struc-
+tures and forecasts future observations with a GNN. Its two-
+phase training procedure first learns predictive normal graphs
+and then summarizes them into multiple uncertainty-aware
+structural prototypes. These prototypes are expected to cap-
+ture distinct normal operating regimes, while their edge-wise
+variability quantifies the reliability of individual structural
+relations. Deviation from these prototypes subsequently reg-
+arXiv:2609.15483v1  [cs.LG]  14 Sep 2026
+
+
+ularizes the graph learner, encouraging normal graphs to
+remain compact around regime-specific prototypes. During
+inference, uncertainty-normalized structural deviation from
+the nearest normal prototype is combined with predictive
+deviation for anomaly scoring.
+The main contributions are summarized as follows:
+• We propose GSLAD and develop a two-phase training
+strategy. The first phase learns condition-aware graphs un-
+der predictive supervision, while the second phase regu-
+larizes graph learning using structural prototypes, thereby
+capturing stable and regime-specific structural patterns.
+• Beyond conventional residual-based anomaly scoring, we
+perform anomaly detection in a jointly learned structural
+space, where uncertainty-aware structural deviation is
+combined with predictive deviation for anomaly scoring.
+• Experiments on four industrial benchmarks demonstrate
+the strong overall anomaly detection performance of
+GSLAD. The structural analysis and fault characteriza-
+tion demonstrate the potential for further fault diagnosis.
+Related Work
+Multivariate Time-Series Anomaly Detection
+Unsupervised MTS anomaly detection methods typically
+learn normal system behavior and identify anomalies ac-
+cording to deviations from the learned normality. Most ex-
+isting methods derive anomaly scores from prediction or
+reconstruction residuals. For example, MTAD-GAT (Zhao
+et al. 2020) jointly optimizes forecasting and reconstruc-
+tion objectives on normal data and computes anomaly
+scores from the discrepancies between observations and
+model outputs. Graph-based methods further model inter-
+variable dependencies to improve forecasting or reconstruc-
+tion. GDN (Deng and Hooi 2021) learns sensor relationships
+for forecasting-based anomaly detection, whereas DyEdge-
+GAT (Zhao and Fink 2024) infers input-dependent graph
+structures for reconstruction-based anomaly detection. Be-
+yond value-space residuals, other methods detect anomalies
+through association discrepancies (Xu et al. 2022), represen-
+tation discrepancies (Yang et al. 2023), or frequency-domain
+deviations (Wu et al. 2025). Despite their architectural differ-
+ences, these methods primarily quantify abnormality through
+deviations in observed values or latent representations. They
+may therefore provide weak anomaly evidence when faults
+alter structural patterns without immediately inducing pro-
+nounced deviations in individual trajectories.
+More closely related to GSLAD, several recent methods
+exploit structural changes for anomaly detection. Specifi-
+cally, GRELEN (Zhang, Zhang, and Tsung 2022) character-
+izes anomalies through changes in the in-degree and out-
+degree distributions of learned relational graphs, GCAD
+(Liu, Gao, and Jiao 2025) detects anomalies from changes in
+relational graphs derived from the gradients of a trained pre-
+dictor, while OracleAD(Cho etal.2025)constructsrelational
+graphs from intermediate representations and measures their
+structural deviations for anomaly scoring. Unlike methods
+that use graphs primarily as message-passing topologies or
+derive structural evidence from a trained model, GSLAD
+explicitly measures structural deviations in a jointly learned
+structural space.
+Graph Structure Learning
+Graph structure learning aims to infer or refine graph topolo-
+gies directly from data rather than relying exclusively on
+predefined structures (Zhu et al. 2021; Li et al. 2023). Exist-
+ing graph structure learning methods have been developed to
+address problems where observed graphs are noisy, incom-
+plete, or unavailable (Jin et al. 2020; Liu et al. 2022; Zhang
+et al. 2024). They typically optimize the learned graph struc-
+ture together with node representations for downstream tasks
+such as classification, prediction, or representation learning.
+Accordingly, the graph mainly functions as an intermediate
+computational structure that determines how information is
+propagated by a GNN. GSLAD differs from conventional
+graph structure learning methods in that it not only uses the
+learned graph structure for more effective message passing
+but also explicitly perform anomaly detection in the learned
+structural space.
+Prototype-Regularized
+Graph Structure Learning
+In this section, we first introduce the GSLAD architecture,
+which consists of a temporal encoder, a condition-aware
+graph learner, and a GNN forecaster. Then we introduce the
+two-phase training strategy and the anomaly scoring policy.
+A schematic overview of the GSLAD framework is provided
+in Figure 1.
+Predictive Dynamic Graph Learning
+We denote by Xt a window containing past W observations
+from N variables:
+Xt = [x:,t−W +1, . . . , x:,t] ∈RN×W ,
+(1)
+and by Yt the subsequent H-step forecasting target:
+Yt = [x:,t+1, . . . , x:,t+H] ∈RN×H.
+(2)
+Given Xt, GSLAD predicts ˆYt and simultaneously infers
+a dense directed graph St ∈[0, 1]N×N. The model con-
+sists of a temporal encoder, a dynamic graph learner, and a
+GNN forecaster. The details of these three components are
+introduced in the following.
+Temporal Encoding
+The historical window of each vari-
+able is encoded independently using a shared temporal en-
+coder. Specifically, for input Xt = [x1,:, . . . , xN,:]⊤, we use
+an one-dimensional convolutional neural network (Kiranyaz
+et al. 2021) to encode it into latent space as follows:
+hi,: = Conv1D(xi,:) ∈Rd,
+(3)
+yielding node representations
+Ht = [h1,:, . . . , hN,:]⊤∈RN×d,
+(4)
+where d is the representation dimension. Sharing the encoder
+across nodes provides a consistent representation space while
+preserving node-specific temporal patterns. These node rep-
+resentations will then be used as inputs for both the following
+dynamic graph learner and the GNN forecaster.
+
+
+Input 
+window
+Temporal 
+Encoder
+Node 
+features
+Condition-aware 
+graph learner
+Dense Graph
+Sparse Graph
+Forecasting loss
+Graph regularization 
+Forecasting 
+horizon
+Phase I: Predictive Graph Structure Learning
+Phase II: Prototype-Regularized Refinement
+GNN 
+forecaster
+Uncertainty-aware 
+graph deviation
+Forecasting 
+results
++
+Prototype bank
+…
+𝜇!, 𝜎!
+𝜇", 𝜎"
+𝜇#, 𝜎#
+Figure 1: Overview of GSLAD. In Phase I, the temporal encoder, condition-aware graph learner, and GNN forecaster are
+optimized using predictive supervision. Dense normal graphs are clustered into multiple uncertainty-aware prototypes, while
+sparsified graphs are used for efficient GNN processing. In Phase II, deviation from the prototype bank regularizes graph
+learning. During inference, uncertainty-aware structural deviation and predictive deviation are combined for anomaly scoring.
+Condition-Aware Graph Inference
+Given the node repre-
+sentations Ht, the graph learner constructs a dynamic graph
+through an attention-based module. Considering that the nor-
+mal operation state of a system normally contains multiple
+operating conditions, we propose a condition-aware atten-
+tion mechanism for graph learning. Specifically, we modu-
+late node-wise query and key projections using a global state
+representation computed by mean-pooling all node represen-
+tations as follows:
+ct = 1
+N
+N
+X
+i=1
+ht,i.
+(5)
+This mechanism allows the same variable pair to receive
+different affinities under different operating conditions. The
+global state vector ct is used to modulate the query projection
+qt,i and key projection kt,i of each node:
+qt,i = (Wqht,i) ⊙σ
+ Wc
+qct
+
+,
+kt,i = (Wkht,i) ⊙σ (Wc
+kct) ,
+(6)
+where ⊙denotes element-wise multiplication, Wq, Wc
+q,
+Wk, and Wc
+k ∈Rd×d are weight matrices shared across
+nodes. The edge weight for each node pair (i, j) is computed
+as follows:
+et,ij = q⊤
+t,ikt,j
+√
+d
+,
+st,ij = σ(et,ij) ∈(0, 1),
+(7)
+where σ represents the sigmoid function to map the pairwise
+score to (0, 1). The resulting dense graph St is retained for
+the following prototype construction, which will be used
+to regularize graph learning during training and structural
+anomaly scoring during testing.
+Graph-Based Forecasting
+With the learned dynamic
+graph, we use a GNN model to perform MTS forecasting.
+To facilitate efficient computation, we first convert the dense
+adjacency matrix into a sparse weighted graph At. Specif-
+ically, we retain the top-k outgoing neighbors of each node
+and apply a masked softmax over the retained logits, which
+is computed by
+at,ij =
+
+
+
+exp(et,ij)
+P
+m∈TopK(et,i:) exp(et,im),
+j ∈TopK(et,i:),
+0,
+otherwise.
+(8)
+We distinguish the sparse graph At, used only for message
+passing, from the dense graph St, used for prototype learn-
+ing and anomaly scoring. The sparse graph At is used by the
+GNN forecaster to efficiently propagate information across
+variables. With Z(0)
+t
+= Ht, each layer updates node repre-
+sentations using
+Z(ℓ+1)
+t
+= GNN(ℓ) 
+Z(ℓ)
+t , At
+
+,
+ℓ= 1, . . . , L −1,
+(9)
+where GNN(ℓ)(·) denotes one GNN layer, including a mes-
+sage passing step followed by nonlinearity. In our imple-
+mentation, we use a GAT-v2 layer (Brody, Alon, and Yahav
+2022), while the framework also supports other GNN layer
+options. After L layers of message passing, a node-wise MLP
+decodes the final representation to the forecasting horizon as
+follows:
+ˆyt,i = MLP
+
+z(L)
+t,i
+
+∈RH.
+(10)
+Prototype-Regularized Two-Phase Training
+GSLAD follows a two-phase training procedure. Phase I
+learns predictive dependency structures using forecasting su-
+
+
+pervision. The dense graphs inferred from normal training
+windows are then summarized into a prototype bank, which
+serves as the structural reference for Phase II. Phase II train-
+ing further refines the graph learner using both forecasting
+supervision and prototype-based regularization.
+Phase I: Predictive Graph Learning
+Following the stan-
+dard setting in graph structure learning literature (Zhu et al.
+2021; Li et al. 2023), we alternate between updating the
+graph learner while freezing the forecaster and updating the
+forecaster while freezing the graph learner. Both steps are
+optimized with a unified predictive objective:
+Lpred =
+1
+NH
+ ˆYt −Yt
+
+2
+F .
+(11)
+This phase allows the temporal encoder, graph learner, and
+GNN forecaster to learn predictive structural patterns. Note
+that only the parameters in the graph learner and GNN fore-
+caster are optimized alternately, while the encoder is opti-
+mized in both alternating stages.
+Normal Graph Prototype Construction
+After Phase I,
+we collect the learned dense graphs {St}t∈T , where T de-
+notes the training set windows. A straightforward strategy
+is to use the average graph as the prototype to regularize
+the graph learning and to compute the structural deviation.
+However, interpolating between distinct operating regimes
+may produce a prototype graph that corresponds to no ac-
+tual operating regime, and comparing every sample with
+such an averaged graph may incorrectly penalize normal
+structural changes. Therefore, we assume that normal graph
+structures concentrate around a small number of operating-
+regime-dependent prototypes. Specifically, we cluster the
+dense graphs inferred from normal training windows into
+K prototypes using K-means. For k-th prototype graph, we
+compute the edge-wise mean and empirical standard devia-
+tion within the corresponding cluster:
+µk,ij =
+1
+|Tk|
+X
+t∈Tk
+st,ij,
+σk,ij =
+s
+1
+|Tk|
+X
+t∈Tk
+(st,ij −µk,ij)2.
+(12)
+where Tk is the set of windows assigned to the k-th proto-
+type. The mean graph µk represents the structural pattern of
+regime k, while σk captures edge-wise variability within that
+regime. The resulting set {(µk, σk)}K
+k=1 forms the normal
+graph prototype bank used in prototype-regularized refine-
+ment and structural deviation computation. These standard
+deviations σk,ij will then be used to weight the deviation of
+edge (i, j). Specifically, a small σk,ij indicates a stable and
+clear structural pattern and therefore should receive larger
+weights. For edges with large σk,ij, we assign lower weights
+as they fluctuate naturally even during normal operation con-
+ditions.
+Phase II: Prototype-Regularized Refinement
+With the
+constructed normal graph prototype bank, we perform graph
+refinement by augmenting the loss in (11) with an addi-
+tional prototype-regularized refinement term, while the GNN
+forecaster is trained with the same predictive objective in
+(11). Specifically, for a learned graph St, we measure its
+uncertainty-normalized graph deviation for each prototype
+graph as follows:
+dk(St) =
+1
+N 2
+N
+X
+i=1
+N
+X
+j=1
+(st,ij −µk,ij)2
+σ2
+k,ij + σ2
+0
+,
+(13)
+where σ0 is a small global stabilization term preventing
+near-zero variances from dominating the objective. This
+uncertainty-aware graph deviation is implemented as a di-
+agonal Mahalanobis-style distance that assigns larger penal-
+ties to deviations on stable edges and smaller penalties to
+deviations on edges with naturally large variations. During
+training, we use a soft nearest prototype graph assignment as
+follows:
+wt,k =
+exp(−dk(St)/τ)
+PK
+j=1 exp(−dj(St)/τ)
+,
+(14)
+where τ is a temperature parameter. The prototype graph
+regularization is computed as
+Lgraph =
+K
+X
+k=1
+wt,kdk(St).
+(15)
+During training, the gradients only back-propagate through
+the graph distance terms but are stopped through the weights
+wt,k, so the soft weights act only as prototype-selection co-
+efficients rather than being optimized to trivially reduce the
+regularization objective. In summary, the training loss during
+Phase II is defined by
+L = Lpred + λLgraph.
+(16)
+Note that the prototype bank obtained in Phase I remains
+fixed throughout Phase II, preventing the reference distri-
+bution from drifting together with the graph learner. After
+Phase II training, we recompute the prototype graph bank
+and the corresponding statistics based on the newly obtained
+inferred graphs, forming the refined prototype graph bank,
+which is then used for structural deviation computing during
+inference.
+Structural and Predictive Anomaly Scoring
+Since the GSLAD model performs graph learning and GNN
+forecasting simultaneously, it produces two complementary
+anomaly scores, namely, a predictive deviation and a struc-
+tural deviation. The predictive deviation measures the dis-
+tance between the forecasted time series and the real time
+series:
+rt =
+ ˆYt −Yt
+
+2
+F .
+(17)
+The uncertainty-aware structural deviation measures the dis-
+tance between the learned graph and the closest prototype
+graph:
+dt = d(St) =
+min
+k∈{1,...,K}
+1
+N 2
+N
+X
+i=1
+N
+X
+j=1
+(st,ij −µk,ij)2
+σ2
+k,ij + σ2
+0
+.
+(18)
+
+
+SWAT
+WADI
+PSM
+TEP
+AUC-ROC
+AUC-PR
+AUC-ROC
+AUC-PR
+AUC-ROC
+AUC-PR
+AUC-ROC
+AUC-PR
+MTAD-GAT
+0.7619
+0.2280
+0.6105
+0.2284
+0.7885
+0.5464
+0.9021
+0.9136
+GDN
+0.7360
+0.1975
+0.6059
+0.2276
+0.7568
+0.5812
+0.8990
+0.9130
+GRELEN
+0.7708
+0.2320
+0.5848
+0.2282
+0.6189
+0.4003
+0.8190
+0.8355
+Anomaly Transformer
+0.7605
+0.2367
+0.4940
+0.1590
+0.7202
+0.5391
+0.9326
+0.9494
+NLinear
+0.8187
+0.7214
+0.7086
+0.4469
+0.6843
+0.5482
+0.7382
+0.7874
+DLinear
+0.5931
+0.1263
+0.6993
+0.4462
+0.6661
+0.5237
+0.8006
+0.8201
+DCDetector
+0.7359
+0.6264
+0.6929
+0.4442
+0.6513
+0.4896
+0.8862
+0.9131
+PatchTST
+0.8149
+0.7198
+0.7011
+0.4458
+0.6722
+0.5071
+0.8248
+0.8667
+DyEdgeGAT
+0.7394
+0.2406
+0.6517
+0.4426
+0.6976
+0.5407
+0.9325
+0.9510
+iTransformer
+0.8213
+0.7231
+0.7129
+0.4482
+0.6576
+0.5075
+0.7346
+0.7436
+ModernTCN
+0.7555
+0.6559
+0.7064
+0.4512
+0.7074
+0.5453
+0.8903
+0.9166
+CATCH
+0.8110
+0.7178
+0.7112
+0.4467
+0.6710
+0.5056
+0.8575
+0.8868
+GCAD
+0.5597
+0.1196
+0.7197
+0.4490
+0.6611
+0.4899
+0.8500
+0.8820
+GSLAD
+0.8607
+0.7612
+0.7018
+0.5157
+0.8193
+0.7038
+0.9563
+0.9687
+Table 1: Multivariate time series anomaly detection results.
+We use the minimum over different prototype graphs instead
+of the average because a test window should be considered
+as normal if its behavior is close to any learned normal
+operating condition. Since structural deviation and predictive
+deviation may have different scales, we use the sum of z-score
+normalized deviations as the anomaly score.
+Experiments
+In this section, we evaluate the effectiveness of the proposed
+GSLAD approach for MTS anomaly detection. First, we in-
+troduce the experimental settings. Then, we assess the ef-
+fectiveness of GSLAD on anomaly detection tasks on four
+industrial datasets and we conduct ablation studies and pa-
+rameter sensitivity analysis to investigate the contributions
+of individual components in GSLAD. Finally, we analyze the
+structural deviation patterns to perform anomaly diagnosis.
+Experiment Settings
+Datasets
+We conduct experiments on four industrial
+datasets, namely, the Secure Water Treatment (SWaT) dataset
+(Mathur and Tippenhauer 2016), the Water Distribution
+(WADI) dataset (Ahmed, Palleti, and Mathur 2017), the
+Pooled Server Metrics (PSM) dataset (Abdulaal, Liu, and
+Lancewicki 2021), and the Tennessee Eastman Process (TEP)
+dataset (Reinartz, Kulahci, and Ravn 2021). SWaT and
+WADI contain sensor and actuator measurements collected
+from water-treatment and water-distribution testbeds, respec-
+tively. PSM consists of server-level monitoring metrics, while
+TEP simulates a multivariable chemical process with multi-
+ple fault types.
+Baselines
+We compare the proposed GSLAD model with
+thirteen representative baselines covering forecasting-based,
+reconstruction-based, representation-based, and graph-based
+anomaly detection methods, including MTAD-GAT (Zhao
+et al. 2020), GDN (Deng and Hooi 2021), GRELEN (Zhang,
+Zhang, and Tsung 2022), Anomaly Transformer (Xu et al.
+2022), NLinear (Zeng et al. 2023), DLinear (Zeng et al.
+2023), DCdetector (Yang et al. 2023), PatchTST (Nie et al.
+2023), DyEdgeGAT (Zhao and Fink 2024), iTransformer
+(Liu et al. 2024), ModernTCN (donghao and wang xue 2024),
+CATCH (Wu et al. 2025), and GCAD (Liu, Gao, and Jiao
+2025). Details on the baselines are given in the Appendix.
+Implementation Details
+Each dataset consists of two
+parts: unlabeled data under normal working conditions and
+labeled data containing some anomalies. We use 80% of
+the unlabeled normal data for training, and the remaining
+20% is used for validation. Testing is conducted on the la-
+beled data containing anomalies. The data is standardized
+using the mean and standard deviation computed from the
+normal training split, and the resulting time series is seg-
+mented into sliding windows. Since most methods do not
+provide a way to set predetermined thresholds, we evaluate
+using two threshold-independent metrics: the area under the
+curve (AUC) of the Receiver Operating Characteristic (ROC)
+(Fawcett 2006) and the Precision-Recall Curve (PRC) (Davis
+and Goadrich 2006). More implementation details are pro-
+vided in Appendix.
+Multivariate Time Series Anomaly Detection
+The anomaly detection results of the proposed GSLAD
+model and thirteen baseline models on four industrial
+anomaly detection benchmarks are summarized in Table 1.
+GSLAD achieves the best ROC-AUC on SWaT, PSM, and
+TEP, and the best PR-AUC on all four datasets. These results
+indicate that GSLAD consistently achieves state-of-the-art
+performance in most cases. iTransformer performs well on
+two water network datasets, obtaining second-best results on
+three metrics. However, it fails to obtain competitive perfor-
+mance on PSM and TEP, especially on TEP where it obtains
+the worst results among all the baselines. GSLAD does not
+achieve the best result on every metric. On WADI, GCAD
+obtains a higher ROC-AUC. Nevertheless, GSLAD remains
+competitive on these metrics and provides the strongest over-
+all performance across the four datasets.
+
+
+SWAT
+WADI
+PSM
+TEP
+AUC-ROC
+AUC-PR
+AUC-ROC
+AUC-PR
+AUC-ROC
+AUC-PR
+AUC-ROC
+AUC-PR
+GSLAD
+0.8607
+0.7612
+0.7018
+0.5157
+0.8193
+0.7038
+0.9563
+0.9687
+w/o structural deviation
+0.7449
+0.2052
+0.5925
+0.2263
+0.6585
+0.3905
+0.9169
+0.9293
+w/o Phase II training
+0.7561
+0.2170
+0.6805
+0.4781
+0.7721
+0.5344
+0.9494
+0.9620
+w/o uncertainty awareness
+0.8605
+0.7630
+0.6595
+0.1217
+0.7478
+0.5874
+0.9124
+0.9199
+w/o condition awareness
+0.8489
+0.7099
+0.6756
+0.4511
+0.7785
+0.5909
+0.9405
+0.9509
+Table 2: Ablation Study.
+Ablation Study
+To have a better understanding on how each individual com-
+ponent in GSLAD contribute to the improved performance,
+we conduct ablation studies in this section. Specifically, we
+consider four variants of GSLAD by removing individual
+components from the model: 1) ’w/o structural deviation’,
+which uses only the predictive deviation for anomaly scor-
+ing; 2) ’w/o Phase II training’, which trains the model only
+with the Phase I predictive objective Lpred and without the
+Phase II prototype-regularized refinement; 3) ’w/o uncer-
+tainty awareness’, which removes the use of σk as uncertainty
+weighting and computes the unweighted structural deviation
+defined as
+dk(St) =
+1
+N 2
+N
+X
+i=1
+N
+X
+j=1
+(st,ij −µk,ij)2,
+(19)
+during both Phase II refinement training and inference stage;
+4) ’w/o condition awareness’, which does not modulate the
+query projection and key projection with the global state
+vector. Table 2 summarizes the results for these four variants
+of GSLAD.
+From the results, we observe that all four individual com-
+ponents of GSLAD contribute positively to the anomaly de-
+tection performance. Among them, removing the structural
+deviation from anomaly scoring leads to the largest overall
+degradation, confirming that structural deviation provides
+the critical anomaly evidence in GSLAD. The performance
+drop is particularly significant on SWaT, WADI, and PSM,
+indicating that predictive deviation alone is insufficient to dis-
+tinguish anomalies in such cases. Removing Phase II training
+also substantially degrades performance, especially on SWaT
+and PSM. This observation validates that the more com-
+pact and stable structural patterns facilitated by prototype-
+regularized refinement can help anomaly detection. Replac-
+ing the uncertainty-aware distance with an unweighted one
+consistently reduces performance, with especially large de-
+creases on WADI, PSM, and TEP. This result demonstrates
+that deviations on stable edges provide stronger anomaly sig-
+nals than deviations on edges that naturally fluctuate during
+normal operating regimes.
+Sensitivity analysis
+The number of prototypes used in GSLAD is an important hy-
+perparameter for obtaining effective anomaly evidence. We
+perform a sensitivity analysis of the model performance with
+respect to the prototype number K using the TEP dataset.
+1
+2
+4
+8
+16
+Number of protot pes K
+0.94
+0.95
+0.96
+0.97
+Performance
+AUC-PR
+AUC-ROC
+Figure 2: Sensitivity to prototype number K.
+The results are visualized in Figure 2. The best result is ob-
+tained when K = 4. The results show that GSLAD performs
+consistently well when the number of prototypes is within
+a reasonable range close to the optimal prototype number.
+Specifically, with K = 2 or K = 8, compared with the
+second-best baseline model in Table 1, GSLAD still obtains
+better AUC-ROC and similar AUC-PR. However, with an
+overly large or small number of prototypes, the model per-
+formance becomes worse than other baselines. This is be-
+cause too many prototypes make the clusters and statistics
+inaccurate and unstable, while too few prototypes are not
+enough to cover all the different normal operating regimes
+and may cause prototypes that correspond to no actual oper-
+ating regime.
+Cross-Fault Structural Analysis
+In this section, we examine whether the learned structural
+space captures fault-specific structural patterns. This analysis
+is conducted on TEP because it contains 17 different fault
+types covering different fault mechanisms with annotations.
+Notethat theselabelsareused onlyforpost-hocinterpretation
+and are never used during model training or anomaly scoring.
+For each fault type i, we first construct a class-level reference
+graph as follows:
+Fi =
+1
+|Mi|
+X
+m∈Mi
+S(m),
+(20)
+where Mi denotes the set of windows belonging to fault
+type i and S(m) is the inferred graph of window m. We then
+
+
+F1
+F2
+F3
+F4
+F5
+F6
+F7
+F8
+F9
+F10
+F11
+F12
+F13
+F14
+F15
+F16
+F17
+F1
+F2
+F3
+F4
+F5
+F6
+F7
+F8
+F9
+F10
+F11
+F12
+F13
+F14
+F15
+F16
+F17
+0.01
+0.02
+0.03
+0.04
+0.05
+0.06
+Figure 3: Cross-fault structural matrix.
+compute the mean distance from samples of fault type j to
+the reference graph of fault type i as follows:
+Cij =
+1
+|Mj|
+X
+m∈Mj
+∥S(m) −Fi∥.
+(21)
+We visualize the cross-fault structural matrix in Figure 4.
+The matrix exhibits a clear diagonal pattern that all the di-
+agonal entries are the minimum in the corresponding rows
+and columns. On average, the within-class distance is 34.1%
+lower than the corresponding nearest competing class. This
+observation indicates that the inferred graphs are generally
+closest to the reference graph of the same fault type. Thus,
+we can conclude that empirically, the inferred graph gener-
+ated with GSLAD would deviate in different directions for
+different fault types, despite that the model is trained with-
+out fault type supervision. Among all the faults, F2, F12,
+and F14 exhibit particularly large margins from competing
+classes, suggesting that they induce most distinctive changes
+in structural patterns. Overall, the analysis shows that graph
+structures learned by GSLAD provide information beyond
+binary anomaly detection and may support fault characteri-
+zation.
+Structural Deviation Interpretation
+To investigate whether structural deviation can support fault
+diagnosis such as root-cause localization, we analyze Fault
+14 as an example, which represents a reactor cooling-water
+valve-sticking fault that mainly affects the reactor cooling-
+water subsystem. For each anomalous window, we first com-
+pute the uncertainty-normalized edge-deviation matrix with
+0.00
+0.01
+0.02
+0.03
+xmv_2
+xmeas_33
+xmeas_30
+xmv_11
+xmeas_17
+xmeas_2
+xmeas_24
+xmeas_6
+xmeas_4
+xmeas_27
+xmeas_32
+xmeas_26
+xmeas_21
+xmeas_9
+xmv_10
+Figure 4: Node-level deviation ranking.
+respect to the closest normal prototype:
+Dij =
+min
+k∈{1,...,K}
+(sij −µk,ij)2
+σ2
+k,ij + σ2
+0
+.
+(22)
+We then define the node-level deviation score as the average
+of its incoming and outgoing edge deviations:
+ρv = 1
+2
+
+1
+N
+X
+j
+Dvj + 1
+N
+X
+i
+Div
+
+.
+(23)
+Figure 4 presents the variables with largest ρv. The three most
+affected nodes are XMV(10), XMEAS(9), and XMEAS(21),
+corresponding to reactor cooling-water flow, reactor tem-
+perature, and cooling-water outlet temperature, respectively.
+These variables belong to the subsystem directly associated
+with Fault 14, and the third-ranked variable has a deviation
+more than 6.4 times larger than the fourth-ranked variable.
+This concentration of node-level deviation suggests that the
+uncertainty-aware structural deviation provides a useful sig-
+nal for localizing the root cause.
+More experiments on runtime analysis and anomaly score
+time series analysis are provided in the Appendix.
+Conclusion
+In
+this
+paper,
+we
+introduced
+GSLAD,
+a
+prototype-
+regularized graph structure learning framework for unsu-
+pervised MTS anomaly detection. GSLAD learns window-
+dependent graphs and represents normal structural behav-
+ior with a bank of prototypes, enabling structural devia-
+tion to complement predictive deviation for anomaly scor-
+ing. Experiments demonstrate strong overall performance of
+GSLAD, while structural analyses suggest potential for fault
+characterization and root-cause localization. Future work
+will investigate graph structure learning with stronger causal
+interpretability for industrial anomaly detection.
+
+
+References
+Abdulaal, A.; Liu, Z.; and Lancewicki, T. 2021. Practical
+approach to asynchronous multivariate time series anomaly
+detection and localization. In Proceedings of the 27th ACM
+SIGKDD conference on knowledge discovery & data mining,
+2485–2494.
+Ahmed, C. M.; Palleti, V. R.; and Mathur, A. P. 2017. WADI:
+a water distribution testbed for research in the design of
+secure cyber physical systems. In Proceedings of the 3rd
+international workshop on cyber-physical systems for smart
+water networks, 25–28.
+Audibert, J.; Michiardi, P.; Guyard, F.; Marti, S.; and Zulu-
+aga, M. A. 2020. Usad: Unsupervised anomaly detection on
+multivariate time series. In Proceedings of the 26th ACM
+SIGKDD international conference on knowledge discovery
+& data mining, 3395–3404.
+Belay, M. A.; Blakseth, S. S.; Rasheed, A.; and Salvo Rossi, P.
+2023. Unsupervised anomaly detection for IoT-based multi-
+variate time series: Existing solutions, performance analysis
+and future directions. Sensors, 23(5): 2844.
+Brody, S.; Alon, U.; and Yahav, E. 2022. How Attentive are
+Graph Attention Networks? In International Conference on
+Learning Representations.
+Chen, H.; and Eldardiry, H. 2024. Graph time-series mod-
+eling in deep learning: A survey.
+ACM Transactions on
+Knowledge Discovery from Data, 18(5): 1–35.
+Cho, D.; Han, J.; Kang, K.; Kim, M.; Ryu, H.; and Jung, N.
+2025. Structured temporal causality for interpretable multi-
+variate time series anomaly detection. Advances in Neural
+Information Processing Systems, 38: 59257–59294.
+Davis, J.; and Goadrich, M. 2006. The relationship between
+Precision-Recall and ROC curves. In Proceedings of the 23rd
+international conference on Machine learning, 233–240.
+Deng, A.; and Hooi, B. 2021. Graph neural network-based
+anomaly detection in multivariate time series. In Proceedings
+of the AAAI conference on artificial intelligence, volume 35,
+4027–4035.
+donghao, L.; and wang xue. 2024. ModernTCN: A Modern
+Pure Convolution Structure for General Time Series Anal-
+ysis. In The Twelfth International Conference on Learning
+Representations.
+Fawcett, T. 2006. An introduction to ROC analysis. Pattern
+recognition letters, 27(8): 861–874.
+Fink, O.; Sharma, V.; Nejjar, I.; Von Krannichfeldt, L.; Gar-
+maev, S.; Zhang, Z.; Wei, A.; Frusque, G.; Forest, F.; Zhao,
+M.; et al. 2026. From Physics to Machine Learning and
+Back: Part I-Learning with Inductive Biases in Prognostics
+and Health Management. Reliability Engineering & System
+Safety, 112213.
+Ho, T. K. K.; Karami, A.; and Armanfard, N. 2025. Graph
+anomaly detection in time series: A survey. IEEE Transac-
+tions on Pattern Analysis and Machine Intelligence.
+Jin, M.; Koh, H. Y.; Wen, Q.; Zambon, D.; Alippi, C.; Webb,
+G. I.; King, I.; and Pan, S. 2024. A survey on graph neural
+networks for time series: Forecasting, classification, imputa-
+tion, and anomaly detection. IEEE transactions on pattern
+analysis and machine intelligence, 46(12): 10466–10485.
+Jin, W.; Ma, Y.; Liu, X.; Tang, X.; Wang, S.; and Tang,
+J. 2020. Graph structure learning for robust graph neural
+networks. In Proceedings of the 26th ACM SIGKDD inter-
+national conference on knowledge discovery & data mining,
+66–74.
+Kingma, D.; and Ba, J. 2015. Adam: A Method for Stochastic
+Optimization. In Proceedings of the International Confer-
+ence on Learning Representations.
+Kiranyaz, S.; Avci, O.; Abdeljaber, O.; Ince, T.; Gabbouj, M.;
+and Inman, D. J. 2021. 1D convolutional neural networks
+and applications: A survey. Mechanical systems and signal
+processing, 151: 107398.
+Li, Z.; Wang, L.; Sun, X.; Luo, Y.; Zhu, Y.; Chen, D.; Luo, Y.;
+Zhou, X.; Liu, Q.; Wu, S.; et al. 2023. Gslb: The graph struc-
+ture learning benchmark. Advances in Neural Information
+Processing Systems, 36: 30306–30318.
+Liu, Y.; Hu, T.; Zhang, H.; Wu, H.; Wang, S.; Ma, L.; and
+Long, M. 2024. iTransformer: Inverted transformers are ef-
+fective for time series forecasting.
+In International con-
+ference on learning representations, volume 2024, 11116–
+11140.
+Liu, Y.; Zheng, Y.; Zhang, D.; Chen, H.; Peng, H.; and Pan, S.
+2022. Towards unsupervised deep graph structure learning.
+In Proceedings of the ACM web conference 2022, 1392–
+1403.
+Liu, Z.; Gao, M.; and Jiao, P. 2025. Gcad: Anomaly de-
+tection in multivariate time series from the perspective of
+granger causality. In Proceedings of the AAAI Conference
+on Artificial Intelligence, volume 39, 19041–19049.
+Mathur, A. P.; and Tippenhauer, N. O. 2016. SWaT: A water
+treatment testbed for research and training on ICS security.
+In 2016 international workshop on cyber-physical systems
+for smart water networks (CySWater), 31–36. IEEE.
+Nie, Y.; Nguyen, N. H.; Sinthong, P.; and Kalagnanam, J.
+2023. A Time Series is Worth 64 Words: Long-term Fore-
+casting with Transformers. In The Eleventh International
+Conference on Learning Representations.
+Reinartz, C.; Kulahci, M.; and Ravn, O. 2021. An extended
+Tennessee Eastman simulation dataset for fault-detection and
+decision support systems. Computers & chemical engineer-
+ing, 149: 107281.
+Wu, X.; Qiu, X.; Li, Z.; Wang, Y.; Hu, J.; Guo, C.; Xiong,
+H.; and Yang, B. 2025. Catch: Channel-aware multivariate
+time series anomaly detection via frequency patching. In In-
+ternational conference on learning representations, volume
+2025, 17017–17045.
+Wu, Y.; Dai, H.-N.; and Tang, H. 2021. Graph neural net-
+works for anomaly detection in industrial Internet of Things.
+IEEE Internet of Things Journal, 9(12): 9214–9231.
+Xu, J.; Wu, H.; Wang, J.; and Long, M. 2022. Anomaly
+Transformer: Time Series Anomaly Detection with Associ-
+ation Discrepancy. In International Conference on Learning
+Representations.
+Yang, Y.; Zhang, C.; Zhou, T.; Wen, Q.; and Sun, L. 2023.
+Dcdetector: Dual attention contrastive representation learn-
+ing for time series anomaly detection. In Proceedings of the
+
+
+29th ACM SIGKDD conference on knowledge discovery and
+data mining, 3033–3045.
+Zeng, A.; Chen, M.; Zhang, L.; and Xu, Q. 2023. Are trans-
+formers effective for time series forecasting? In Proceedings
+of the AAAI conference on artificial intelligence, volume 37,
+11121–11128.
+Zhang, C.; Song, D.; Chen, Y.; Feng, X.; Lumezanu, C.;
+Cheng, W.; Ni, J.; Zong, B.; Chen, H.; and Chawla, N. V.
+2019.
+A deep neural network for unsupervised anomaly
+detection and diagnosis in multivariate time series data. In
+Proceedings of the AAAI conference on artificial intelligence,
+volume 33, 1409–1416.
+Zhang, W.; Zhang, C.; and Tsung, F. 2022. GRELEN: Multi-
+variate Time Series Anomaly Detection from the Perspective
+of Graph Relational Learning. In IJCAI, 2390–2397.
+Zhang, Z.; Lu, S.; Huang, Z.; and Zhao, Z. 2024. Graph
+Neural Networks With Adaptive Structures. IEEE Journal
+of Selected Topics in Signal Processing, 19(1): 181–194.
+Zhao, H.; Wang, Y.; Duan, J.; Huang, C.; Cao, D.; Tong, Y.;
+Xu, B.; Bai, J.; Tong, J.; and Zhang, Q. 2020. Multivariate
+time-series anomaly detection via graph attention network. In
+2020 IEEE international conference on data mining (ICDM),
+841–850. IEEE.
+Zhao, M.; and Fink, O. 2024. DyEdgeGAT: Dynamic Edge
+via Graph Attention for Early Fault Detection in IIoT Sys-
+tems.
+Zheng, Y.; Koh, H. Y.; Jin, M.; Chi, L.; Phan, K. T.; Pan,
+S.; Chen, Y.-P. P.; and Xiang, W. 2023. Correlation-aware
+spatial–temporal graph learning for multivariate time-series
+anomaly detection. IEEE transactions on neural networks
+and learning systems, 35(9): 11802–11816.
+Zhu, Y.; Xu, W.; Zhang, J.; Du, Y.; Zhang, J.; Liu, Q.;
+Yang, C.; and Wu, S. 2021.
+A survey on graph struc-
+ture learning: Progress and opportunities.
+arXiv preprint
+arXiv:2103.03036.
+
+
+Appendix
+Baselines
+To evaluate the performance of our proposed GSLAD method, we compare it with various baselines. We briefly introduce these
+baselines below:
+• MTAD-GAT (Zhao et al. 2020) employs parallel feature- and temporal-oriented graph attention layers and jointly optimizes
+forecasting and reconstruction objectives for multivariate time-series anomaly detection.
+• GDN (Deng and Hooi 2021) learns a sparse dependency graph among sensors through node embeddings and graph attention,
+and detects anomalies based on forecasting deviations from the learned normal behavior.
+• GRELEN (Zhang, Zhang, and Tsung 2022) integrates a variational autoencoder with stochastic graph relational learning to
+capture inter-sensor dependencies and construct a relation-aware anomaly score.
+• Anomaly Transformer (Xu et al. 2022) introduces anomaly attention and a minimax learning strategy to distinguish
+anomalies through the discrepancy between prior and series associations.
+• NLinear (Zeng et al. 2023) mitigates distribution shifts by subtracting the last observed value before linear forecasting and
+adding it back to the prediction.
+• DLinear (Zeng et al. 2023) decomposes each time series into trend and seasonal components and forecasts them using
+separate linear mappings.
+• DCdetector (Yang et al. 2023) adopts multi-scale dual-attention contrastive learning to obtain discriminative representations
+without relying on a reconstruction objective.
+• PatchTST (Nie et al. 2023) divides each time series into temporal patches and processes different variables independently
+with a weight-shared Transformer encoder.
+• DyEdgeGAT (Zhao and Fink 2024) dynamically infers evolving inter-sensor edges and incorporates operating-condition
+context into graph-attention-based signal reconstruction.
+• iTransformer (Liu et al. 2024) represents individual variables as tokens, using self-attention to capture inter-variable
+dependencies and feed-forward networks to learn temporal representations.
+• ModernTCN (donghao and wang xue 2024) modernizes temporal convolutional networks with large-kernel depthwise
+convolutions and convolutional feed-forward blocks to capture long-range temporal patterns efficiently.
+• CATCH (Wu et al. 2025) partitions signals into frequency-domain patches and employs masked channel fusion to model
+fine-grained spectral characteristics and channel correlations.
+• GCAD (Liu, Gao, and Jiao 2025) dynamically extracts Granger-causality graphs from predictor gradients and detects
+anomalies through deviations in the learned causal patterns.
+For forecasting models, anomaly scores are computed from forecasting deviations under the same evaluation protocol. Similar
+to GCAD, there is another recent work that infers the graph for anomaly detection based on intermediate embeddings (Cho
+et al. 2025). We do not include it for comparison since there is no public code available. For methods implemented in (Wu et al.
+2025), we use their implementation. For the other methods we use their publicly available official implementations.
+Implementation Details
+All the experiments are conducted on a NVIDIA A100 80G GPU. For all the experimental results, we give the average
+performance and standard deviation with 5 independent trials. For all the datasets, we select windows of length 128. The Adam
+optimizer is used in all experiments for model training (Kingma and Ba 2015). We fix the training epochs of Phase I to 30 and
+the training epochs of Phase II to 10. We use a batch size of 256 for model training. The models’ hyperparameters are tuned
+based on the results of the validation set. The search space of hyperparameters are as follows: 1) horizon: {1,4,8}; 2) GNN
+layers: {2, 4}; 3) embedding dimension: {64, 128, 256}; 4) weight parameter λ in the loss function: {1, 3, 10, 30, 100}; 5)
+number of prototypes: {1, 2, 4, 8}. The learning rate and weight decay are set to 1e-4 and 1e-5, respectively. For generating
+the sparse graphs, we keep the top-k outgoing neighbors for each node with k = 5. The temperature parameter τ for soft
+nearest prototype graph assignment during Phase II training is set to 0.05. The global stabilization term σ0 used for computing
+uncertainty-aware graph deviation is set to 0.05. During inference, we use the sum of z-score normalized structural deviation
+and predictive deviation as the anomaly score, where we use the mean and standard deviation computed from training set to
+perform z-score normalization.
+Runtime Comparison
+Since GSLAD involves additional computation for graph structure learning, we perform a runtime comparison to evaluate the
+efficiency of GSLAD. Specifically, we evaluate the per-sample inference time (in seconds) on four industrial datasets. The results
+are shown in Figure 5. From the results, we can see that the models that jointly learn graph structures generally require longer
+inference time. However, we observe that GSLAD remains substantially more efficient than the other baselines that also perform
+structure learning, including DyEdgeGAT, GCAD, and GRELEN. For example, on the SWAT dataset, GSLAD is 12.5 times,
+3.3 times, and 4.8 times faster than DyEdgeGAT, GCAD, and GRELEN, respectively.
+
+
+10−3
+10−2
+10−1
+100
+NLinear
+DLinear
+ModernTCN
+iTransformer
+DCdetector
+MTAD-GAT
+AnomalyTransformer
+GDN
+PatchTST
+CATCH
+GSLAD
+GCAD
+GRELEN
+DyEdgeGAT
+SWAT
+10−2
+10−1
+100
+NLinear
+DLinear
+ModernTCN
+iTransformer
+DCdetector
+AnomalyTransformer
+MTAD-GAT
+GDN
+PatchTST
+CATCH
+GSLAD
+GRELEN
+GCAD
+DyEdgeGAT
+WADI
+10−3
+10−2
+10−1
+NLinear
+DLinear
+ModernTCN
+iTransformer
+DCdetector
+MTAD-GAT
+AnomalyTransformer
+GDN
+PatchTST
+CATCH
+GSLAD
+GCAD
+GRELEN
+DyEdgeGAT
+PSM
+10−3
+10−2
+10−1
+100
+NLinear
+DLinear
+ModernTCN
+iTransformer
+DCdetector
+MTAD-GAT
+AnomalyTransformer
+GDN
+PatchTST
+CATCH
+GSLAD
+GCAD
+GRELEN
+DyEdgeGAT
+TEP
+Figure 5: Per-sample inference time comparison.
+Anomaly Score Time Series Analysis
+In this section, We qualitatively examine how the anomaly score evolves around fault onset. Figure 6 visualizes the anomaly
+scores time series for two faults in TEP, with the anomaly score containing both uncertainty-aware structural deviation and
+predictive deviation. Note that GSLAD treats each window independently and computes the anomaly score for each window
+separately. Both examples show a clear and sustained increase on anomaly score immediately after fault onset, indicating
+GSLAD provides strong anomaly signals.
+
+
+100
+200
+300
+400
+500
+600
+700
+800
+Time step
+0
+10
+20
+30
+40
+Anomaly score
+100
+200
+300
+400
+500
+600
+700
+800
+Time step
+0
+20
+40
+60
+80
+Figure 6: Anomaly score time series. The orange line represents the start time of the anomaly case.

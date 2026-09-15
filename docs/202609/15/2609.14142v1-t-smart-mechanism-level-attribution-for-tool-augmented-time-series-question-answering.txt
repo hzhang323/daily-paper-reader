@@ -1,0 +1,1057 @@
+T-SMART: Mechanism-Level Attribution for
+Tool-Augmented Time-Series Question Answering
+Ivan Delgado1, Himansi Gupta1, Bishal Khatri1, Niharika Sapre1, Lameta Shamoon1, Onat Gungor2, Tajana Rosing1
+1University of California, San Diego, CA, USA
+2West Virginia University, Morgantown, WV, USA
+{ivdelgado, h4gupta, bikhatri, nsapre, lashamoon, tajana}@ucsd.edu, onat.gungor@wvu.edu
+Abstract—Large language models (LLMs) can struggle with
+time-series question answering (TS-QA), especially when numer-
+ical signals are serialized as text and require explicit compu-
+tation. Tool-augmented approaches improve performance, but
+existing systems often intertwine language reasoning, compu-
+tation, and perception, making it difficult to determine which
+components drive the gains. We present T-SMART, a neu-
+rosymbolic framework that separates these roles: a frozen LLM
+interprets questions and selects operations, deterministic tools
+perform numerical computation, and structured perception is
+invoked only when needed. Controlled paired ablations show
+that deterministic computation provides the dominant benefit,
+improving accuracy by 31.7 percentage points over direct LLM
+reasoning on serialized time series, while language understanding
+and perception offer smaller complementary gains. These results
+indicate that tool-augmented TS-QA benefits primarily from reli-
+able numerical execution rather than additional language-model
+reasoning, and provide a controlled framework for analyzing
+component contributions in neurosymbolic time-series systems.
+Index Terms—time-series question answering, tool-augmented
+reasoning, neurosymbolic AI, large language models
+I. INTRODUCTION
+Time series underpin decision-making in finance, energy,
+and healthcare, where many questions reduce to recurring tasks
+such as detecting trends, periodicity, anomalies, or correla-
+tions [1]. LLMs offer a flexible interface for such queries, but
+direct reasoning over numerical time series remains unreliable.
+Merrill et al. [2] find near-chance zero-shot performance
+and greater reliance on linguistic than numerical cues, while
+serialization increases context length and fragments numerical
+values into unstable token sequences [3]. Related studies show
+that removing the language-model component from forecasting
+pipelines may not hurt performance [4], and recent bench-
+marks report that leading commercial models remain below
+two-thirds accuracy on TSAQA and ARFBench [5], [6]. These
+findings suggest that stronger language models alone may be
+insufficient for reliable time-series reasoning.
+A growing body of work addresses these limitations through
+tool-augmented and agentic approaches. TS-Agent [7], for
+example, keeps time-series data in numerical form and uses an
+LLM to orchestrate analytical tools within a ReAct loop, while
+TimeART [8] trains an agent to select and invoke tools from
+a large analytical corpus. More broadly, recent work spans
+increasingly complex reasoning strategies, from direct model
+inference to branch-structured exploration [9]. These systems
+show that external computation can substantially improve
+time-series reasoning. However, because language interpreta-
+tion, tool selection, numerical computation, and perception are
+often tightly integrated, it remains unclear which components
+are primarily responsible for the observed gains.
+This paper asks a central question: in tool-augmented TS-
+QA, which components are actually responsible for perfor-
+mance gains? We investigate this question with T-SMART,
+a single-pass, instrumented framework designed to isolate
+the contribution of each component. Rather than adding in-
+creasingly complex agentic behavior, T-SMART separates
+language interpretation, deterministic computation, conditional
+perception, and answer verification so that each can be eval-
+uated independently. Our comparisons hold the language-
+model backbone, prompts, and evaluation examples fixed, and
+our claims are restricted to benchmark questions supported
+by the registered tool set. This controlled design allows us
+to measure where performance improvements originate. In
+particular, we find that deterministic computation provides
+the dominant gain, while additional evidence-layer correction
+offers no measurable improvement once verified tool outputs
+are available. Our contributions are as follows.
+1) We introduce a mechanism-level decomposition of tool-
+augmented TS-QA that isolates the contributions of
+language understanding, deterministic computation, con-
+ditional perception, and evidence-layer correction.
+2) We distinguish architectural gains from backbone ef-
+fects. At a fixed language-model backbone, the proposed
+tool architecture improves accuracy by 13.5 percentage
+points over direct model reasoning, enabling a controlled
+estimate of the benefit of tool augmentation.
+3) We evaluate conditional perception by comparing struc-
+tured visual inputs with raw pixels across two repli-
+cations, measuring both accuracy and susceptibility to
+misleading visual cues.
+4) We evaluate three post-tool evidence-correction mech-
+anisms using paired tests, trigger rates, and power
+analysis. Two never activate, while the third does not
+significantly improve accuracy.
+II. RELATED WORK
+Early work applied language models to time series by
+serializing numerical sequences as text for forecasting [3],
+arXiv:2609.14142v1  [cs.LG]  12 Sep 2026
+
+
+Fig. 1. The single-pass T-SMART pipeline. One frozen model serves as router,
+vision sensor, and answer reader; deterministic tools perform every numerical
+computation, and the visual sensor is invoked only when the trust gate fires.
+while later evaluations exposed the limitations of this approach
+for numerical reasoning [2], [4]. A natural response is to
+move computation outside the language model, following tool-
+augmented methods that delegate explicit calculations to exter-
+nal programs [10]–[13]. Sprague et al. further show that chain-
+of-thought gains are strongest on symbolic execution tasks,
+where dedicated solvers can outperform prompted reasoning
+[14]. We examine if this separation between language reason-
+ing and computation benefits time-series question answering.
+Several benchmarks quantify the difficulty of time-series
+QA. TimeSeriesExam [15] evaluates five reasoning categories,
+while MMTS-Bench [16] introduces out-of-distribution struc-
+ture across four subsets and combines multiple-choice and
+numerical questions. It shows that time-series-adapted LLMs
+can lag general-purpose models across domains. Broader and
+more challenging benchmarks corroborate the performance
+gap discussed in Section I [5], [6], [17], while others extend
+evaluation to multi-turn, open-ended, and cross-modal settings
+[18]–[20]. Statistical significance testing remains uncommon:
+ARFBench reports bootstrap confidence intervals, but paired
+tests between systems are generally absent.
+A second line of work explores tool- and agent-based
+approaches. For time series, TS-Agent [7] and TimeART [8]
+adopt tool-grounded reasoning with explicit evidence and tool
+use. TS-Agent ablates components such as its critic and answer
+verification, but does not isolate iterative reasoning from a
+single pass using the same tools; to our knowledge, we provide
+the first such comparison. Kim et al. take a complementary
+non-agentic approach by compiling the time series into a
+deterministic structured program before model reasoning [21].
+Under the taxonomy of Chang et al. [9], T-SMART falls within
+the direct-reasoning family: its router selects one tool branch
+rather than exploring or aggregating multiple reasoning paths.
+Thus, T-SMART shares the tool-grounding premise of prior
+work but limits autonomy to a single route and evidence pass,
+treating iteration as a hypothesis to be tested.
+Self-consistency improves chain-of-thought by sampling
+TABLE I
+DETERMINISTIC BRANCHES AND THE CORE TOOLS EACH INVOKES; THE
+PER-BRANCH SUBTYPE REGISTRY IS RELEASED WITH THE CODE.
+Branch
+Core tools
+trend
+OLS slope, functional-form fits, ruptures change-points
+periodicity
+FFT and spectral features, seasonal decomposition
+anomaly
+z-score and IQR scoring, change-point detection
+noise
+Engle ARCH-LM, Ljung-Box, ADF, KPSS
+similarity
+dynamic time warping, statistical distances
+causality
+Granger F-test, lag correlation
+and voting [22]; it is a decoding baseline, with no revision of
+an answer against feedback. Huang et al. show that intrinsic
+self-correction frequently fails without an external signal,
+while naming tool-verified correction as a regime their result
+leaves open [23]. Our loops operate in that open regime,
+correction driven by tool evidence, so the null of Section III-J
+is new evidence rather than a replication.
+The evidence for vision is mixed. Rendering a series as an
+image can assist a vision-language model [24], yet that study’s
+own per-task results concentrate the benefit on perception
+tasks and reverse on others, and multimodal fusion for time
+series frequently underperforms [17]. Conditional invocation
+has precedent outside time series in AutoTool, which learns
+by reinforcement when a visual tool call is useful [25]; our
+gate is instead triggered by deterministic statistical evidence,
+a coarse, recall-oriented rule rather than a calibrated selector
+(Section III-D). The structured half of the design belongs
+to the chart-derendering literature, where DePlot translates a
+plot to a table before a language model reasons over it [26];
+our sensor differs in being invoked conditionally, in emitting
+a topology summary rather than a data table, and in being
+evaluated against a raw-pixel condition on matched rows.
+Evaluation methodology affects the interpretation of any
+reported gain. Saqur et al. [27] argue that reported gains
+in time-series modeling are often illusory once evaluation
+is taxonomy-aware. Their argument concerns forecasting; we
+adopt the same caution for TS-QA and report matched-
+backbone paired differences as primary evidence, with cross-
+system tables given for context.
+III. METHOD
+A. Problem and design rationale
+A TS-QA instance is a triple x = (Q, X, O): a natural-
+language question Q, one or more numerical series X, and
+a possibly empty option set O. A deterministic rule over
+the question and options, independent of any model output,
+assigns each instance an answer schema
+σ(Q, O) ∈{mcq, numerical, categorical}.
+(1)
+On mcq rows the system returns a choice ˆa ∈O, scored
+by exact match. The categorical value marks rows that
+request a free-text label; no scored row in either benchmark
+takes it. On numerical rows the system returns a value
+ˆv ∈R, scored at a relative tolerance,
+Acc@10(ˆv, v∗) = ⊮[ |ˆv −v∗| ≤0.1 |v∗| ] .
+(2)
+
+
+Because language models process X as text and lose
+precision [2], [3], T-SMART treats the limitation as a fixed
+constraint, routing every numerical computation to determin-
+istic code and assigning the model two functions: selecting the
+computation and expressing its result as an answer.
+B. The pipeline
+T-SMART is a single-pass decision procedure without a
+loop (Figure 1). One frozen model fills three roles, router,
+vision sensor, and answer reader, at temperature 0, and is never
+fine-tuned. The bounded loops of Section III-J are extensions;
+none is enabled in the reported default.
+The router runs first. It reads Q and a flag for the number
+of series present and returns a JSON route (branch, scope,
+subtype, series type) without observing the answer options.
+The deterministic schema rule of Eq. (1) then runs, and the
+pipeline splits on its output.
+On a multiple-choice row, the routed branch runs deter-
+ministic estimators on X and writes a structured evidence
+dictionary; the verifier raises flags and evaluates the trust gate;
+the answer reader returns a letter, preceded by the structured
+vision sensor when the gate fires. On a free-response row,
+control exits at the numeric head, before the gate and the
+reader: the head parses the question into an operation plan over
+a closed registry and computes the value with deterministic
+code; there the only model call is the router, and the vision
+sensor and answer reader are never invoked.
+A routing failure, a disabled branch, or a row without a
+series falls back to a direct prompt rather than aborting the
+run.
+C. Deterministic branches
+Each branch runs a fixed set of estimators (Table I).
+Causality is the clearest case: every model in TimeSeriesExam
+struggles most there [15], and it is the category where a
+Granger test offers the clearest advantage.
+The bank is designed to mirror the category structure of
+the benchmarks it is evaluated on: the claims in this paper
+concern taxonomy-covered TS-QA, the questions that reduce
+to a computation the bank registers, and Section IV-B reports
+performance outside that coverage, where rows fall back to a
+direct prompt.
+D. Verifier and the trust gate
+The verifier applies rule-based checks to the evidence
+dictionary and raises a set F of flags: weak trend fits, un-
+reliable spectral periods, disagreeing stationarity tests, non-
+significant Granger results, weak correlations, detected ARCH
+effects, high volatility, and incomplete evidence. The flag
+evidence_incomplete additionally routes the row to-
+ward fallback.
+The gate computes a trust score over the flags and a
+second set D(e, q) of graded diagnostics derived from the
+evidence e and the question q: ambiguous functional-form fits,
+marginal Granger p-values, high ADF p-values, correlation-
+versus-Granger conflicts, unstable chunk statistics, and weak
+seasonal, trend, or anomaly signals on questions that ask about
+them. Each raised flag deducts a fixed 0.15 and each diagnostic
+deducts its weight wd ∈[0.05, 0.25],
+s = max
+
+0, 1 −0.15 |F| −
+X
+d∈D(e,q)
+wd
+
+,
+(3)
+and the gate fires according to
+g(e, q) =
+
+
+
+
+
+
+
+
+
+1,
+vis(q),
+0,
+HC(e) and not vis(q),
+1,
+s ≤0.85,
+0,
+otherwise,
+(4)
+evaluated top to bottom, where vis(q) marks an explicitly
+visual question and HC(e) is a high-confidence predicate
+(strong fit margins, decisive Granger evidence, or strong sea-
+sonal or trend strength, available only when no flag is raised)
+that vetoes the trigger. The exact flag definitions, diagnostic
+weights, predicate, and render-selection logic are released with
+our code, and two configuration switches override the gate
+after it runs.
+Two properties of this rule matter for interpreting the results:
+the gate is permissive by construction, since a single raised
+flag deducts 0.15 and satisfies s ≤0.85 on its own, and its
+firing rate is correspondingly high, 568 of 746 TimeSerie-
+sExam rows (76.1%). We designed the gate for recall and
+claim no selectivity for it; the benefit of gating is instead
+measured against counterfactuals, a math-only configuration
+and a learned suppression policy that lowers the look-rate to
+27.9% (Sections III-G and IV-F). All constants, including the
+agency quality threshold (0.55), were fixed before the reported
+paired evaluations; none was learned or statistically identified.
+E. Conditional structured vision and the SVI
+When the gate fires, the pipeline renders X as a spectrogram
+for periodicity, noise, causality, or spectral flags, and as a line
+plot for trend, shape, and the waveform subtypes. The vision
+sensor reads the image and returns a structured JSON descrip-
+tion (topology, waveform, breakpoints). Only that description
+enters the answer step; the raw pixels do not. We call this
+property the Structured-Vision Invariant (SVI).
+We treat vision as one more tool, called when the statistics
+are judged insufficient and otherwise withheld, because a
+rendered series can mislead as readily as it can inform: the
+mere presence of an image biases the answer model toward
+reporting a pattern even when the statistics reject one, a failure
+we call visual sycophancy. The term’s one prior use concerns
+answer shifts toward an option pre-marked in the image itself
+[28], and related work studies VLM sycophancy under leading
+textual prompts [29]; the effect here requires neither: a neutral
+render alone induces answers that contradict the statistics.
+Sycophancy is the reason perception is gated. We measure
+whether the structured reading also reduces sycophancy, and
+the result is inconclusive; the claim we make for the SVI
+is auditability, since the answer step consumes a verified,
+inspectable reading rather than pixels, and its accuracy cost
+
+
+is reported. The design choice is contested in the literature
+[17], [24], so we measure it. A raw-pixel ablation attaches
+the rendered PNG directly to the answer model, compared on
+matched rows against the structured sensor and against the
+math-only counterfactual. The comparison has been run twice
+on the TimeSeriesExam gated subset (n = 568), an initial run
+and a pinned-commit regeneration; Section IV-C reports both
+replications, the cost of the invariant, and the sycophancy rates
+under each visual condition.
+F. Numeric head
+TimeSeriesExam is multiple choice. MMTS-Bench is ap-
+proximately half free-response on its Base subset, with ques-
+tions that request a number. The numeric head answers these.
+The head is gated by the answer schema of Eq. (1), com-
+puted before any model call: a row with two or more parseable
+options is classified mcq and cannot enter the head, so every
+multiple-choice result is byte-identical with the head enabled
+or disabled. An audit on the 686 labelled Base rows found
+a single off-diagonal row (a multiple-choice row inferred
+as numerical) and no numerical row misread as multiple
+choice, so the byte-identity property rests on a measured 0/388
+(Section IV-F). The property concerns enabling or disabling
+the head within the default pipeline; llm_compute is a
+different, tool-free condition (Section III-G).
+A parser converts the question into a plan over a closed
+registry Π: a base quantity (std, mean, median, range,
+and others) optionally wrapped in a compose operation, with
+numeric parameters where required. The invariant is on the
+output: the planner emits a validated operation plan π ∈Π and
+never the final value, which deterministic code then computes,
+ˆv = eval(π, X),
+π = parse(Q) ∈Π.
+(5)
+Where PAL and Program-of-Thoughts have the model emit
+arbitrary programs [11], [12], the head restricts it to this closed
+registry, a restriction chosen for auditability. We study three
+parsers as an experimental axis: A0, a keyword parser; A1,
+a deterministic composition grammar with fuzzy and typo
+matching; and A2, an LLM planner that fires only when A1
+abstains and still emits a validated plan. Free-response answers
+are scored by Eq. (2).
+G. Configuration as the unit of experiment
+Behavior is changed by switching pipeline arguments, never
+by editing prompts toward an answer: a configuration is a
+named dictionary of those arguments, prompts are identical
+across configurations, and every experiment is a paired com-
+parison of two configurations on the same rows. Three schema-
+conditioned axes define a configuration: vision policy acts only
+on rows that reach the visual gate (the multiple-choice rows),
+the numeric head acts only on free-response rows (the A0
+default, A1/A2 parser variants, or a bypass), and agency is
+disabled by default.
+The canonical system, baseline, is therefore schema-
+conditioned: on multiple-choice rows it is the trust gate with no
+loop and no numeric head; on free-response rows it is the A0
+TABLE II
+CONFIGURATIONS USED AS EXPERIMENTAL CONDITIONS. A
+CONFIGURATION IS A NAMED SET OF PIPELINE ARGUMENTS; PROMPTS
+ARE IDENTICAL ACROSS CONDITIONS.
+Name
+Setting and role
+baseline
+trust gate, no loop; A0 numeric
+head on free-response. Canonical
+T-SMART; the control condition
+vision_override
+suppress vision on noise, force
+anomaly line plots.
+TimeSeriesExam-selected routing
+intervention, frozen before OOD
+testing; a mechanism-transfer
+ablation
+learned_gate
+per-branch suppression filter over
+the trust gate; a lower-look-rate
+policy fitted on MMTS discordance,
+evaluated on held-out
+TimeSeriesExam
+vision_off
+suppress vision on all branches; the
+math-only counterfactual
+head_grammar, head_planner
+A1 / A2 parser over the A0 default;
+free-response numeric-head variants
+llm_only
+no router, branch, or tools; one
+direct answer call. Raw-model
+control for the fixed-backbone
+analysis
+llm_compute
+tool-free on every row: the model
+computes the value from the raw
+series on numerical rows;
+multiple-choice rows take the direct
+llm_only path. Numeric-head
+bypass counterfactual
+The names shown are those used in this paper; the released code registry
+keeps its original identifiers, and the mapping is documented in the release.
+numeric head, reached before the gate. Across evaluation har-
+nesses the behavior-changing switches are copied unchanged
+and each harness adds inert defaults, so configurations are
+semantically identical rather than byte-identical dictionaries.
+Table II lists the experimental conditions.
+The vision_override condition was selected on Time-
+SeriesExam as a narrow routing intervention and frozen before
+any MMTS evaluation (Table II). The learned_gate con-
+dition is a per-branch suppression filter trained only on rows
+where the trust gate fired, able to suppress vision calls but
+never add one; its held-out result is reported in Section IV-F.
+H. Backbones
+The main reported T-SMART results use gemini-3.1-flash-
+lite at temperature 0, with that single model filling all three
+roles; a secondary analysis uses gpt-4o-mini, the model TS-
+Agent reports [7], to separate architecture from backbone at a
+fixed model. Models are never mixed within a run.
+I. Evaluation
+We evaluate on two benchmarks. TimeSeriesExam [15], 746
+multiple-choice questions across five categories, is the primary
+benchmark; MMTS-Bench [16], with four subsets, is the out-
+of-distribution benchmark, where Base free-response is scored
+by Eq. (2) and multiple choice by exact match.
+The protocol is paired throughout [30]. Each comparison’s
+decision rule, its hypotheses, primary contrast, and stratifica-
+
+
+tion, is committed to a repository registration file with the
+exact command before scoring; no external registry is used,
+so we say specified before scoring rather than pre-registered,
+and the files, with any deviations, are part of the release. Both
+conditions run on the same rows, and the reported estimate
+is the mean paired difference ˆ∆=
+1
+n
+P
+i
+ cT
+i −cC
+i
+
+, where
+ci ∈{0, 1} is per-row correctness under the treatment and
+control conditions. The 95% confidence interval is a percentile
+bootstrap over the paired per-row differences, with the row
+as the resampling unit, 10,000 resamples, and a fixed seed.
+Rows generated from the same template or series are treated
+as independent. That simplification matters for results near a
+decision threshold, notably the vision_override overall
+difference (p = 0.052) and the propose-loop null (p = 0.79):
+we flag both as sensitive to the independence assumption,
+and the released tooling supports a per-series cluster boot-
+strap for the check. Significance uses the exact conditional
+McNemar test, conservative relative to mid-p variants [31],
+on the discordant counts n10 (treatment-only correct) and n01
+(control-only correct). We stratify by the pre-reroute router
+branch (initial_branch_used), because an agency loop
+can rewrite the post-hoc branch and conditioning on it would
+condition on a collider. The per-branch family is corrected
+with Holm, and parsing errors, tool failures, and timeouts all
+count as incorrect.
+We do not claim bit-exact runs, and we measure routing
+stability directly: every condition issues its own router call
+on every row, no route is cached or reused across conditions,
+and for each paired comparison we report routing drift, the
+fraction of paired rows whose routed branch differs. On the
+gemini-3.1 main runs the measured drift was 0 of 746 rows
+in every comparison, so the configuration was effectively
+the only varying factor. That figure is a per-row equality
+check on the routed branch, run for each comparison; the
+same check exposes the instability of the other backbone.
+The gpt-4o-mini router disagrees with itself on approximately
+40% of rows at temperature 0, with flips concentrated in
+and out of the fallback route (the anomaly-routed stratum’s
+size swings between 49 and 71 rows across identical runs);
+API-level nondeterminism at temperature 0 is documented
+behavior [32]. Its consequence for inference is that gpt-4o-
+mini runs are treated as stress tests: per-branch differences
+under that router are not read as mechanism evidence, and
+conclusions there rest on the discordant-pair McNemar test
+and a held-out replication. A route-pinned design, caching one
+set of routes and replaying them in both conditions, would
+remove this noise at the cost of evaluating a counterfactual
+router; we did not run it, and mark these analyses secondary.
+Primary evidence throughout is the matched-backbone paired
+difference [27].
+J. Tested extensions: bounded evidence-layer correction
+We implemented three bounded correction loops, none
+enabled in baseline. All three correct in the evidence
+layer; none re-prompts the answer model. This axis, bounded
+evidence-layer correction, is the agency this paper tests, a
+narrower regime than full agentic control.
+The first, reroute-once, re-routes a single time on an in-
+completeness flag. The second, refine, accumulates a second
+branch’s evidence below a quality threshold using keyword
+candidate selection and no additional model call. The third,
+propose, selects the next tool from a closed registry at one
+model call per step. Trigger rates and paired effects are
+reported in Section IV-C.
+The loops operate in the tool-verified regime that Huang et
+al. leave open [23]; majority-vote self-consistency [22] serves
+as a decoding-time control.
+IV. EXPERIMENTS
+A. Setup
+All main T-SMART runs use gemini-3.1-flash-lite at tem-
+perature 0, on the full 746-row TimeSeriesExam and the
+four MMTS-Bench subsets, with every comparison paired on
+identical rows under the statistics of Section III-I.
+B. Main accuracy and comparison
+Tables III and IV compare T-SMART with published sys-
+tems on TimeSeriesExam and MMTS-Bench. Both tables
+follow the scoping of Section III-C: the tool bank targets these
+benchmarks’ taxonomy, and the InWild and Align columns
+of Table IV are the off-taxonomy exception. Cross-system
+comparisons are reported for context only: the T-SMART rows
+use gemini-3.1-flash-lite on our harness, while the baseline
+rows are reproduced from their source papers, each on its own
+harness and backbone. The primary evidence is the matched-
+backbone paired analysis of Section IV-D. Overall accuracy
+(OA) is the category mean; TS-Agent’s OA is the unweighted
+mean of the per-category scores in [7], computed by us, since
+that paper reports no overall figure.
+On TimeSeriesExam both configurations exceed TS-Agent’s
+computed overall accuracy, though the per-category profile
+is uneven: T-SMART leads on pattern recognition, similarity,
+and causality, and trails on noise. The vision_override
+routing intervention recovers most of the anomaly deficit:
+the paired difference over baseline is +2.7 points overall
+(n = 746, n10/n01 = 58/38, CI [+0.1, +5.2], p = 0.052),
+concentrated on the anomaly-routed stratum (+14.6, n = 82,
+CI [+1.2, +28.0]), which does not survive Holm on the
+primary benchmark alone and is suggestive at that stratum
+size; the frozen out-of-distribution replication of Section IV-E
+is the confirming evidence.
+On MMTS-Bench, accuracy concentrates where a question
+reduces to a computation the tool bank implements. With
+the numeric head answering free-response, T-SMART scores
+above ChatTS and below TS-Agent’s reported figure overall,
+and scores highest on Base among the systems in Table IV.
+Within Base the purely tool-computed categories are at ceiling
+while the reasoning-heavy ones lag (noise 32.0, trend 42.0).
+Match is a second area of strength, consistent with the DTW
+pairwise design. The same table also shows the architecture’s
+limits: on the subsets whose questions do not reduce to a
+
+
+TABLE III
+TIMESERIESEXAM, PER-CATEGORY ACCURACY (%). OA IS THE CATEGORY-MEAN OVERALL ACCURACY.
+Model
+Setting
+OA
+PR
+NU
+AD
+SA
+CA
+Phi-3.5
+text
+31.8
+44
+24
+25
+41
+25
+Gemini-2.5
+text
+30.4
+29
+32
+26
+35
+30
+Mistral-7B
+text
+34.6
+29
+33
+38
+45
+28
+GPT-4o
+text
+38.8
+35
+32
+40
+51
+36
+ChatTS
+TS model
+39.0
+37
+39
+36
+53
+30
+Gemini-2.5
+vision
+48.8
+51
+54
+46
+69
+24
+TS-Agent
+agentic, gpt-4o-mini
+60.2
+71
+61
+57
+57
+55
+T-SMART baseline
+gemini-3.1
+65.0
+71.8
+59.5
+52.8
+70.0
+70.8
+T-SMART vision_override
+gemini-3.1
+67.5
+74.3
+58.3
+63.9
+70.0
+70.8
+PR = pattern recognition, NU = noise understanding, AD = anomaly detection, SA = similarity analysis,
+CA = causality analysis. OA is the unweighted mean of the five categories. Baseline rows reproduced
+from [7], [15]; T-SMART rows are this work, gemini-3.1, n = 746. The T-SMART tool bank targets this
+benchmark’s taxonomy (Section III-C).
+TABLE IV
+MMTS-BENCH, ACCURACY PER SUBSET (%). MICRO OA IS THE
+ROW-WEIGHTED MICRO-AVERAGE. BASE USES THE NUMERIC HEAD ON
+FREE-RESPONSE.
+Model
+Micro OA
+Base
+InWild
+Match
+Align
+ChatTS
+49
+39
+50
+37
+80
+TS-Agent
+60
+21
+71
+77
+97
+T-SMART baseline
+55.6
+72.7
+48.3
+59.0
+32.9
+T-SMART is this work, gemini-3.1: Base n = 700, InWild 1084,
+Match 400, Align 240; Micro OA is the micro-average over n = 2424
+rows.
+TABLE V
+PAIRED MECHANISM EFFECTS ON IDENTICAL ROWS (POINTS). TOP:
+MMTS BASE, NUMERIC HEAD VS. L L M_C O M P U T E, SCORED BY ACC@10.
+BOTTOM: TIMESERIESEXAM GATED SUBSET, EACH VISUAL CONDITION
+VS. MATH-ONLY.
+Comparison
+n
+n10/n01
+∆
+95% CI
+p
+all numerical rows
+393 128/12
+29.5 [+24.4, +34.6] <0.0001
+closed-form
+328 104/0
+31.7 [+26.8, +36.9] <0.0001
+structured vs. math-only
+568 113/69
+7.7 [+3.2, +12.3]
+0.0014
+raw pixels vs. math-only 568 119/62
+10.0 [+5.5, +14.6]
+<0.0001
+SVI cost (struct. −raw)
+568
+−2.3
+n10/n01 = treatment-only / control-only correct; CI is the row-level per-
+centile bootstrap of Section III-I; p is exact McNemar. The numeric rows are
+the two strata specified before scoring.
+registered computation, T-SMART trails TS-Agent by wide
+margins (InWild, Align), the measured cost of the direct-
+prompt fallback (Section V).
+C. Mechanism decomposition
+The largest effect comes from deterministic computation.
+On the numerical rows of MMTS Base the deterministic
+numeric head exceeds llm_compute, the same model com-
+puting the number from the raw series, by 29.5 points,
+rising to 31.7 on the closed-form stratum where the head
+wins 104 pairs and loses none (Table V), with the purely
+tool-computed categories at ceiling (basic analysis 100 vs.
+72.0, stationarity 100 vs. 64.0). The wider configuration-
+level gap, 72.7 against 44.7 on the full 700-row subset, is
+not the head effect alone: because llm_compute is tool-
+free on every row (Section III-G), 80 of its 196 aggregate
+TABLE VI
+THREE-PARSER STUDY ON THE SYNTHETIC NUMERIC STRESS SET
+(ACC@10, %; GOLD = THE DETERMINISTIC TOOL’S OWN ANSWER;
+n = 60 PER LAYER).
+Layer
+A0
+A1
+A2
+A2 fire %
+clean
+100
+100
+100
+0
+compositional
+15
+100
+100
+0
+typo
+0
+83
+100
+17
+paraphrase
+0
+0
+75
+100
+overall (n=240)
+29
+71
+94
+29
+rows lie on multiple-choice questions, where the difference
+measures the tool pipeline rather than the head. The head-
+specific claim is therefore the paired +29.5, not the +28.0
+aggregate. The effect is not uniform: on the slope stratum the
+registry’s estimator loses to the model (−36.4 points, n = 22,
+p = 0.039, suggestive at this size), the one quantity where the
+closed registry underperforms. Where the question reduces to
+a statistic the registry computes well, model computation from
+the raw values is markedly less accurate.
+The model contributes as a translator (Table VI). On a
+synthetic stress set of 240 questions in four layers (n = 60
+each; Acc@10 against the tool’s own answer as gold), the
+deterministic grammar A1 fully recovers the compositional
+layer (15% →100%) and most of the typo layer (0% →
+83%). The LLM planner A2 completes the typo layer (+16.7
+points, p = 0.002) and is essential only on open paraphrase,
+which no deterministic parser resolves: +75.0 points over A1
+(CI [+63.3, +85.0], p < 0.0001), firing on every paraphrase
+row and on no clean row, so the clean path is unchanged.
+Perception helps conditionally, and its invariant has a mea-
+sured cost. On the gated TimeSeriesExam subset, structured
+vision beat math-only by +8.5 points in the initial run and
++7.7 (95% CI [+3.2, +12.3]) in the pinned regeneration,
+while raw pixels beat math-only by +10.0 in both; the cost
+of the Structured-Vision Invariant against raw pixels was
+therefore 1.5 and 2.3 points, with the same sign in both
+runs (Table V). One secondary contrast did not reproduce:
+the initial run measured far lower structured sycophancy on
+trend questions (0.40 versus raw’s 0.73, on 10–15 discordant
+
+
+45
+55
+65
+75
+85
+Noise
+Anomaly
+Similarity
+Trend
+Periodicity
++1.5 pp
++5.0 pp
++14.3 pp
++24.8 pp
+−4.2 pp
+statistics only
++ gated vision
+Accuracy (%)
+Fig. 2. Gated vision helps only where shape and periodicity are decisive: on
+gate-fired rows (gemini-3.1-flash-lite), structured vision improves periodicity
+(+24.8) and trend (+14.3), is near zero on anomaly, and negative on noise
+(−4.2).
+rows), while the regeneration finds 0.70 versus 0.73 there and
+comparable overall rates (0.63 structured, 0.61 raw), so we
+claim no sycophancy reduction for the SVI and retain the
+invariant on auditability grounds at its measured cost. The lift
+is concentrated (Figure 2): largest on periodicity and trend,
+where the structured reading is also the stronger condition
+(+14.3 against raw pixels’ non-significant +9.9), near zero on
+anomaly, and negative on noise, the categories a deterministic
+test already resolves. Vision acts as a specialist tool, most
+useful where shape and periodicity determine the answer.
+Bounded evidence-layer correction produces no effect dis-
+tinguishable from zero. Reroute-once and refine never trig-
+gered: the first trigger was never met on any of the 746
+rows, and the second’s candidate generator returned no usable
+second branch, two zeros that reflect trigger calibration on this
+benchmark rather than the value of rerouting or refinement,
+since a mechanism that never runs cannot be measured.
+Propose triggered on 120 of 746 rows, producing 6 corrections
+against 8 new errors, a paired difference of −0.3 points
+(p = 0.79, exact binomial on the 14 discordant rows). At
+this trigger rate only a large effect would be detectable, so the
+propose null is absence of evidence, not evidence of absence.
+D. Architecture versus backbone
+Two numbers at this backbone have different evidential sta-
+tus, and we report them separately. The first is within-system
+and paired: at gpt-4o-mini, the tool architecture with vision
+suppressed (vision_off, isolating the tool contribution)
+scores 0.548 against the raw model’s 0.413 (llm_only) on
+the same 746 rows, a paired gain of 13.5 points (n10/n01 =
+170/69, CI [+9.5, +17.6], p < 0.0001), significant on 5
+of 6 branches under Holm. The second is cross-system and
+unpaired: TS-Agent’s published figure at the same backbone
+is 0.602, 5.4 points above our loop-free system. That gap
+cannot be assigned to iteration, because iteration, tool set,
+and harness all differ at once; the loop-isolating comparison
+inside a single pipeline is the null of Section III-J. The fixed-
+backbone analysis establishes that T-SMART’s cross-system
+advantage at gemini (Tables III and IV) is substantially a
+backbone effect. These gpt-4o-mini runs remain secondary
+evidence (Section III-I).
+E. Generalization
+The vision_override routing intervention, frozen be-
+fore MMTS, transfers at the mechanism level rather than as
+an overall gain: the anomaly stratum (91 of 1,865 paired
+rows) replicates at +16.5 points (p = 0.024), noise remains
+neutral, and the overall difference is +1.0 points and not
+significant. An autonomous search over vision and correction
+configurations, scored against a cached 504-row gpt-4o-mini
+anchor with per-branch paired tests under a win rule frozen
+before any variant ran, returned a null result: no variant met
+the rule, and the search ledger is included in the release.
+F. Schema and gate audits
+The schema-gate audit (1 of 686 rows off-diagonal; 0 of 388
+numerical rows misread) and the learned-gate result (look-rate
+76.1% to 27.9%, non-inferiority not met at a lower CI bound of
+−2.41 points, regression under gpt-4o-mini) are reported with
+their mechanisms in Sections III-F and III-G. Coverage on the
+primary benchmark is near total: the direct-prompt fallback
+fired on 4 of 746 rows (0.5%) under both backbones’ primary
+configurations, and per-comparison branch-level row counts
+appear in the released reports.
+V. DISCUSSION
+Across the evaluated benchmarks, the decomposition is
+consistent. Deterministic computation accounts for most of
+the accuracy; the language model contributes at the language
+boundary; perception contributes conditionally, as a gated tool;
+and bounded evidence-layer correction produces no measur-
+able gain. These claims are specific to T-SMART and the
+evaluated benchmarks.
+Two of the paper’s own results limit any broader reading.
+First, the computation result is scoped: the tool bank targets
+the same taxonomy that TimeSeriesExam and MMTS Base
+instantiate (Section III-C). The InWild and Align subsets
+quantify performance off that taxonomy: accuracy falls to 48.3
+and 32.9 while an agentic system reaches 71 and 97, because
+questions with no registered computation fall back to a direct
+prompt. The contribution is the measurement protocol and
+the boundaries it identifies. Second, the agency evidence is
+mixed. Bounded evidence-layer correction added to verified
+tool evidence produced nothing here, yet a published agent
+reports accuracy 5.4 points above ours at a matched backbone
+on the same closed-form benchmark (Section IV-D). Whether
+closed-form benchmarks can reveal the value of agency at all,
+and whether that gap comes from the loop or from the tools it
+drives, are open questions that these experiments narrow but
+do not answer. Two external results bound the scope of the
+null: chain-of-thought and multimodal fusion improve general
+models on MMTS-Bench [16], so the null concerns bounded
+correction atop verified tool evidence, not inference-time rea-
+soning in general; and training-time adaptation also improves
+TS-QA [19], an option the frozen backbone excludes.
+
+
+Further limitations apply. The vision estimates rest on two
+replications whose magnitudes moved by about one point and
+whose sycophancy contrast did not reproduce (Section IV-C).
+The trust gate is hand-built and permissive (Section III-D),
+and its learned alternative is a suppression policy rather than
+a calibrated one. The parser study relies on a synthetic stress
+distribution, since no natural messy-numeric TS-QA bench-
+mark exists for it. The weak-backbone analyses are secondary
+for the reasons of Section III-I, and the primary results rest
+on a single backbone.
+VI. CONCLUSION
+We used a small, single-pass neurosymbolic system to mea-
+sure where accuracy in tool-augmented TS-QA originates. On
+the benchmarks evaluated, deterministic computation accounts
+for most of the accuracy; the language model contributes at the
+question boundary; structured perception acts as a gated tool
+whose invariant costs 1.5–2.3 points against raw pixels across
+two replications; and three bounded evidence-layer correction
+loops produced no measurable gain, two of them because
+their triggers never fired. These are claims about one system
+on taxonomy-covered, closed-form benchmarks, established
+by paired comparisons with decision rules specified before
+scoring, exact tests, and multiple-comparison control. The
+protocol itself is designed to transfer to other systems.
+ACKNOWLEDGEMENTS
+This work has been funded in part by NSF, with award num-
+bers #2112665, #2112167, #2003279, #2120019, #2211386,
+#2052809, #1911095 and in part by PRISM and CoCoSys,
+centers in JUMP 2.0, an SRC program sponsored by DARPA.
+REFERENCES
+[1] O. Gungor, A. Rios, P. Mudgal, N. Ahuja, and T. Rosing, “A robust
+framework for evaluation of unsupervised time-series anomaly detec-
+tion,” in International Conference on Pattern Recognition.
+Springer,
+2024, pp. 48–64.
+[2] M. A. Merrill, M. Tan, V. Gupta, T. Hartvigsen, and T. Althoff,
+“Language models still struggle to zero-shot reason about time series,”
+in Findings of the Association for Computational Linguistics: EMNLP
+2024. Miami, Florida, USA: Association for Computational Linguistics,
+2024, pp. 3512–3533, arXiv:2404.11757.
+[3] N. Gruver, M. Finzi, S. Qiu, and A. G. Wilson, “Large language models
+are zero-shot time series forecasters,” in Advances in Neural Information
+Processing Systems (NeurIPS), vol. 36, 2023, arXiv:2310.07820.
+[4] M. Tan et al., “Are language models actually useful for time series
+forecasting?” in Advances in Neural Information Processing Systems
+(NeurIPS), 2024, arXiv:2406.16964.
+[5] B. Jing et al., “TSAQA: Time series analysis question and answering
+benchmark,” arXiv preprint arXiv:2601.23204, 2026, gEM Workshop,
+ACL 2026.
+[6] S. Xie et al., “ARFBench: Benchmarking time series question answering
+ability for software incident response,” arXiv preprint arXiv:2604.21199,
+2026.
+[7] P. Liu et al., “TS-Agent: Understanding and reasoning over raw time
+series via iterative insight gathering,” arXiv preprint arXiv:2510.07432,
+2025, neurIPS 2025 Workshop on Foundations of Reasoning in Lan-
+guage Models.
+[8] X. Wu et al., “TimeART: Towards agentic time series reasoning via
+tool-augmentation,” arXiv preprint arXiv:2601.13653, 2026.
+[9] C. Chang et al., “A survey of reasoning and agentic systems in time
+series with large language models,” Transactions on Machine Learning
+Research, 2026, arXiv:2509.11575.
+[10] T. Schick et al., “Toolformer: Language models can teach themselves
+to use tools,” in Advances in Neural Information Processing Systems
+(NeurIPS), vol. 36, 2023, arXiv:2302.04761.
+[11] L. Gao et al., “PAL: Program-aided language models,” in Proc. 40th
+International Conference on Machine Learning (ICML), ser. Proceedings
+of Machine Learning Research, vol. 202, 2023, pp. 10 764–10 799,
+arXiv:2211.10435.
+[12] W. Chen et al., “Program of thoughts prompting: Disentangling compu-
+tation from reasoning for numerical reasoning tasks,” Transactions on
+Machine Learning Research, 2023, arXiv:2211.12588.
+[13] S. Yao et al., “ReAct: Synergizing reasoning and acting in language
+models,” in International Conference on Learning Representations
+(ICLR), 2023, arXiv:2210.03629.
+[14] Z. Sprague et al., “To CoT or not to CoT? chain-of-thought helps
+mainly on math and symbolic reasoning,” in International Conference
+on Learning Representations (ICLR), 2025, arXiv:2409.12183.
+[15] Y. Cai, A. Choudhry, M. Goswami, and A. Dubrawski, “TimeSerie-
+sExam: A time series understanding exam,” in NeurIPS’24 Workshop
+on Time Series in the Age of Large Models, 2024, arXiv:2410.14752.
+[16] Y. Yin et al., “MMTS-Bench: A comprehensive benchmark for time
+series understanding and reasoning,” arXiv preprint arXiv:2602.08588,
+2026.
+[17] F.
+Yu
+et
+al.,
+“TSRBench:
+A
+comprehensive
+multi-task
+multi-
+modal time series reasoning benchmark for generalist models,” in
+Proc. International Conference on Machine Learning (ICML), 2026,
+arXiv:2601.18744.
+[18] Y. Kong et al., “TimeSage-MT: A multi-turn benchmark for evaluating
+agentic time series reasoning,” arXiv preprint arXiv:2606.01498, 2026.
+[19] Y. Kong et al., “Time-MQA: Time series multi-task question answering
+with context enhancement,” in Proc. 63rd Annual Meeting of the Asso-
+ciation for Computational Linguistics (ACL), Volume 1: Long Papers.
+Vienna, Austria: Association for Computational Linguistics, 2025, pp.
+29 736–29 753, arXiv:2503.01875.
+[20] J. Chen et al., “MTBench: A multimodal time series benchmark
+for temporal reasoning and question answering,” arXiv preprint
+arXiv:2503.16858, 2025.
+[21] J. Kim, C. Oh, S. Lee, I. Rish, and C. Lee, “Representing time
+series as structured programs for LLM reasoning,” arXiv preprint
+arXiv:2606.12481, 2026.
+[22] X. Wang et al., “Self-consistency improves chain of thought reasoning
+in language models,” in International Conference on Learning Repre-
+sentations (ICLR), 2023, arXiv:2203.11171.
+[23] J. Huang et al., “Large language models cannot self-correct reasoning
+yet,” in International Conference on Learning Representations (ICLR),
+2024, arXiv:2310.01798.
+[24] M. Daswani et al., “Plots unlock time-series understanding in multi-
+modal models,” arXiv preprint arXiv:2410.02637, 2024.
+[25] Q. Ma, Z. Zhao, Y. Wu, J. Zhang, L. Bai, and Y. Shi, “Are tools
+always beneficial? learning to invoke tools adaptively for dual-mode
+multimodal LLM reasoning,” in Proc. International Conference on
+Machine Learning (ICML), 2026, arXiv:2605.19852.
+[26] F. Liu, J. M. Eisenschlos, F. Piccinno, S. Krichene, C. Pang et al., “De-
+Plot: One-shot visual language reasoning by plot-to-table translation,” in
+Findings of the Association for Computational Linguistics: ACL 2023,
+2023, arXiv:2212.10505.
+[27] R. Saqur et al., “Seeking SOTA: Time-series forecasting must adopt
+taxonomy-specific evaluation to dispel illusory gains,” arXiv preprint
+arXiv:2603.15506, 2026.
+[28] J. Lim and B. W. Lee, “Measuring agreeableness bias in multimodal
+models,” arXiv preprint arXiv:2408.09111, 2024.
+[29] Y. Zhao et al., “Sycophancy in vision-language models: A systematic
+analysis and an inference-time mitigation framework,” Neurocomputing,
+vol. 659, p. 131217, 2026, arXiv:2408.11261.
+[30] R. Dror et al., “The hitchhiker’s guide to testing statistical significance
+in natural language processing,” in Proc. 56th Annual Meeting of the
+Association for Computational Linguistics (ACL), 2018.
+[31] M. W. Fagerland, S. Lydersen, and P. Laake, “The McNemar test for
+binary matched-pairs data: mid-p and asymptotic are better than exact
+conditional,” BMC Medical Research Methodology, vol. 13, no. 91,
+2013.
+[32] S. Ouyang, J. M. Zhang, M. Harman, and M. Wang, “LLM is like a box
+of chocolates: The non-determinism of ChatGPT in code generation,”
+arXiv preprint arXiv:2308.02828, 2023.

@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-15</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-16</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 3 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>1</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>2</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-15 21:52:29 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-16 22:34:35 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-15 日报共收18篇，精读7篇、速读11篇，重点锁定时序预测的参数高效微调与推理增强。</p>
-<p>最值得看：满分10.0的《Parameter-Efficient Adaptation of Pretrained Language Models for Time-Series Forecasting》，以及9.0的《TimeThink: Eliciting Compositional Reasoning in Timeseries Large Language Models》。</p>
-<p>普通读者可先读满分那篇抓方法主线，再借8.0的《Beyond Point Forecasts》补概率预测视角，建立不确定性评估习惯。</p>
+<p>今日精读1篇、速读2篇：从Agent减速策略、长程物理任务到可验证时间序列生成。最值得看的是《When Agents Slow Down》用Elo-per-token剖析LLM Agent测试时策略，以及LLM Agent能否管理长程物理任务。普通读者可先读精读篇理解Agent何时该慢，再扫速读篇看物理AI与代码生成落地。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">1 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Parameter-Efficient Adaptation of Pretrained Language Models for Time-Series Forecasting">Parameter-Efficient Adaptation of Pretrained Language Models for Time-Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="TimeThink: Eliciting Compositional Reasoning in Timeseries Large Language Models">TimeThink: Eliciting Compositional Reasoning in Timeseries Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlowTSFM: Turning Encoder Depth into Quantile Transport">FlowTSFM: Turning Encoder Depth into Quantile Transport</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="When Agents Slow Down: Understanding LLM Agents&#x27; Test-Time Strategies via Elo-per-token Analysis">When Agents Slow Down: Understanding LLM Agents&#x27; Test-Time Strategies via Elo-per-token Analysis</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>6</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">2 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Point Forecasts: A Survey on Probabilistic Forecasting for Time Series and Spatiotemporal Data">Beyond Point Forecasts: A Survey on Probabilistic Forecasting for Time Series and Spatiotemporal Data</span></li><li><span class="dpr-home-dashboard-paper-title" title="T-SMART: Mechanism-Level Attribution for Tool-Augmented Time-Series Question Answering">T-SMART: Mechanism-Level Attribution for Tool-Augmented Time-Series Question Answering</span></li><li><span class="dpr-home-dashboard-paper-title" title="Are Gradient Boosting Models Suitable for Intermittent Demand Forecasting?">Are Gradient Boosting Models Suitable for Intermittent Demand Forecasting?</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Toward Self-Adaptive Physical AI: Can LLM Agents Manage Long-Horizon Physical Tasks?">Toward Self-Adaptive Physical AI: Can LLM Agents Manage Long-Horizon Physical Tasks?</span></li><li><span class="dpr-home-dashboard-paper-title" title="CodeTS: Verifiable Text-to-Time Series Generation via Executable Code">CodeTS: Verifiable Text-to-Time Series Generation via Executable Code</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>9</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>1</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>1</strong></span></div>
 </section>
 </div>
 

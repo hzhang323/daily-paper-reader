@@ -1,0 +1,473 @@
+Title: Safe to Stop? Risk-Constrained Stopping for Sequential Clinical Diagnosis Agents
+
+URL Source: https://arxiv.org/pdf/2609.09678v1
+
+Published Time: Thu, 10 Sep 2026 00:31:38 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Safe to Stop? Risk-Constrained Stopping for Sequential Clinical Diagnosis Agents 
+
+Yuexin Wu 
+
+Department of Computer Science University of Memphis 
+
+ywu10@memphis.edu 
+
+Vasile Rus 
+
+Department of Computer Science University of Memphis 
+
+vrus@memphis.edu 
+
+## Abstract 
+
+Clinical diagnosis agents must decide not only what test to request next, but also when to diagnose or defer. Existing agent benchmarks largely evaluate accuracy after fixed or unconstrained interaction, leaving autonomous stopping reliability implicit. We present C ROS , a risk-constrained stopping layer combining state-wise error ranking, policy design on disjoint development splits, and LTT-style exact tests of selective diagnostic error and minimum autonomous coverage for complete sequential policies. Its finite-sample guarantee requires the candidate family, testing rule, and any randomization to be frozen before calibration labels are accessed. On a 1,834-episode MIMIC-derived abdominal-pain benchmark, the full ranker achieves exploratory state-error AUROC 0.853, compared with 0.715 for maximum class probability and 0.552 for the backbone’s native stop score. On the previously viewed 367-episode evaluation split, analytically averaging over the frozen C ROS -Mix weights yields 16.9% selective error at 78.8% coverage, cost 5.57, and 0.68 tests, versus 30.8% error at 100% coverage, cost 8.14, and 1.53 tests under native stopping. Forced continuation is non-monotone: error is 28.3% with HPI alone and 34.3% after full workup. However, the uniform-weight mixture ablation is cheaper on this viewed split despite missing the locked devel-opment margins, and C ROS -Mix nominally satisfies the joint criterion in only 6 of 20 development resplits. Because evaluation labels were inspected during earlier development, these findings provide exploratory feasibility and audit evidence, not a confirmatory safety certificate. 
+
+## 1 Introduction 
+
+Language-model agents can generate differential diagnoses, request tests, read new findings, and revise their hypotheses. Recent systems and benchmarks have made this interaction increasingly realistic [Hager et al., 2024, Schmidgall et al., 2024, Liu et al., 2024, Bani-Harouni et al., 2026]. Yet a central decision remains weakly specified: when should the agent stop acquiring information and commit to an autonomous diagnosis? Stopping too early can miss a consequential disease; stopping too late wastes tests and may expose patients to avoidable procedures. Uncalibrated confidence thresholds provide no finite-sample joint risk–coverage guarantee, while unconstrained empirical cost minimization can overfit the selection sample [Angelopoulos et al., 2025, Laufer-Goldshtein et al., 2023]. We formulate sequential diagnosis as selective, risk-constrained stopping. At each stage the agent observes the history, proposes a diagnosis and next test, and the stopping layer either accepts the diagnosis, continues the shared acquisition trajectory, or defers. The desired policy minimizes re-source cost subject to two population constraints: conditional diagnostic error among autonomous decisions is at most α, and autonomous coverage is at least γ. This differs from ordinary selective 
+
+> Preprint. arXiv:2609.09678v1 [cs.AI] 9 Sep 2026
+
+classification [Geifman and El-Yaniv, 2017, 2019]: prediction quality and the information state both evolve over an agent trajectory. Our method, C ROS (Clinical Risk-constrained Optimal Stopping), separates representation, design, and calibration. Here, “optimal” means cost-minimizing within a finite, selection-frozen family of threshold-and-horizon policies; C ROS does not solve unrestricted Bellman optimal stopping or optimize the backbone’s test-acquisition policy. First, a risk ranker scores the likelihood that the backbone’s current diagnosis is wrong. Second, a selection split freezes the candidate family and, optionally, a randomized mixture chosen to minimize expected cost. Third, a prospectively fresh calibration split can supply exact binomial p-values for error and coverage. Multiple testing pro-cedures from learn-then-test (LTT) [Angelopoulos et al., 2025] convert candidate-wise tests into a finite-sample guarantee. The stopping layer is backbone-agnostic and auditable: each action, ob-servation, risk score, stop/continue/defer outcome, and calibration statistic is logged. In the present study, previously opened labels mean that the same calculations are exploratory calibration checks, not a realized prospective guarantee. We make four contributions: 1. We adapt and operationalize LTT-style joint testing of selective diagnostic error and minimum autonomous coverage for complete sequential stopping policies, obtaining an exact finite-sample guarantee when deterministic or episode-wise randomized policies are frozen before calibration. 2. We instantiate episode-wise randomized mixtures of deterministic stopping policies; Proposi-tion 1 shows that an optimal basic feasible mixture requires at most three component policies and remains compatible with exact calibration when randomized independently across episodes. 3. We construct an auditable retrospective benchmark with 1,834 MIMIC-derived ED episodes, 12 nonuniform-cost actions, recorded-result missingness, and a common-backbone comparison that isolates stopping from diagnosis and test-proposal quality. 4. We report both favorable and negative evidence: the full ranker out-ranks simple scores but weakens under diagnosis-language masking, forced continuation is non-monotone, optimized mixing does not dominate uniform mixing on evaluation, 20-resplit feasibility is unstable, and aggregate control does not ensure subgroup safety. 
+
+## 2 Related Work 
+
+Clinical decision agents. MIMIC-CDM evaluates LLMs on sequential clinical decision making and exposes limitations in diagnostic reasoning and tool use [Hager et al., 2024]. AgentClinic pro-vides a multimodal simulated clinical environment [Schmidgall et al., 2024]; MedChain emphasizes interactive, sequential clinical benchmarking [Liu et al., 2024]; and DxChain uses panoramic pro-filing and adversarial debate [Lv et al., 2026]. LA-CDM trains hypothesis and decision agents with reinforcement learning to choose tests and update diagnoses [Bani-Harouni et al., 2026]. These sys-tems motivate the same acquisition loop as our benchmark. Our goal is complementary: we hold the diagnostic backbone and its action trajectory fixed when possible, then evaluate whether a stopping controller can provide a testable population guarantee. 
+
+Resource-aware sequential diagnosis. MAI-DxO evaluates diagnostic accuracy jointly with the cost of adaptively requested tests [Nori et al., 2025]. ACTMED uses Bayesian experimental design to select the next test [Ruhrberg Est´ evez et al., 2025], cost-sensitive reinforcement learning learns adaptive test-panel policies [Yu et al., 2023], and latent diagnostic trajectory learning trains planning and diagnostic agents to acquire evidence along learned paths [Shen et al., 2026]. These methods can change which tests are selected and therefore change the trajectory. C ROS is not an end-to-end acquisition method: its common-path design holds backbone diagnoses, test proposals, and forced-continuation trajectories fixed to isolate whether the controller stops, continues with the backbone-proposed test, or defers. 
+
+Selective prediction and risk control. Selective classifiers abstain on uncertain examples to trade coverage for conditional error [Geifman and El-Yaniv, 2017, 2019]. Distribution-free risk-controlling prediction sets and conformal risk control extend calibration beyond marginal coverage [Bates et al., 2021, Angelopoulos et al., 2024]. LTT turns risk constraints into hypothesis tests and controls the probability of selecting an invalid procedure from a finite family [Angelopoulos et al., 22025]. Geometry-Calibrated Conformal Abstention gives finite-sample guarantees for both partic-ipation and correctness of emitted open-ended language-model responses [Xu et al., 2026b], while SCoRE uses conformal e-values to control a general bounded risk among selected outputs [Bai and Jin, 2026]. Thus neither selective risk control nor participation guarantees are new in isolation. We adapt these ideas to a stateful clinical stopping problem whose complete, frozen policy is jointly tested for conditional diagnostic error and a lower autonomous-coverage bound, with resource costs used for policy design and comparison rather than included in the validity claim. The exact guaran-tee concerns the policy chosen before calibration, not the accuracy of the learned risk score. 
+
+Clinical stopping and abstention. Uncertainty-aware abstention has been studied for static medical-text prediction [Vazhentsev et al., 2025], while Safe-Psych evaluates diagnose, clarify, and abstain decisions as psychiatric evidence is revealed incrementally [Presacan et al., 2026]. MediQ studies interactive clinical diagnosis in which a model refrains from diagnosing under insufficient information and asks follow-up questions, but does not provide finite-sample joint control of selec-tive diagnostic error and autonomous coverage [Li et al., 2024]. Foo and Chang formulate staged clinical prediction as an expected-loss optimal-stopping problem with explicit decision and testing costs and Bellman recursion [Foo and Chang, 2026]. Their objective optimizes whether expected decision value justifies further testing; it does not provide C ROS ’s exact joint test of conditional diagnostic error and minimum autonomous coverage. C ROS instead freezes a complete sequential policy selected on disjoint development data and then subjects that policy to the joint test. This distinction is methodological, not a claim that Bellman stopping, interactive clinical diagnosis, or clinical abstention is new. 
+
+Calibrated sequential stopping and acquisition. LTT-style finite-sample risk control is not new to this work. Pareto Testing combines multi-objective design and multiple testing [Laufer-Goldshtein et al., 2023], while accumulated-accuracy-gap control gives distribution-free stopping rules for early time classification [Ringel et al., 2024]. MiCP allocates error budgets across turns of retrieval, tool-use, and reasoning workflows, enabling adaptive early stopping with overall con-formal coverage while reducing turns and inference cost [Zhou et al., 2026]. Its guarantee concerns coverage of the final prediction set in multi-turn reasoning; C ROS instead tests selective diagnostic error and minimum autonomous coverage for a frozen stop–continue–defer controller on a com-mon clinical trajectory. Other recent work studies selective conformal risk control [Xu et al., 2025], inference-time reasoning under a compute budget [Wang et al., 2026], and post-acquisition recali-bration when additional evidence can be requested [Xu et al., 2026a]. These studies already establish important forms of sequential calibration, joint utility–risk design, or cost-aware acquisition. Our narrower contribution is their integration into sequential clinical diagnosis: a state-wise clinical risk ranker, a lower autonomous-coverage constraint, a common-path MIMIC benchmark, and episode-wise mixtures. The sparsity of the mixture is a standard linear-program consequence rather than a new optimization theorem. 
+
+## 3 Risk-Constrained Sequential Diagnosis 
+
+3.1 Problem setup 
+
+An episode Z = ( X0, Y, O 1: H ) contains an initial presentation X0, a reference diagnosis Y ∈{1, . . . , K }, and potential recorded observations along a maximum horizon H. Here, H is the maximum number of test-acquisition stages available in an episode ( H = 12 in our benchmark). A policy-specific horizon h ≤ H determines the latest stage at which that policy must stop or defer. At stage t, the backbone has history St = ( X0, A 1: t, O 1: t), produces a diagnosis bYt, and proposes the next test At+1 ∈ A . A stopping controller π maps the observed history and the backbone’s current proposal to STOP , CONTINUE , or DEFER . Continuing reveals the next recorded result along the backbone-proposed trajectory; C ROS controls whether that proposal is executed but never substitutes a different test. This common-path interaction is summarized in Figure 1. Let Tπ denote the terminal stage at which the controller either accepts a diagnosis or defers, and let Dπ (Z) = 1 if it returns an 3Initial presentation and triage → Backbone proposes diagnosis and test → Logged result updates state → 
+
+> CROS risk check: stop, continue, or defer
+
+Figure 1: A sequential episode. The backbone generates the common forced-continuation trajectory and proposes each test; C ROS controls whether to stop, continue with that proposal, or defer. It does not select the test identity. autonomous diagnosis and Dπ (Z) = 0 if it defers. Define 
+
+R(π) = Pr 
+
+ bYTπ̸ = Y | Dπ = 1 
+
+
+
+, (1) 
+
+C(π) = Pr( Dπ = 1) , (2) 
+
+J (π) = E
+
+" X
+
+> t<T π
+
+c(At+1 ) + cdef (1 − Dπ )
+
+#
+
+. (3) These quantities separate diagnostic reliability, autonomous participation, and resource use. Specifi-cally, R(π) is the diagnostic error rate among cases that the controller handles autonomously, rather than among all episodes. C(π) is the population fraction receiving an autonomous diagnosis; the remaining fraction is deferred. Finally, J (π) is the expected cumulative cost of requested actions, plus a downstream-review penalty cdef whenever the case is deferred. We seek the least costly policy in the candidate family Π while requiring its selective diagnostic error to be at most α and its autonomous coverage to be at least γ:
+
+min  
+
+> π∈Π
+
+J (π) s.t. R(π) ≤ α, C(π) ≥ γ. (4) Thus, α specifies the maximum tolerated error rate among autonomous diagnoses, whereas γ pre-vents the controller from achieving low error merely by deferring most cases. Because conditional risk is undefined when C(π) = 0 , the positive coverage constraint also excludes the degenerate always-defer policy. The defer penalty affects policy design and cost comparisons, but it is not part of the subsequent binomial tests of risk and coverage. 
+
+3.2 Risk-ranked stopping policies 
+
+We train an auxiliary estimator rθ (St) ∈ [0 , 1] for the event bYt̸ = Y . Features include the K class probabilities, maximum probability, probability margin, entropy, stage, fraction of missing results, cumulative resource cost, latency, and the backbone’s native stop score. Training uses episode-wise out-of-fold predictions so that multiple states from one patient never cross folds. For a horizon h and threshold τ , the deterministic policy πh,τ stops at the first t ≤ h satisfying 
+
+rθ (St) ≤ τ and otherwise defers at h. A disjoint selection set freezes the estimator, a finite candidate list Π0 = {π1, . . . , π L}, candidate order, and all design hyperparameters before calibration labels are accessed. The learned ranker may be misspecified; validity below depends only on a fresh exchangeable calibration sample. 
+
+3.3 Exact joint tests and multiplicity control 
+
+After a candidate policy πj has been frozen, calibration asks whether it satisfies both population requirements: selective diagnostic error at most α and autonomous coverage at least γ. When πj is applied to n calibration episodes, let 
+
+Mj =
+
+> n
+
+X
+
+> i=1
+
+Dπj (Zi), Ej =
+
+> n
+
+X
+
+> i=1
+
+Dπj (Zi)1
+
+n bYTπj ,i ̸ = Yi
+
+o
+
+. (5) Here, Mj is the number of episodes receiving an autonomous diagnosis, while Ej is the number of errors among those autonomous diagnoses. Thus, Mj /n is the empirical autonomous coverage and, when Mj > 0, Ej /M j is the empirical selective diagnostic error. 4A candidate is invalid if either its population risk exceeds α or its population coverage falls below 
+
+γ. We therefore test the union null 
+
+Hj : {R (πj ) > α } ∪ {C (πj ) < γ }. (6) Rejecting Hj requires evidence against both failure modes: the policy must have sufficiently few autonomous errors and sufficiently many autonomous diagnoses. Let FBin (k; m, p ) denote the probability that a Binomial( m, p ) random variable is at most k. The corresponding one-sided exact component p-values are 
+
+pR,j = FBin (Ej ; Mj , α ), pC,j = 1 − FBin (Mj − 1; n, γ ). (7) The risk p-value becomes small when the policy makes unusually few errors relative to the boundary rate α, whereas the coverage p-value becomes small when it autonomously diagnoses unusually many episodes relative to the boundary rate γ. We set pR,j = 1 when Mj = 0 , because an always-defer policy provides no evidence about conditional diagnostic risk. Because both constraints must be supported, the intersection-union test uses 
+
+pj = max( pR,j , p C,j ). (8) This combined value is small only when both component p-values are small. For a single pre-frozen policy, no multiplicity adjustment is needed. When several candidates are tested, we use fixed-sequence LTT, Holm’s step-down procedure [Holm, 1979], or Bonferroni to control the probability of certifying any invalid candidate. In a prospective study, a rejected candidate is certified under Theorem 1; here, the same event is called an exploratory calibration pass because the labels are not untouched. 
+
+Theorem 1 (Finite-sample joint control) . Assume the calibration episodes are i.i.d. (or exchange-able with the future population), and the complete candidate policies and multiple-testing rule are fixed independently of calibration outcomes. Then each pj in Eq. (8) is super-uniform under Hj .. If the testing rule controls family-wise error at δ, the probability that any certified policy violates either R(π) ≤ α or C(π) ≥ γ is at most δ.
+
+The proof is in Appendix A. The statement is finite-sample and makes no assumption that rθ is calibrated. 
+
+3.4 Randomized sparse mixtures 
+
+A finite threshold-and-horizon grid may contain no single deterministic policy that achieves the desired risk–coverage trade-off at minimum cost. We therefore allow episode-wise randomization over the frozen candidate family Π0 = {π1, . . . , π L}. Let wj be the probability of selecting policy 
+
+πj , with weights in the probability simplex ∆L := {w ∈ RL 
+
+> +
+
+: PLj=1 wj = 1 }. The resulting randomized policy πw independently samples J ∼ Categorical( w) at the beginning of each episode and applies πJ throughout that episode. On the selection split, let bJj be the empirical mean cost of πj , bcj = cPr( Dπj = 1) its empirical autonomous coverage, and bqj = cPr( Dπj = 1 , bY̸ = Y ) its empirical error mass. When bcj > 0, its empirical selective diagnostic error is bqj /bcj . Because the component is sampled independently for each episode, the mixture’s expected cost, error mass, and coverage are P 
+
+> j
+
+wj bJj , P 
+
+> j
+
+wj bqj , and 
+
+P 
+
+> j
+
+wj bcj , respectively. We choose the least costly mixture satisfying the selection-stage risk and coverage targets: 
+
+min 
+
+> w∈∆L
+> L
+
+X
+
+> j=1
+
+wj bJj s.t. 
+
+> L
+
+X
+
+> j=1
+
+wj (bqj − αdes bcj ) ≤ 0,
+
+> L
+
+X
+
+> j=1
+
+wj bcj ≥ γdes . (9) The first constraint is equivalent to requiring the mixture’s empirical selective diagnostic error, 
+
+(P 
+
+> j
+
+wj bqj )/(P 
+
+> j
+
+wj bcj ), to be at most αdes ; the denominator is positive because the second con-straint requires coverage of at least γdes > 0.We use the stricter selection-design targets (αdes , γ des ) = (0 .20 , 0.80) , while the subsequent calibra-tion tests use (α, γ ) = (0 .25 , 0.70) . These design margins provide a buffer against selection-sample variation but are not themselves a statistical certificate. 5Proposition 1 (Sparsity and validity) . If the linear program in Eq. (9) is feasible, it admits an optimal basic feasible solution in which at most three weights wj are positive. If the mixture weights and episode-wise randomization mechanism are frozen before calibration, the induced randomized controller is a single frozen policy whose risk and coverage can be tested under Theorem 1, subject to the theorem’s sampling assumptions. 
+
+Proposition 1 implies that, although the optimization considers L deterministic candidates, an opti-mal mixture uses at most three of them. This bound follows from the simplex equality and the two risk and coverage design constraints in Eq. (9). At deployment, component sampling is independent across episodes and is never conditioned on patient characteristics or intermediate observations. Equivalently, the random seed can be treated as part of each i.i.d. episode. A single component draw reused for all calibration episodes would instead introduce shared randomness and would not justify the same exact binomial test. A proof is provided in Appendix A. 
+
+## 4 Experimental Design 
+
+4.1 Benchmark and study splits 
+
+We construct a retrospective sequential-diagnosis benchmark by linking credentialed-access MIMIC-IV-ED v2.2 [Johnson et al., 2023] with MIMIC-IV-Ext-CDS v1.0.2 [Gaber and Akalin, 2025]. Retaining the earliest eligible ED stay per patient yields 1,834 patient-level episodes across nine abdominal-pain diagnosis classes. The initial state includes the deidentified history of present illness, chief complaint, demographics, and triage measurements. The environment exposes 12 action groups spanning repeated vital signs, laboratory studies, electro-cardiography, imaging, and microbiology. Continuing along an episode reveals the recorded result of the test proposed by the backbone. Because most discharge-note test snippets lack reliable acquisi-tion timestamps, this environment is a logged retrospective benchmark rather than a causal simulator of alternative testing decisions. An unavailable result is represented by NO RECORDED RESULT 
+
+and retains its prespecified cost. The complete action definitions and cost vector are reported in Ap-pendix B. Patients are divided into 1,100 development, 367 calibration, and 367 evaluation episodes, with no patient overlap. The development cohort is further separated into 935 episodes for backbone and risk-ranker fitting and 165 episodes for policy selection. All model fitting, candidate construc-tion, policy ordering, and mixture optimization use only these development partitions. The primary population targets are selective diagnostic error α = 0 .25 , autonomous coverage γ = 0 .70 , and family-wise error level δ = 0 .05 .
+
+Exploratory status. Calibration and evaluation labels had been accessed during earlier method development. Consequently, all reported calibration passes, p-values, and confidence bounds are interpreted descriptively rather than as realized prospective certificates. The current freeze prevents further outcome-dependent modification but cannot restore statistical independence; applying The-orem 1 confirmatorily requires a new untouched cohort. 
+
+4.2 Model instantiation and comparators 
+
+The diagnostic backbone is Qwen2.5-7B-Instruct [Qwen Team, 2024], adapted with LoRA [Hu et al., 2022] using an official-code-derived LA-CDM training pipeline. Training uses development data only. Because our implementation transfers the official architecture and training structure to a fixed common-path environment, it should not be interpreted as a prompt-equivalent reproduction of LA-CDM’s original free-form rollouts. Model configuration, optimization, prompts, seeds, and provenance checks are provided in Appendix H. A cross-fitted histogram gradient-boosting ranker estimates state-level diagnostic error from back-bone probabilities, uncertainty summaries, trajectory state, accumulated cost, missingness, and the native stopping score. Crossing 10 target coverages with 13 policy horizons produces 130 threshold-and-horizon candidates. The disjoint policy-selection split freezes a tested family of 12 deterministic policies and, separately, one optimized randomized mixture. Candidate construction, ranker hyper-parameters, and threshold estimation are detailed in Appendix H. 6Every stopping method receives the same backbone probabilities, diagnoses, proposed actions, and forced-continuation trajectory. This common-path protocol holds diagnosis and acquisition behav-ior fixed, isolating the decision to stop, continue, or defer. Comparators include HPI-only and full-workup endpoints, fixed-stage and confidence-threshold stopping, the native LA-CDM-style rule with and without confidence deferral, and empirical cost minimization. We additionally evaluate calibration and multiplicity procedures, score and history ablations, and a mixture-weight ablation. These labels describe experimental roles rather than additional C ROS methods. Complete compara-tor definitions are provided in Appendix H. 
+
+Method nomenclature and policy construction. CROS is the overall risk-constrained stopping framework and is instantiated here through exactly two named controllers. CROS -Det is a deter-ministic threshold-and-horizon policy selected from the locked development family, and C ROS -Mix is an episode-wise randomized, LP-optimized mixture over that same frozen deterministic family. All other experimental labels denote fixed-information, confidence-based, native-agent, or empiri-cal baselines; calibration and multiplicity procedures; ranker ablations; a policy-design ablation; or evaluation modes of C ROS -Mix. They are not additional C ROS methods. Specifically, C ROS -Det is the lowest-cost member of the full-ranker 130-policy grid that satisfies the locked selection-split design margins, risk at most 20% and coverage at least 80%; in the present run it is (h = 3 , τ = 0 .3286) . The best deterministic component within the optimized mixture support is identical to C ROS -Det in this run and is therefore not displayed separately. C ROS -Mix always denotes the same three support policies and the same nonnegative LP-optimized weights, fitted using only the policy-selection split to minimize expected cost subject to the 20%/80% de-sign margins. C ROS -Mix, analytic expectation integrates component contributions for each episode, whereas C ROS -Mix, realized draw uses one frozen independent episode-wise component draw and yields integer autonomous/error counts for exact binomial testing. These are two evaluation modes of one controller. The Uniform-weight mixture uses the same frozen support with equal rather than optimized weights and is a policy-design ablation; it is not guaranteed to satisfy the selection mar-gins. The Single-candidate test, Fixed-sequence LTT, Holm testing, and Bonferroni testing are calibration or multiplicity procedures applied to the same 12 selection-frozen deterministic candidates. They change the testing and return rule, not the risk ranker, backbone, or basic threshold-and-horizon policy. In this run, Holm testing returns the same deterministic controller as Fixed-sequence LTT, while Bonferroni testing returns a different deterministic controller. Empirical ERM instead mini-mizes selection-split cost without requiring the joint risk–coverage criterion. Myopic value-of-information and free-form multi-agent systems are not included in the primary paired comparison because they select different actions and therefore induce different trajectories. Appendix H specifies how such systems would enter a future end-to-end confirmatory study. 
+
+4.3 Evaluation 
+
+The primary outcomes are selective diagnostic error, autonomous coverage, total relative resource cost, and number of requested tests. We also report error mass, Pr( D = 1 , bY̸ = Y ), which measures the population fraction receiving an incorrect autonomous diagnosis and therefore does not decrease merely because the controller defers additional cases. Uncertainty estimates respect the patient-level sampling unit. We report exact one-sided Clopper– Pearson bounds for risk and coverage and paired patient-level bootstrap intervals for method con-trasts. Randomized mixtures are evaluated both by analytically averaging component contributions and by repeated episode-wise realizations to assess randomization stability. Prespecified sensitivity analyses examine deferral penalties, action costs, recorded-result missingness, diagnosis-language masking, and development-split stability. Full metric definitions, resampling procedures, and sensi-tivity settings are reported in Appendices B–H. 75 Results 
+
+5.1 Exploratory joint calibration 
+
+Table 1 reports realized calibration outcomes and descriptive evaluation performance. All returned policies have evaluation point estimates below 25% risk and above 70% coverage. The prespecified CROS -Mix realization is the least costly displayed policy, attaining 16.3% error at 78.5% coverage with cost 5.68 and 0.68 requested actions. The Single-candidate test and the C ROS -Mix realized draw are each tested once, Fixed-sequence LTT follows its frozen order, and Bonferroni testing tests 12 candidates; Holm testing returns the same deterministic controller as Fixed-sequence LTT in this run. Appendix E gives the component tests, exact bounds, weights, and seed audit. Later mixture comparisons use the C ROS -Mix analytic expectation (0.169 risk, 0.788 coverage, 5.57 cost, and 0.679 actions), rather than the realization in Table 1. Table 1: Exploratory calibration and evaluation results ( ncal = neval = 367 ). “Auto/err” denotes autonomous diagnoses/errors. The table reports raw joint p-values before multiplicity adjustment. The first three rows are testing procedures applied to the same frozen deterministic family; the final row is one realized draw of C ROS -Mix. Holm testing returns the same controller as fixed-sequence LTT and is not duplicated.                                     
+
+> Calibration configuration / controller Cal auto/err Cal risk Cal cov. Raw joint pEval risk Eval cov. Cost / tests Single-candidate test 282/48 .170 .768 .00210 .166 .758 17.14 / 3.27 Fixed-sequence LTT 275/43 .156 .749 .02116 .165 .760 12.43 / 2.09 Bonferroni testing 288/48 .167 .785 .000442 .168 .779 13.88 / 2.52 CROS -Mix, realized draw 280/51 .182 .763 .00435 .163 .785 5.68 / .68
+
+5.2 Risk-ranker and stopping ablation 
+
+The full ranker achieves state-error AUROC 0.853, compared with 0.715 for the maximum-probability ranker and 0.552 for the Native-score ranker (Table 2). Among these alternatives, only the full-ranker controller satisfies the locked selection margins and has an exploratory calibration pass. The maximum-probability ranker is cheaper but lacks comparable calibration evidence. The No-history ranker nearly matches the full ranker (AUROC 0.852), so this experiment does not isolate a material benefit from stage, cost, latency, and missing-history features. The supported contribution is therefore improved risk ranking and calibration power, not unconditional cost dominance. Table 2: Risk-ranker ablation. “Sel.” indicates the locked selection margins. AUROC intervals use 10,000 patient-level resamples; calibration p-values are descriptive.                                      
+
+> Ranker/controller configuration Sel. State AUROC [95% CI] Cal. pEval risk Cov. Cost / tests CROS -Det, full ranker yes .853 [.820,.885] .005 .175 .809 6.47 / .87 No-history ranker yes .852 [.820,.884] .040 .190 .817 6.06 / .83 Entropy-margin ranker no .714 [.678,.750] .805 .204 .828 1.72 / .00 Maximum-probability ranker no .715 [.679,.751] .504 .185 .782 2.18 / .00 Native-score ranker no .552 [.533,.572] .902 .250 .719 31.58 / 6.18
+
+5.3 Policy and matched comparisons 
+
+CROS -Mix, analytic expectation is 0.903 cost units cheaper than CROS -Det (95% CI 
+
+[−1.135 , −0.682] ) and requests 0.195 fewer actions; its risk difference is unresolved and its cov-erage is 0.021 lower (Table 3). The Uniform-weight mixture is another 0.977 units cheaper on evaluation, but misses both locked selection margins. Thus, optimization enforces the development constraints rather than guaranteeing the lowest future cost. Compared with confidence thresholding and native stopping with deferral, C ROS -Mix, analytic ex-pectation reduces risk by 0.088 and 0.063 and cost by 12.54 and 4.84 units, respectively; coverage differences are unresolved. ERM is cheaper but has higher risk and fails exploratory calibration. Appendix D reports the complete paired intervals. Cost advantages persist in the primary, imaging-sensitive, and missing-result-sensitive scenarios, but not under every deferral penalty (Appendix F). 8Table 3: Policy-design ablation using analytic mixture expectations. “Sel.” indicates the frozen 20% risk and 80% coverage design constraints, not an evaluation guarantee. The fixed-sequence LTT row reports the deterministic controller returned by that testing procedure.                                     
+
+> Policy configuration Sel. Risk Cov. Error mass Cost Tests CROS -Det yes .175 .809 .142 6.47 .87 Uniform-weight mixture no .172 .786 .135 4.59 .50 CROS -Mix, analytic expectation yes .169 .788 .133 5.57 .68 Fixed-sequence LTT –.165 .760 .125 12.43 2.09 Empirical ERM –.202 .850 .172 1.50 .00
+
+Against the confidence-threshold controller, C ROS -Mix, analytic expectation reduces selective risk by 0.088 and cost by 12.54 units; against native stopping with deferral, it reduces risk by 0.063 and cost by 4.84 units, with unresolved coverage differences in both comparisons. ERM remains less costly but has higher risk and fails exploratory calibration. Complete patient-paired intervals and error-mass comparisons are reported in Appendix D. The cost advantage over the principal calibrated and confidence-based comparators persists under the primary, imaging-sensitive, and missing-result-sensitive cost scenarios, but not under every de-ferral penalty. Appendix F reports the complete frozen-decision sensitivity analysis. 
+
+5.4 Trajectory and robustness audits 
+
+Forced-continuation error is 28.3% with HPI alone, 27.5% after one action, 35.7% at stage 8, and 34.3% after full workup, while cost and recorded-result missingness increase along the trajectory (Appendix Figure 2). Thus, this backbone does not show monotone gains from additional acqui-sition. Diagnosis-language masking lowers ranker AUROC by approximately 0.014 and modestly reduces coverage and increases cost; risk changes are unresolved (Appendix Table 8). Action avail-ability is also highly structured and may encode clinicians’ historical ordering. Across 20 develop-ment resplits, C ROS -Det nominally passes in 15, whereas C ROS -Mix is feasible in 15 and passes in only six. These dependent audits demonstrate design sensitivity, not independent confirmation. Class-level failures further preclude any subgroup safety claim (Appendix G). 
+
+## 6 Discussion and Limitations 
+
+The results support a prospectively frozen follow-up, not deployment or a clinical safety claim. The full ranker outperforms simple scores, joint tests have apparent power for several frozen policies, and C ROS -Mix reduces cost relative to C ROS -Det. However, the No-history ranker nearly matches the full ranker, the Uniform-weight mixture is cheaper despite missing the selection margins, forced continuation is non-monotone, and mixture feasibility varies across development splits. The claims are limited by previously accessed labels; a single-center, note-derived benchmark with-out reliable non-vital timestamps or counterfactual outcomes; informative missingness; unadjudi-cated labels, proxy misses, and costs; marginal rather than subgroup control; one backbone-training seed; and dependent resplit audits. Common-path evaluation isolates stopping but does not measure end-to-end gains when agents choose different actions. A confirmatory study should lock a never-viewed temporal or external cohort, prespecify labels, costs, subgroup hypotheses, sample size, and one testing graph, and obtain blinded clinical adjudi-cation. It should evaluate both common-path stopping and end-to-end acquisition without changes after calibration access. 
+
+## 7 Conclusion 
+
+CROS makes sequential diagnostic stopping auditable through joint testing of selective error and autonomous coverage. The current retrospective results support feasibility and a lower-cost deterministic–mixture trade-off, but label reuse, structured missingness, resplit instability, and sub-group failures require a new prospectively locked study before any safety claim. 9References 
+
+Anastasios N. Angelopoulos, Stephen Bates, Adam Fisch, Lihua Lei, and Tal Schuster. Conformal risk control. In International Conference on Learning Representations , 2024. URL https: //openreview.net/forum?id=33XGfHLtZg .Anastasios N. Angelopoulos, Stephen Bates, Emmanuel J. Cand` es, Michael I. Jordan, and Lihua Lei. Learn then test: Calibrating predictive algorithms to achieve risk control. The Annals of Applied Statistics , 19(2):1641–1662, 2025. doi: 10.1214/24-AOAS1998. Tian Bai and Ying Jin. Conformal selective prediction with general risk control. arXiv preprint arXiv:2603.24704 , 2026. URL https://arxiv.org/abs/2603.24704 .David Bani-Harouni, Chantal Pellegrini, Ege ¨ Ozsoy, Nassir Navab, and Matthias Keicher. Lan-guage agents for hypothesis-driven clinical decision making with reinforcement learning. In In-ternational Conference on Learning Representations , 2026. URL https://openreview.net/ forum?id=Pn8ETgEHW7 .Stephen Bates, Anastasios Angelopoulos, Lihua Lei, Jitendra Malik, and Michael Jordan. Distribution-free, risk-controlling prediction sets. Journal of the ACM , 68(6):1–34, 2021. doi: 10.1145/3478535. Hui-Mean Foo and Yuan-chin Ivan Chang. Optimal stopping in sequential clinical prediction. arXiv preprint arXiv:2604.22216 , 2026. URL https://arxiv.org/abs/2604.22216 .Mohamed M. Gaber and Arif Akalin. MIMIC-IV-Ext Clinical Decision Support for Referral, Triage and Diagnosis (version 1.0.2). PhysioNet, 2025. URL https://physionet.org/content/ mimic-iv-ext-cds/1.0.2/ .Yonatan Geifman and Ran El-Yaniv. Selective classification for deep neural networks. In Advances in Neural Information Processing Systems , volume 30, pages 4878–4887, 2017. Yonatan Geifman and Ran El-Yaniv. SelectiveNet: A deep neural network with an integrated reject option. In Proceedings of the 36th International Conference on Machine Learning , volume 97, pages 2151–2159. PMLR, 2019. Paul Hager, Friederike Jungmann, Robbie Holland, Kunal Bhagat, Inga Hubrecht, Manuel Knauer, Jakob Vielhauer, Marcus Makowski, Rickmer Braren, Georgios Kaissis, and Daniel Rueckert. Evaluation and mitigation of the limitations of large language models in clinical decision-making. 
+
+Nature Medicine , 30:2613–2622, 2024. doi: 10.1038/s41591-024-03097-1. Sture Holm. A simple sequentially rejective multiple test procedure. Scandinavian Journal of Statistics , 6(2):65–70, 1979. Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. International Con-ference on Learning Representations , 2022. URL https://openreview.net/forum?id= nZeVKeeFYf9 .Alistair E. W. Johnson, Lucas Bulgarelli, Lu Shen, Alvin Gayles, Ayad Shammout, Steven Horng, Tom J. Pollard, Sicheng Hao, Benjamin Moody, Brian Gow, Li-wei H. Lehman, Leo A. Celi, and Roger G. Mark. MIMIC-IV-ED (version 2.2). PhysioNet, 2023. URL https://physionet. org/content/mimic-iv-ed/2.2/ .Bracha Laufer-Goldshtein, Adam Fisch, Regina Barzilay, and Tommi S. Jaakkola. Efficiently con-trolling multiple risks with pareto testing. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=cyg2YXn_BqF .Shuyue Stella Li, Vidhisha Balachandran, Shangbin Feng, Jonathan S. Ilgen, Emma Pier-son, Pang Wei Koh, and Yulia Tsvetkov. Mediq: Question-asking llms and a bench-mark for reliable interactive clinical reasoning. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, editors, Advances in Neural Information Processing Systems , volume 37, pages 28858–28888. Curran Associates, Inc., 2024. doi: 10.52202/079017-0908. URL https://proceedings.neurips.cc/paper_files/paper/ 2024/file/32b80425554e081204e5988ab1c97e9a-Paper-Conference.pdf .10 Jie Liu, Wenxuan Wang, Zizhan Ma, Guolin Huang, Yihang Su, Kao-Jung Chang, Wenting Chen, Haoliang Li, Linlin Shen, and Michael Lyu. MedChain: Bridging the gap between LLM agents and clinical practice with interactive sequence. arXiv preprint arXiv:2412.01605 , 2024. URL 
+
+https://arxiv.org/abs/2412.01605 .Zhiqi Lv, Duofan Tu, Jun Li, Mingyue Zhao, Heqin Zhu, Wenliang Li, and Shaohua Kevin Zhou. Thinking like a clinician: A cognitive AI agent for clinical diagnosis via panoramic profiling and adversarial debate. arXiv preprint arXiv:2604.23605 , 2026. URL https://arxiv.org/abs/ 2604.23605 .Harsha Nori, Mayank Daswani, Christopher Kelly, Scott Lundberg, Marco Tulio Ribeiro, Marc Wilson, Xiaoxuan Liu, Viknesh Sounderajah, Jonathan Carlson, Matthew P. Lungren, Bay Gross, Peter Hames, Mustafa Suleyman, Dominic King, and Eric Horvitz. Sequential diagnosis with language models. arXiv preprint arXiv:2506.22405 , 2025. URL https://arxiv.org/abs/ 2506.22405 .Oriana Presacan, Andreea Grama, Larisa Irimin˘ a, Alireza Nik, Jaya Ojha, Vajira Thambawita, Ciprian I. B˘ acil˘ a, Bogdan Ionescu, and Michael A. Riegler. Ask before you diagnose: Safe-Psych, a sequential evaluation benchmark for LLMs in psychiatry. arXiv preprint arXiv:2607.13036 ,2026. URL https://arxiv.org/abs/2607.13036 .Qwen Team. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024. URL https: //arxiv.org/abs/2412.15115 .Liran Ringel, Regev Cohen, Daniel Freedman, Michael Elad, and Yaniv Romano. Early time classi-fication with accumulated accuracy gap control. In Proceedings of the 41st International Confer-ence on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 42584–42600. PMLR, 2024. URL https://proceedings.mlr.press/v235/ringel24a. html .Silas Ruhrberg Est´ evez, Nicol´ as Astorga, and Mihaela van der Schaar. Timely clinical diagnosis through active test selection. In Advances in Neural Information Processing Systems , 2025. URL 
+
+https://arxiv.org/abs/2510.18988 .Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo Reis, Jeffrey Jopling, and Michael Moor. AgentClinic: A multimodal agent benchmark to evaluate AI in simulated clinical environments. 
+
+arXiv preprint arXiv:2405.07960 , 2024. URL https://arxiv.org/abs/2405.07960 .Xuyang Shen, Haoran Liu, Dongjin Song, and Martin Renqiang Min. Uncertainty-guided latent diagnostic trajectory learning for sequential clinical diagnosis. arXiv preprint arXiv:2604.05116 ,2026. URL https://arxiv.org/abs/2604.05116 .Artem Vazhentsev, Ivan Sviridov, Alvard Barseghyan, Gleb Kuzmin, Alexander Panchenko, Alek-sandr Nesterov, Artem Shelmanov, and Maxim Panov. Uncertainty-aware abstention in medi-cal diagnosis based on medical texts. arXiv preprint arXiv:2502.18050 , 2025. URL https: //arxiv.org/abs/2502.18050 .Xi Wang, Anushri Suresh, Alvin Zhang, Rishi More, William Jurayj, Benjamin Van Durme, Mehrdad Farajtabar, Daniel Khashabi, and Eric Nalisnick. Conformal thinking: Risk control for reasoning on a compute budget. arXiv preprint arXiv:2602.03814 , 2026. URL https: //arxiv.org/abs/2602.03814 .Jian Xu, Yanning Wu, Delu Zeng, John Paisley, and Qibin Zhao. Look again before you abstain: Budgeted conformal evidence acquisition for reliable vision-language model. arXiv preprint arXiv:2606.16667 , 2026a. URL https://arxiv.org/abs/2606.16667 .Rui Xu, Yi Chen, Sihong Xie, and Hui Xiong. Geometry-calibrated conformal abstention for lan-guage models. arXiv preprint arXiv:2604.27914 , 2026b. URL https://arxiv.org/abs/ 2604.27914 .Yunpeng Xu, Wenge Guo, and Zhi Wei. Selective conformal risk control. arXiv preprint arXiv:2512.12844 , 2025. URL https://arxiv.org/abs/2512.12844 .11 Zheng Yu, Yikuan Li, Joseph C. Kim, Kaixuan Huang, Yuan Luo, and Mengdi Wang. Deep re-inforcement learning for cost-effective medical diagnosis. In The Eleventh International Con-ference on Learning Representations , 2023. URL https://openreview.net/forum?id= 0WVNuEnqVu .Xiaofan Zhou, Huy Nguyen, Bo Yu, Chenxi Liu, and Lu Cheng. Adaptive stopping for multi-turn LLM reasoning. arXiv preprint arXiv:2604.01413 , 2026. URL https://arxiv.org/abs/ 2604.01413 .
+
+## A Proofs 
+
+Proof of Theorem 1. Fix a candidate πj independently of the calibration outcomes. Conditional on 
+
+Mj = m > 0, the number of autonomous errors is Ej ∼ Binomial( m, r j ) under i.i.d. sampling, where rj = R(πj ). For the null rj > α , the lower-tail statistic FBin (Ej ; m, α ) is largest at the boundary in the rejection-relevant direction; its discreteness makes it super-uniform. Thus pR,j is valid for HR,j : rj > α . Setting pR,j = 1 when m = 0 preserves validity. Marginally, Mj ∼ Binomial( n, c j ) with cj = C(πj ). Under HC,j : cj < γ , the upper-tail value 
+
+1 − FBin (Mj − 1; n, γ ) is super-uniform, again with the boundary least favorable in the rejection direction. The candidate null is the union Hj = HR,j ∪ HC,j . The intersection-union test rejects only if both component tests reject. Therefore, for any distribution in Hj , at least one component null is true and 
+
+Pr {max( pR,j , p C,j ) ≤ u} ≤ Pr {pk,j ≤ u} ≤ u, 
+
+where k indexes a true component null. Hence pj = max( pR,j , p C,j ) is super-uniform. Applying any valid family-wise-error procedure at level δ to the finite, pre-frozen family implies that the prob-ability of rejecting at least one true Hj is at most δ. A certified policy violates a desired constraint exactly when its union null is true, proving the result. 
+
+Proof of the sparsity and randomized-policy proposition. Write the linear program in standard form after adding slack variables. The policy-weight vector obeys one simplex equality. At a nondegen-erate extreme point, at most two independent design inequalities can be active in addition to the simplex equality. Therefore at most three policy weights need be basic and positive; a degenerate optimum has no larger support, and an optimal basic feasible solution can always be selected. For validity, augment each episode with Ui ∼ Uniform(0 , 1) , independently across episodes and independent of the clinical variables. The frozen mixture maps Ui to a deterministic component and then applies it to Zi. Thus (Zi, U i) are i.i.d. and the mixture is a single fixed randomized policy. Its autonomous indicator and error indicator satisfy the same binomial conditioning argument as in Theorem 1. The conclusion fails if mixture weights are estimated on calibration outcomes or if one shared random component is drawn for the entire calibration sample. 
+
+## B Benchmark, Costs, and Ranker Configuration 
+
+Cohort construction. We link credentialed-access MIMIC-IV-ED v2.2 [Johnson et al., 2023] with MIMIC-IV-Ext-CDS v1.0.2 [Gaber and Akalin, 2025]. Cohort construction retains the earliest qual-ifying emergency-department stay for each subject before any data partitioning, so each patient contributes exactly one episode. The resulting benchmark contains 1,834 episodes assigned by the frozen label-mapping code to nine abdominal-pain diagnosis classes: appendicitis, biliary disease, bowel obstruction, diverticulitis, gastroenteritis/colitis, nonspecific abdominal pain, pancreatitis, re-nal colic, and urinary infection. The initial presentation includes a deidentified history of present illness, chief complaint, demo-graphic variables, and triage measurements. These fields constitute the stage-zero information available before any action is requested. The executable cohort query, label mapping, and episode identifiers are versioned as part of the frozen benchmark artifacts. 
+
+Patient-level partitions. Patients are partitioned into 1,100 development, 367 calibration, and 367 evaluation episodes. The development set is further divided into 935 ranker-training and 165 policy-selection episodes. All states from one episode remain in the same partition and, during ranker 12 cross-fitting, in the same fold. The four resulting patient sets are therefore disjoint. The 935-episode subset is used to fit the state-error ranker, whereas thresholds, deterministic candidates, candidate order, and mixture weights are designed only on the 165-episode selection subset. The calibration and evaluation subsets are used for the analyses described in the main text. As discussed in Section 6, prior access to their labels makes the present results exploratory rather than confirmatory. Table 4: Benchmark summary. Here, δ is the family-wise error level used by the joint testing procedure. Item Value Unique patients / episodes 1,834 / 1,834 Development / calibration / evaluation 1,100 / 367 / 367 Ranker train / policy selection 935 / 165 Diagnosis classes 9Action groups 12 Maximum action horizon H 12 Full-workup relative cost 51.9 Deferral penalty 10.0 Selective-risk target α .25 Coverage target γ .70 Family-wise error level δ .05 
+
+Retrospective action environment. The action space comprises rechecking vital signs, complete blood count, metabolic panel, hepatic panel, lipase, urinalysis, electrocardiogram, X-ray, ultrasound, computed tomography, magnetic resonance imaging, and microbiology. The maximum horizon 
+
+H = 12 specifies the largest number of action opportunities considered in a forced-continuation episode; it does not imply that all 12 results are available in the record. For each action group, recorded findings are extracted from discharge-note test snippets. Except for vital signs, these snippets generally lack acquisition timestamps sufficiently reliable to recon-struct the clinical order in which results became available. Consequently, an observation represents information found in the retrospective record for the requested action group, rather than the coun-terfactual result of ordering that action prospectively. When no corresponding result is available, the environment returns NO RECORDED RESULT . This missing-result token is retained as an observed outcome and may affect subsequent backbone predictions. The benchmark should therefore be interpreted as a logged-acquisition environment for comparing stopping rules on a shared backbone trajectory. It does not estimate how ordering a different test would alter subsequent care, physiology, documentation, or diagnostic outcomes. In particular, CROS controls whether the next backbone-proposed action is executed, but it does not replace that action or simulate an alternative trajectory. Table 5: Frozen relative action-cost vector shared by every controller. The full-workup total is the sum of the 12 action costs; the deferral penalty is separate.                        
+
+> Action group Cost Action group Cost Recheck vitals 0.2 Electrocardiogram 1.5 Complete blood count 1.0 X-ray 4.0 Metabolic panel 1.2 Ultrasound 6.0 Hepatic panel 1.2 Computed tomography 12.0 Lipase 1.0 Magnetic resonance imaging 20.0 Urinalysis 0.8 Microbiology 3.0 All 12 actions 51.9 Deferral penalty 10.0
+
+Cost interpretation. An attempted action incurs its Table 5 cost even when the retrospective record returns NO RECORDED RESULT . The reported cost is a normalized resource index in-tended to support controlled comparisons among stopping policies. It is not a hospital bill, reim-13 bursement amount, radiation dose, patient utility, or estimate of clinical harm. Likewise, the deferral penalty represents a stylized downstream-review cost rather than a measured clinical or monetary quantity. The frozen-decision sensitivity analysis varies the deferral penalty over {5, 10 , 15 , 20 , 25 , 30 } and separately applies multipliers {0.5, 1, 2} to laboratory, imaging, and attempted-but-missing action costs according to the frozen category mapping. These analyses retain the originally frozen stop-ping decisions and mixture weights; they recalculate costs but do not refit the ranker, reconstruct thresholds, or reoptimize the policies. 
+
+Risk-ranker inputs. Each stage-level ranker target is the binary indicator 1{ bYt̸ = Y }, which records whether the backbone’s current diagnosis is incorrect. The ranker uses the backbone’s K di-agnosis probabilities together with their maximum, the margin between the two largest probabilities, predictive entropy, the current stage, the fraction of previously requested actions with no recorded result, cumulative relative cost, the recorded latency feature, and the backbone’s native stopping score. It does not select the next action or directly modify the backbone diagnosis. The 935 ranker-training episodes yield 12,155 stage-level records. Because states from the same patient are correlated, cross-fitting and all resampling operations are performed at the episode level rather than at the state level. Table 6: Frozen histogram gradient-boosting risk-ranker configuration. Automatic early stopping follows scikit-learn’s implementation.                
+
+> Hyperparameter Frozen value Estimator / loss HistGradientBoostingClassifier / log loss Learning rate 0.05 Maximum boosting iterations 160 (one tree per iteration for binary classification) Maximum leaves / depth 15 / no explicit depth cap Minimum samples per leaf 50
+> L2regularization 2.0 Early stopping auto ; validation fraction 0.10 Patience / tolerance 10 iterations / 10 −7
+> Outer cross-fitting Five episode-wise stratified folds, shuffled Random seeds Splitter base 20260902; fold fits 20260902–20260906; final fit 20261002 Realized iterations 160 in each outer-fold fit; 149 in the final 12,155-state fit
+
+Cross-fitting and final ranker. The 935 ranker-training episodes are divided into five stratified outer folds. For each fold, the estimator is fitted using the other four folds and generates predictions for all states belonging to the held-out episodes. This construction prevents states from the same patient from appearing on both sides of an outer-fold fit. The resulting out-of-fold scores are used for ranker-development diagnostics. Each outer-fold training set contains fewer than 10,000 state records, so scikit-learn’s automatic early-stopping condition is not activated and all five estimators reach the 160-iteration limit. After cross-fitting, the final ranker is refitted on all 12,155 state records. Because this fit exceeds the automatic early-stopping sample threshold, it uses the internal 10% validation fraction and stops after 149 iterations. This final frozen estimator produces the risk scores used on the disjoint policy-selection, calibration, and evaluation episodes. 
+
+Coverage-indexed threshold construction. Thresholds are constructed only on the 165-episode policy-selection split. For horizon h ∈ { 0, . . . , 12 } and selection episode i, define the best-so-far risk score and the relevant one-indexed order statistic as 
+
+mi(h) = min  
+
+> 0≤t≤h
+
+rθ (Sit ), kq = ⌈q(165 − 1) ⌉ + 1 .
+
+For each target q ∈ { 0.72 , 0.75 , 0.78 , 0.80 , 0.82 , 0.85 , 0.88 , 0.90 , 0.93 , 0.95 }, the 165 values mi(h)
+
+are sorted and τh,q is set to their kq th order statistic. This is equivalent to numpy.quantile(..., method="higher") . The ten (q, k q ) pairs are (.72 , 120) , (.75 , 124) , (.78 , 129) , (.80 , 133) ,
+
+(.82 , 136) , (.85 , 141) , (.88 , 146) , (.90 , 149) , (.93 , 154) , and (.95 , 157) .14 These targets are coverage indices used to construct the grid, not claims about calibration or popula-tion coverage. In particular, they do not define ten global score cutoffs: every pair (h, q ) has its own horizon-specific threshold. Policy (h, q ) stops at the first stage t ≤ h satisfying rθ (Sit ) ≤ τh,q and otherwise defers at h. By construction, its empirical autonomous coverage on the selection split is at least q, with possible excess coverage when risk scores are tied. Crossing 13 horizons with 10 coverage indices yields 130 deterministic candidates. Every thresh-old is then reused unchanged on calibration and evaluation episodes. Using only the selection split, the frozen pipeline additionally determines the tested 12-policy family, its testing order, and the randomized-mixture weights. Candidate and mixture design use (αdes , γ des ) = (0 .20 , 0.80) ,whereas the subsequent joint tests use (α, γ, δ ) = (0 .25 , 0.70 , 0.05) .
+
+## C Detailed Baseline and Masking Results 
+
+Table 7: Calibration and evaluation results for common-path controllers. Joint p is the raw intersection–union value; C ROS -Mix, realized draw is shown using the prespecified frozen episode-wise assignment, while analytic expectations are used in the paired tables.                                                                
+
+> Controller / baseline Cal joint pEval risk Eval cov. Cost Tests Error mass CROS -Mix, realized draw .00435 .1632 .7847 5.679 .679 .1281 Fixed-sequence LTT .02116 .1649 .7602 12.426 2.087 .1253 HPI-only .99820 .2834 1.0000 0.000 0.000 .2834 Full workup .99999 .3433 1.0000 51.900 12.000 .3433 LA-CDM native .99744 .3079 1.0000 8.141 1.529 .3079 Fixed stage h= 8 .99999 .3569 1.0000 36.023 8.000 .3569 Confidence threshold .79980 .2568 .7956 18.109 3.635 .2044 LA native + defer .72070 .2324 .7738 10.403 1.529 .1798 Empirical ERM .67940 .2019 .8501 1.499 0.000 .1717
+
+All controllers in Table 7 receive the same backbone diagnoses, action proposals, native stopping scores, and forced-continuation observations. Their differences therefore reflect stopping and de-ferral rather than alternative test acquisition. The baseline calibration p-values are descriptive and do not imply that each baseline belongs to the frozen multiplicity-controlled C ROS family. ERM is inexpensive because its selected policy requests no additional action on evaluation, but it fails the joint calibration criterion. 
+
+Diagnosis-language masking. An aggregate regex screen identified explicit diagnostic and future-information language in a subset of the initial presentations. We therefore froze two ontology-wide, label-independent masking conditions before rerunning the backbone. The diagnosis-name condi-tion removes prespecified names and synonyms for all nine diagnosis classes. The expanded condi-tion additionally removes prespecified diagnostic and future-information phrases. These conditions match 79/367 and 116/367 evaluation HPIs, respectively. No backbone parameter, ranker, threshold, horizon, candidate order, mixture weight, cost, or stop-ping policy is tuned on the masked calibration or evaluation outcomes. Every controller within a masking condition receives the same condition-specific common path. 15 Table 8: Complete frozen evaluation masking outputs. Every controller uses the same condition-specific common path. C ROS -Mix is reported in its analytic-expectation evaluation mode. 
+
+Input Controller / baseline Selective risk Coverage Error mass Cost Tests Original HPI-only .283 1.000 .283 .000 .000 Full workup .343 1.000 .343 51.900 12.000 LA-CDM native .308 1.000 .308 8.141 1.529 Native + defer .232 .774 .180 10.403 1.529 CROS -Det .175 .809 .142 6.469 .875 CROS -Mix, analytic expectation .169 .788 .133 5.566 .679 Diagnosis names HPI-only .297 1.000 .297 .000 .000 Full workup .365 1.000 .365 51.900 12.000 LA-CDM native .311 1.000 .311 7.981 1.520 Native + defer .253 .777 .196 10.215 1.520 CROS -Det .192 .793 .153 7.114 .962 CROS -Mix, analytic expectation .184 .770 .142 6.069 .745 Names + future HPI-only .300 1.000 .300 .000 .000 Full workup .371 1.000 .371 51.900 12.000 LA-CDM native .313 1.000 .313 7.962 1.510 Native + defer .252 .790 .199 10.060 1.510 CROS -Det .190 .790 .150 7.274 .981 CROS -Mix, analytic expectation .182 .768 .140 6.198 .757 
+
+Relative to the original inputs, diagnosis-name and expanded masking change C ROS -Mix analytic-expectation selective risk by +.015 (95% CI [−.001 , . 033] ) and +.013 [ −.004 , . 032] , coverage by −.018 [ −.036 , −.0004] and −.020 [ −.040 , −.001] , and cost by +.504 [ .066 , . 968] and +.632 [.150 , 1.130] , respectively. The corresponding ranker-AUROC changes are −.014 [ −.026 , −.005] 
+
+and −.014 [ −.026 , −.003] . Full-workup error changes by +.022 [ .003 , . 044] and +.027 [ .005 , . 049] .The evaluation ranker AUROCs are .853, .839, and .840 for the original, diagnosis-name, and ex-panded masking conditions; the corresponding calibration AUROCs are .840, .842, and .842. All masked-minus-original intervals use 10,000 paired patient resamples. Explicit-language removal therefore weakens ranking and efficiency without collapsing the frozen controller. However, deter-ministic masking cannot remove every implicit cue or establish that no diagnostic leakage remains. The versioned artifacts include the regex list, replacement rules, split-level match counts, and im-mutable input/output hashes. 
+
+## D Expanded Paired Bootstrap and Trajectory Details 
+
+All paired entries report C ROS -Mix, analytic expectation minus the named comparator. Intervals are 2.5–97.5 percentile intervals from 10,000 patient-level paired bootstrap resamples. All states and outcomes from one patient are resampled together; states are never resampled independently. Replicates with no autonomous diagnoses are omitted only when the selective-risk difference is undefined. Table 9: C ROS -Mix, analytic expectation minus comparator, using 10,000 patient-level resamples: selective risk, coverage, and error mass.                               
+
+> Comparator Selective risk Coverage Error mass Confidence threshold −.0877 [ −.1327 ,−.0439] −.0077 [ −.0568 , . 0414] −.0711 [ −.1115 ,−.0313]
+> LA native + defer −.0633 [ −.1051 ,−.0220] +.0141 [ −.0324 , . 0609] −.0466 [ −.0833 ,−.0097]
+> Fixed-sequence LTT +.0043 [ −.0193 , . 0280] +.0277 [ −.0032 , . 0588] +.0079 [ −.0122 , . 0281]
+> CROS -Det −.0059 [ −.0132 , . 0010] −.0213 [ −.0315 ,−.0120] −.0084 [ −.0155 ,−.0019]
+> Uniform-weight mixture −.0031 [ −.0104 , . 0042] +.0023 [ −.0066 , . 0112] −.0021 [ −.0085 , . 0044]
+> Empirical ERM −.0328 [ −.0632 ,−.0022] −.0622 [ −.1028 ,−.0207] −.0384 [ −.0673 ,−.0094]
+
+16 0 2 4 6 8 10 12 Forced-continuation stage 0.225 0.250 0.275 0.300 0.325 0.350 0.375 0.400 Diagnosis error             
+
+> HPI-only
+> 0246810 12 Forced-continuation stage 010 20 30 40 50 Cumulative relative cost
+> 0246810 12 Forced-continuation stage 0.60 0.65 0.70 0.75 0.80 New action: no recorded result
+
+Figure 2: Forced-continuation evaluation audit on the same 367 episodes at every stage. Bands are patient-bootstrap 95% intervals; diagnostic error becomes non-monotone as cost and recorded-result missingness accumulate. Table 10: C ROS -Mix, analytic expectation minus comparator: total relative cost, requested actions, and proxy-miss mass. 
+
+Comparator Total cost Tests Proxy-miss mass Confidence threshold −12 .543 [ −14 .953 , −10 .143] −2.956 [ −3.424 , −2.483] −.0517 [ −.0878 , −.0160] 
+
+LA native + defer −4.837 [ −6.020 , −3.654] −.849 [ −1.004 , −.699] −.0354 [ −.0703 , −.0013] 
+
+Fixed-sequence LTT −6.861 [ −8.065 , −5.722] −1.408 [ −1.604 , −1.217] +.0082 [ −.0109 , . 0272] 
+
+CROS -Det −.903 [ −1.135 , −.682] −.195 [ −.228 , −.164] −.0081 [ −.0143 , −.0030] 
+
+Uniform-weight mixture +.977 [ .766 , 1.200] +.175 [ .148 , . 204] +.0018 [ −.0037 , . 0075] 
+
+Empirical ERM +4 .067 [3 .247 , 4.933] +.679 [ .583 , . 777] −.0190 [ −.0444 , . 0061] 
+
+These paired comparisons support a narrow cost claim. CROS -Mix, analytic expectation is less costly than C ROS -Det, the deterministic controller returned by Fixed-sequence LTT, confidence thresholding, and native stopping with deferral, but it is more costly than the Uniform-weight mix-ture and ERM. Its selective-risk difference from C ROS -Det, the deterministic controller returned by Fixed-sequence LTT, and the Uniform-weight mixture is unresolved. ERM is less costly but has higher selective risk and does not pass the exploratory joint calibration criterion. 
+
+Complete forced-continuation trajectory. Table 11 reports the numerical trajectory underlying Figure 2. Every row contains the same 367 patients. “New-action missing” is the fraction of actions requested at that stage that return NO RECORDED RESULT .Table 11: Forced-continuation evaluation trajectory. All metrics have patient-bootstrap intervals in the released CSV. 
+
+Stage n Error Macro recall Cum. cost Tests New-action missing 0 367 .283 .621 .00 0 –1 367 .275 .641 5.53 1 .665 2 367 .289 .643 11.03 2 .624 3 367 .308 .610 16.12 3 .616 4 367 .300 .605 20.22 4 .638 5 367 .292 .616 24.33 5 .659 6 367 .316 .593 28.77 6 .673 7 367 .346 .566 32.94 7 .687 8 367 .357 .556 36.02 8 .749 9 367 .335 .575 39.47 9 .717 10 367 .365 .559 42.87 10 .725 11 367 .362 .551 47.44 11 .793 12 367 .343 .571 51.90 12 .678 
+
+Diagnostic error reaches its minimum after one requested action and subsequently becomes non-monotone. Because patient composition is identical across stages, the pattern is not caused by different patients remaining at later horizons. The degradation occurs alongside increasing cumula-tive cost and high recorded-result missingness. It therefore characterizes the frozen backbone and retrospective benchmark rather than establishing that clinical testing is generally harmful. 17 E Exact Bounds and Frozen Frontiers 
+
+Exact component and joint p-values. Table 12 reports the risk and coverage components of the intersection–union test. The joint value is pj = max( pR,j , p C,j ) and is small only when both requirements receive sufficient evidence. Table 12: Exact component and joint calibration p-values, computed from unrounded episode counts.                           
+
+> Calibration configuration / controller Cal auto/err pRpCJoint pRule Single-candidate test 282/48 .000850 .002101 .002101 Single Fixed-sequence LTT 275/43 .000116 .021160 .021160 Fixed sequence Bonferroni testing 288/48 .000442 .000167 .000442 Bonferroni CROS -Mix, realized draw 280/51 .004299 .004354 .004354 Single
+
+The Single-candidate test and the separately frozen C ROS -Mix draw are each tested once at level .05. Fixed-sequence LTT follows its prespecified order and passes the reported candidate when that candidate is reached. Holm testing returns the same deterministic controller as Fixed-sequence LTT in this run. Bonferroni testing uses threshold .05 /12 = .00417 ; its returned controller has unrounded raw joint value 0.00044157, giving adjusted p = min {1, 12 p} = 0 .00530 . These are exploratory calibration calculations because the calibration labels are not prospectively untouched. 
+
+Mixture weights and randomization stability. The frozen mixture places weights 0.322, 0.044, and 0.633, rounded to three decimal places, on (h = 1 , τ = 0 .3805) , (h = 1 , τ = 0 .4506) , and 
+
+(h = 3 , τ = 0 .3286) , respectively. The printed weights sum to 0.999 because of rounding; sampling and analytic integration use the full-precision normalized weights. The displayed C ROS -Mix realized draw produces 280 autonomous diagnoses with 51 errors on calibration and 288 autonomous diagnoses with 47 errors on evaluation. Exact testing uses these realized episode-level outcomes. Analytic mixture quantities instead integrate each episode’s com-ponent contributions over the frozen weights. Table 13: Two evaluation modes of C ROS -Mix and stability across 1,000 episode-wise mixture seeds. Brackets in the final row give 2.5–97.5 percentiles.                 
+
+> Summary Selective risk Coverage Cost Tests CROS -Mix, realized draw .163 .785 5.68 .679 CROS -Mix, analytic expectation .169 .788 5.57 .679 1,000-seed mean [percentiles] .169 [.159,.179] .788 [.774,.801] 5.56 [5.22,5.89] .679 [.627,.728]
+
+All 1,000 evaluation realizations have point estimates below the numerical risk target and above the numerical coverage target. This post-freeze analysis measures sensitivity to the episode-wise ran-dom draws; it is not used to select a favorable seed and does not create 1,000 independent calibration experiments. 
+
+One-sided exact bounds. The following bounds use the realized episode-level outcomes for ran-domized policies. Evaluation bounds are descriptive because the evaluation labels were previously viewed. 18 Table 14: One-sided 95% Clopper–Pearson bounds. The support-restricted deterministic choice equals C ROS -Det and is not duplicated. 
+
+Calibration Evaluation (descriptive) Policy Risk upper Cov. lower Risk upper Cov. lower CROS -Mix, realized draw .2243 .7235 .2033 .7464 CROS -Det .2258 .7321 .2154 .7723 Fixed-sequence LTT .1970 .7093 .2058 .7207 LA-CDM native .3556 .9919 .3500 .9919 Native + defer .3090 .7493 .2774 .7350 Confidence threshold .3150 .7723 .3024 .7579 Empirical ERM .3037 .8160 .2430 .8160 
+
+The bounds concern marginal population risk and coverage and do not imply disease-class or demo-graphic control. 
+
+Frozen evaluation frontiers. Figure 3 displays the complete candidate grids for the supported risk-score families. The marked operating points and matched-coverage policies are selected using development or selection data rather than visually favorable evaluation outcomes. 0.7 0.8 0.9 1.0 Autonomous coverage 0.15 0.20 0.25 0.30 Selective risk        
+
+> Full ranker CROS-NoHistory EntropyMargin MaxProb NativeScore
+> 0.7 0.8 0.9 1.0 Autonomous coverage 010 20 30 40 Total relative cost
+> 010 20 30 40 Total relative cost 0.10 0.15 0.20 0.25 0.30 Error mass
+> CROS-Mix CROS-UniformMix CROS-Det CROS-LTT ERM Conf Native Native+D CROS-Mix (realized)
+
+Figure 3: Exploratory frozen frontiers. Curves contain the complete candidate grid for the five supported score families; marked operating points and the 0.80 matched-coverage policies were selected on development or selection data. 
+
+## F Cost, Missingness, and Resplit Details 
+
+Frozen-decision cost sensitivity. The cost analysis changes the accounting vector while retaining the original backbone trajectories, stopping decisions, deferral outcomes, thresholds, and mixture weights. Risk, coverage, and requested actions therefore remain unchanged. Table 15: Frozen-decision scenario costs. Low review, primary, and high review use deferral penal-ties 5, 10, and 25, respectively. Imaging 2× and missing 2× double the corresponding action-cost components. 
+
+Policy Low review Primary High review Imaging 2× Missing 2×
+
+CROS -Mix, analytic expectation 4.51 5.57 8.75 6.06 8.31 Fixed-sequence LTT 11.23 12.43 16.02 13.65 20.54 CROS -Det 5.51 6.47 9.33 7.17 10.08 Confidence threshold 17.09 18.11 21.18 19.25 32.09 LA-CDM native 8.14 8.14 8.14 9.13 14.85 LA native + defer 9.27 10.40 13.80 11.39 17.11 Empirical ERM .75 1.50 3.75 1.50 1.50 
+
+For C ROS -Mix, analytic expectation, doubling laboratory costs gives total cost 5.77. Across the full deferral-penalty grid {5, 10 , 15 , 20 , 25 , 30 }, the break-even penalty against native stopping is 19 approximately 22.15. C ROS -Mix, analytic expectation remains less costly than C ROS -Det, the de-terministic controller returned by Fixed-sequence LTT, confidence thresholding, native stopping, and native stopping with deferral in the primary, imaging-sensitive, and missingness-sensitive sce-narios. Native stopping becomes less costly under the deferral penalty of 25, while ERM remains less costly throughout but fails exploratory calibration. 5 10 15 20 25 30 Deferral penalty 0510 15 20 Mean total cost 
+
+> (a) Deferral penalty
+> Primary High review Imaging 2x Missing 2x 5
+> 0510 Baseline cost minus CROS-Mix
+> (b) CROS-Mix cost advantage
+> CROS-Mix CROS-LTT CROS-Det Confidence Native Native+defer ERM
+
+Figure 4: Frozen-decision sensitivity. Positive bars in (b) favor C ROS -Mix. Risk, coverage, and requested actions remain fixed; only cost accounting changes. 
+
+Action availability and informative missingness. Action availability varies because an action is marked available only when a corresponding result is found in the retrospective record. Table 16: Evaluation action availability and final common-path diagnosis error. Small available or missing-result denominators should not be overinterpreted.                                                     
+
+> Action Available No result Err. avail. Err. missing ECG 1.9% 98.1% 28.6% 34.4% MRI 3.8% 96.2% 35.7% 34.3% Microbiology 6.0% 94.0% 31.8% 34.5% X-ray 10.1% 89.9% 21.6% 35.8% Ultrasound 12.3% 87.7% 42.2% 33.2% CT 13.4% 86.6% 32.7% 34.6% Urinalysis 18.0% 82.0% 33.3% 34.6% Metabolic panel 22.6% 77.4% 36.1% 33.8% Lipase 31.9% 68.1% 41.9% 30.8% Hepatic panel 62.9% 37.1% 39.8% 25.0% Recheck vitals 97.3% 2.7% 34.2% 40.0% CBC 97.5% 2.5% 34.1% 44.4%
+
+A logistic model using only action-availability indicators has diagnosis macro-AUROC 0.597 and state-error AUROC 0.535. Missingness therefore contains weak information about diagnosis and backbone error. This is consistent with the record encoding clinicians’ historical ordering behavior, although it does not identify the causal mechanism producing the missingness. 
+
+Development-resplit audit. For each of 20 development-only resplits, the 935/165 division is recreated, the ranker is refitted, and the policies are redesigned using cached backbone trajectories. The outer calibration and evaluation cohorts remain unchanged. Table 17: Twenty development-only repeated splits. Wilson intervals are reported for rates; metric ranges summarize all available policies. Infeasible mixture runs remain failures in the reported rates.                   
+
+> Policy Available [95% CI] Sel. feasible Nominal pass Risk mean [range] Cov. mean [range] Cost mean [range] CROS -Det 20/20 [.839,1] 15/20 [.531,.888] 15/20 [.531,.888] .185 [.155,.221] .829 [.752,.902] 5.17 [.98,14.64] CROS -Mix 15/20 [.531,.888] 15/20 [.531,.888] 6/20 [.145,.519] .194 [.163,.231] .843 [.789,.919] 2.33 [.81,4.45]
+
+20 The C ROS -Mix LP is infeasible for seeds 20260911, 20260913, 20260915, 20260923, and 20260924. Failures remain in the denominator rather than being discarded. The full run-level dis-tribution, including unsuccessful runs, accompanies the aggregate artifacts. Because the same outer calibration and evaluation cohorts are reused, these scores are dependent exploratory checks rather than 20 independent confirmations. The audit was not used to replace or modify the primary frozen policy. 
+
+## G Disease-Class Audit 
+
+Table 18 reports the complete disease-class results for the prespecified C ROS -Mix realized-draw evaluation seed. The values are descriptive, are not multiplicity-controlled, and are not class-conditional certificates. Table 18: Complete nine-class audit for C ROS -Mix, realized draw.                                                             
+
+> Reference class nAutonomous Errors Coverage Selective risk Error mass Appendicitis 89 85 3.955 .035 .034 Biliary disease 61 41 3.672 .073 .049 Bowel obstruction 51 42 2.824 .048 .039 Diverticulitis 26 18 9.692 .500 .346 Gastroenteritis/colitis 44 32 6.727 .188 .136 Nonspecific abdominal pain 17 10 10 .588 1.000 .588 Pancreatitis 36 27 9.750 .333 .250 Renal colic 10 81.800 .125 .100 Urinary infection 33 25 4.758 .160 .121
+
+Coverage is below 70% for biliary disease, diverticulitis, and nonspecific abdominal pain. Selec-tive error is 0.500 for diverticulitis and 1.000 for the small nonspecific-abdominal-pain subgroup. The denominators are too small to support simultaneous class-level certificates at α = .25 while maintaining useful coverage. These results do not contradict the marginal population calculation: Theorem 1 concerns aggregate selective risk and coverage unless subgroup constraints are explicitly incorporated into the frozen testing family. A future confirmatory design should first certify marginal risk, then test prespecified clinically meaningful or high-harm strata with an allocated multiplicity budget. Groups lacking adequate sample size should be reported as unsupported rather than safe. 
+
+## H Frozen Protocol and Confirmatory Extension 
+
+Backbone implementation. The diagnostic backbone is Qwen2.5-7B-Instruct [Qwen Team, 2024] with LoRA adaptation [Hu et al., 2022] using rank 8, scaling parameter 16, and dropout 0.1. Following the official LA-CDM implementation at frozen repository commit 3f435a1 , adaptation proceeds through decision-agent GRPO, hypothesis-agent supervised fine-tuning, and confidence-calibration GRPO. Training runs for four epochs and 3,740 optimizer steps with seed 269. The rehashed training manifest references only the 935-episode ranker-training partition and the 165-episode development-selection partition; the canonical calibration and evaluation files are not loaded by the backbone-training pipeline. The resulting model produces the diagnosis distribution, diagnosis proposal, next-action proposal, native stopping score, and other logged quantities subse-quently used by all stopping controllers. Our implementation is an official-code-derived transfer of the LA-CDM training structure and prompt conventions. It should not be interpreted as a prompt-equivalent reproduction of LA-CDM’s original free-form trajectories. 
+
+Common-path stopping protocol. For each episode, the frozen backbone is first evaluated along a maximum forced-continuation trajectory of 12 action opportunities. At each stage, the trace records the current information state, diagnosis probabilities, proposed diagnosis, na-tive stopping score, proposed next action, returned observation, and accumulated relative cost. Continuing reveals the result associated with the next backbone-proposed action, including 
+
+NO RECORDED RESULT when no corresponding result is found. No stopping controller substi-tutes a different action. 21 All compared controllers are then applied to the same stored backbone trajectory. A controller determines only whether to accept the current diagnosis, continue with the backbone proposal, or defer. Its requested-action count and cost are truncated at its terminal stage, with the deferral penalty added when applicable. Thus paired differences among the primary controllers and comparators iso-late stopping and deferral decisions while holding the backbone’s diagnoses, action proposals, and potential recorded observations fixed. They do not compare alternative test-acquisition strategies. 
+
+Stopping comparators. The common-path comparison separates the two formal C ROS controllers from baselines, testing procedures, and ablations as follows. 
+
+Fixed-information comparators. HPI-only accepts the stage-zero diagnosis without requesting an action. Full workup continues through all 12 action opportunities before accepting the terminal diagnosis. The fixed-stage comparator accepts at one common stage chosen on the development selection split. These study-defined controls compare fixed information budgets and are not imple-mentations of external methods. 
+
+Confidence-based comparators. The confidence-threshold controller stops when the backbone’s maximum diagnosis probability crosses its selection-frozen threshold and otherwise defers at its horizon. The maximum-probability ranker directly uses maximum class probability as the state-ranking score, while the entropy-margin ranker uses predictive entropy and the gap between the two largest diagnosis probabilities. These are study-implemented confidence heuristics inspired by standard selective prediction and abstention [Geifman and El-Yaniv, 2017, 2019]; they are not exact reproductions of those papers’ training procedures. 
+
+Native-agent comparators. LA-CDM native follows the backbone’s own stopping output. Native plus defer applies an additional selection-frozen confidence requirement to the diagnosis produced at the native stopping stage; cases failing that requirement are deferred. The native component is an official-code-derived transfer of LA-CDM [Bani-Harouni et al., 2026] to the fixed common-path setting, not a prompt-equivalent reproduction of its free-form trajectories. Native plus defer is our derivative baseline combining that native stop with confidence-based deferral; it is not a named method from the LA-CDM paper. 
+
+Empirical cost minimization. Empirical ERM selects the policy with lowest empirical mean cost on the policy-selection split without requiring the joint selective-risk and autonomous-coverage cri-terion used by C ROS . It tests whether empirical cost optimization alone sacrifices risk control. 
+
+Formal C ROS controllers. CROS -Det is the least-cost deterministic threshold-and-horizon candi-date satisfying the selection-stage design constraints. C ROS -Mix is the LP-optimized episode-wise mixture defined by Eq. (9) over the frozen deterministic family. In the primary freeze, the best component in the optimized support is identical to C ROS -Det and is not displayed separately. 
+
+Calibration and multiplicity procedures. The Single-candidate test evaluates one policy fixed before calibration. Fixed-sequence LTT applies the prespecified LTT order [Angelopoulos et al., 2025]; Holm testing applies Holm’s step-down rule [Holm, 1979]; and Bonferroni testing applies the classical Bonferroni threshold to the same frozen 12-policy family. Holm testing returns the same deterministic controller as fixed-sequence LTT in this run, whereas Bonferroni testing returns a different deterministic controller. These procedures alter which candidate is tested or returned, not its ranker, backbone, or basic stopping rule. Pareto Testing is related multi-risk methodology [Laufer-Goldshtein et al., 2023], but is not a separate controller in the reported table. 
+
+Ablations. The No-history ranker removes stage, missing-result fraction, cumulative cost, and latency while retaining probability-derived features; it tests whether history features improve state-error ranking and stopping. The Native-score ranker directly uses the backbone’s native stopping score; it tests whether the learned ranker improves on that score. The Uniform-weight mixture as-signs equal probability to the same frozen support as C ROS -Mix; it tests whether optimized weights improve on support selection alone. These ablations neither retrain nor alter the diagnostic back-bone. 22 Mixture evaluation modes and legacy identifiers. CROS -Mix, analytic expectation integrates each episode’s support contributions, whereas C ROS -Mix, realized draw uses one frozen episode-wise component assignment. They are evaluations of one controller, not separate methods. Re-leased machine-readable files retain BESTDET , SUPPORTBEST , OPTIMIZEDMIX , and UNIFORMMIX 
+
+for artifact compatibility; their display meanings are C ROS -Det, the support component identical to CROS -Det in this run, C ROS -Mix, and the Uniform-weight mixture, respectively. The exact thresholds, horizons, 12-policy testing family, candidate order, and mixture weights are frozen using only the designated development-selection data and are stored in the run manifest. Comparators that select a threshold, stage, horizon, or policy use the same development-selection partition. 
+
+Episode-wise mixture randomization. For a frozen mixture with weights w, one component policy is sampled independently at the beginning of each episode and is retained for the entire episode. Sampling is not conditioned on patient characteristics, backbone predictions, intermediate observations, or calibration outcomes. The base policy seed is 20260902; the displayed calibration and evaluation realizations use the frozen split-specific seeds 20260904 and 20260905, respectively. The exact binomial test treats C ROS -Mix, realized draw as one frozen policy and uses its realized autonomous and error indicators. C ROS -Mix, analytic expectation instead averages each episode’s contributions over the frozen component weights. It reduces Monte Carlo noise in descriptive cost and paired comparisons, but is not substituted for the realized Bernoulli outcomes in the exact cal-ibration test. The separate 1,000-seed analysis measures randomization stability and is not used to select a favorable seed. Drawing one global component and applying it to every calibration episode would create shared dependence and would not justify the same binomial calculation. 
+
+Metrics and uncertainty. For a controller producing M autonomous diagnoses and E errors among n episodes, the primary diagnostic quantities are selective error E/M , autonomous cov-erage M/n , and error mass E/n . Selective error is undefined when M = 0 . Error mass is reported alongside selective error so that changes in the number of deferred cases do not conceal the absolute frequency of autonomous mistakes. Resource outcomes are total relative cost and the number of attempted actions. An attempted action is counted even when it returns NO RECORDED RESULT . Proxy-miss mass is the proportion of episodes with a wrong autonomous prediction whose reference label is one of the prespecified disease-specific classes other than gastroenteritis/colitis or nonspecific abdominal pain. This end-point is descriptive and is not a clinician-adjudicated measure of harm or diagnostic urgency. Paired contrasts use 10,000 patient-level bootstrap resamples. All states and outcomes belonging to the same patient are resampled together; state-level resampling is never used. Replicates with no autonomous diagnoses are excluded only from contrasts for which selective error is mathematically undefined. Analytic mixture comparisons integrate each patient’s component-level contributions before patient-level resampling. A separate 1,000-seed analysis describes the variability of finite mixture realizations. For deterministic policies and the prespecified C ROS -Mix realized draw, we also report one-sided 95% Clopper–Pearson upper bounds for selective risk and lower bounds for coverage. Evaluation bounds remain descriptive in the present study because those labels were previously viewed. Frozen-decision sensitivity analyses change the cost vector without rerunning the backbone, refitting the ranker, reconstructing thresholds, or changing controller decisions. 
+
+Freeze order. The recorded pipeline proceeds in the following order: backbone adaptation on development data; episode-wise cross-fitting and final risk-ranker fitting on the 935-patient ranker-training subset; threshold, candidate-family, candidate-order, and mixture design on the disjoint 165-patient policy-selection subset; and finally calibration and evaluation. Candidate ranking and the 12-policy multiple-testing order use selection data only within the recorded pipeline. The policy, ranker, thresholds, candidate order, mixture weights, cost vector, evaluation code, and randomization mechanism are fixed before the reported calibration and evaluation computations under the current freeze. This procedural freeze makes the reported analyses reproducible, but it does not restore prospective independence after labels have previously been accessed. 23 Recorded provenance. The run stores model and adapter identifiers, repository commit, training and generation configuration, dataset and split hashes, label code, action-cost vector, ranker config-uration, all candidate policies, the 12-policy testing family and its order, mixture weights, base seed 20260902, split-specific realization seeds, evaluator version, and per-episode traces. Thresholds are stored numerically rather than recomputed during calibration or evaluation. Two independently implemented analysis scripts reproduce the reported summary files and verify split disjointness. The audit recomputes zero patient intersections among the 935 ranker-training, 165 policy-selection, 367 calibration, and 367 evaluation partitions. Because cohort construction retains the earliest qualifying stay before partitioning, each episode corresponds to one patient. De-rived analysis artifacts contain no patient identifiers. 
+
+Separate post-freeze exploratory branch. A separately constructed cohort branch uses partitions of 543/85/190/199 episodes and is not pooled with the canonical cohort, used to modify its policies, or included in its primary tables. In that branch, Primary-RobustDet is point-estimate dominated by the branch-specific C ROS -Mix in selective risk, coverage, and cost. Full-Ensemble-UCB has AURC 0.1290, compared with 0.1289 for the No-history ranker, and therefore does not improve the ranking result. Among the corresponding contrasts, only the cost contrast is statistically resolved. We did not continue tuning either variant after observing these results. This branch is reported as negative exploratory evidence, not as an independent confirmation of the canonical analysis. 
+
+Required confirmatory freeze. Before accessing a new confirmatory cohort, a signed and times-tamped manifest must fix the cohort dates, inclusion and exclusion rules, one-episode-per-patient construction, diagnosis-label mapping, timestamp interpretation, handling of missing or unavailable tests, adjudication procedures, harm and fairness strata, action and deferral costs, model and adapter hashes, generation settings, ranker, thresholds, candidate family and order, mixture weights and episode-wise randomization mechanism, (α, γ, δ ), multiplicity graph, sample size, stopping rule for data collection, and executable analysis code. Calibration labels must remain inaccessible to model fitting, candidate construction, policy ordering, mixture optimization, seed selection, and sample-size revision. Any amendment made after calibra-tion outcomes are accessed creates a new exploratory analysis and requires another untouched cohort for a confirmatory claim. Freezing code after examining labels does not recreate the independence assumed by Theorem 1. 
+
+Confirmatory decision rule. The confirmatory calibration set should be opened once and evalu-ated using the preregistered candidate family and testing graph. A policy is certified only if its union null is rejected by the frozen family-wise-error procedure at level δ. If no candidate is rejected, the confirmatory outcome is that no policy is certified; the investigators should not replace it with the empirically best failed candidate. Any subsequent evaluation cohort should be used only after the calibration decision has been final-ized. Its role is to estimate performance, subgroup behavior, resource use, and distribution shift, rather than to revise the certified policy or repeat the certificate test. 
+
+Sample-size planning. Power must be determined before the confirmatory freeze using develop-ment estimates and prespecified worst-case margins. Planning should simulate the joint distribution of autonomous diagnoses and autonomous errors because the selective-risk denominator is itself random. It should also reproduce the intended candidate order, intersection-union tests, multiplicity rule, mixture randomization, and any subgroup or harm constraints. Although n = 367 is sufficient to reject several candidate nulls in the present exploratory calcula-tions, it does not establish adequate power under smaller risk or coverage margins, temporal shift, multiplicity, subgroup constraints, or clinician-adjudicated harm endpoints. Sample size must follow the complete testing graph rather than repeated inspection of certificate outcomes. Early stopping, sample-size extension, or repeated testing requires a separately valid sequential design. 
+
+End-to-end agent study. A secondary experiment should allow each agent to choose its own ac-tions rather than restricting all methods to a common trajectory. The comparison should include fixed-stage, confidence, ERM, myopic value of information, official LA-CDM, LTT, C ROS -Det, CROS -Mix, and compatible released implementations of AgentClinic, MedChain, and DxChain. It 24 should report invalid or unavailable actions, repeated actions, token use, latency, diagnostic accu-racy, selective error, error mass, autonomous coverage, resource cost, and trace validity. Clinician adjudication should additionally assess whether requested tests and terminal decisions are medically appropriate. Because independently acting agents generate different histories, their outcomes cannot be inter-preted as paired stopping comparisons on a common information path. Such an experiment evalu-ates the combined acquisition, reasoning, stopping, and deferral system and therefore addresses a broader question than the primary experiment. 
+
+Scope of the theoretical claim. Theorem 1 controls the probability of certifying an invalid frozen policy only under the stated exchangeability and independent-calibration assumptions. It does not establish causal clinical benefit, correctness of the reference labels, realism of the relative cost vector, optimality outside the frozen candidate family, subgroup or hospital-level robustness, or deployment safety. Repeated episodes from the same patient, clinician, or institution would require the sampling unit and exchangeability assumptions to be redefined, together with a corresponding cluster-aware cal-ibration procedure. Settings in which an action changes patient physiology, future observability, clinical management, or documentation require a causal or interactive environment rather than the present logged trajectory. These limitations define the boundary of the theoretical and empirical claims. 25

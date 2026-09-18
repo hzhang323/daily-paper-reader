@@ -1,0 +1,216 @@
+Title: FreqCondNorm: Towards Cross-domain Predictive Maintenance through a Frequency-Conditioned Transformer Foundation Model
+
+URL Source: https://arxiv.org/pdf/2609.20535v1
+
+Published Time: Fri, 18 Sep 2026 01:28:16 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# FreqCondNorm: Towards Cross-domain Predictive Maintenance through a Frequency-Conditioned Transformer Foundation Model 
+
+Zaynab Raounak 1, Camille L’Hermin´ e1, and Zhiguo Zeng 1
+
+Laboratoire G´ enie Industriel, CentraleSup´ elec, Universit´ e Paris-Saclay, France 
+
+{zaynab.raounak, camille.lhermine }@student-cs.fr zhiguo.zeng@centralesupelec.fr 
+
+Abstract. Deep learning-based predictive maintenance models, includ-ing fault detection, diagnosis and remaining useful life prediction models, often fail to transfer across machines, sensors, and operating conditions, primarily because labelled data are scarce and signals span sampling rates from 1 Hz cycle-based prognostic data to ∼100 kHz vibration. In this paper, we explore the possibility of pre-training cross-domain mod-els for different predictive maintenance tasks with different sampling frequencies. In particular, we develop a new architecture named Freq-CondNorm, in which a FiLM-style frequency-conditioned normalization layer was introduced to replace standard LayerNorm inside a channel-independent PatchTST-style Transformer. By doing so, the heteroge-neous industrial time-series spanning five orders of magnitude in sam-pling frequency can be unified and treated within a single Transformer-based architecture. We refer to this architecture as “foundation-model-style” rather than a foundation model in the fully general sense: the pre-training corpus used in this study comprises five public datasets (CWRU, MFPT, UOC18, PRONOSTIA, CMAPSS), which is modest relative to the scale typically associated with foundation models, and we temper our claims accordingly throughout the paper. The model is pretrained on this corpus using a combined Masked-Auto-Encoding and temporal-InfoNCE objective with balanced domain sampling, and then transferred to five downstream predictive maintenance tasks, including fault classi-fication, few-shot learning, leave-one-domain-out zero-shot transfer, and remaining-useful-life (RUL) regression. Under a leakage-free run-ID split protocol, the model reaches 99.2% accuracy on CWRU (+6.4 pp over a strong CNN baseline). We also observe 82.1% zero-shot accuracy on MFPT, a diagnosis dataset never seen during pretraining. The results demonstrate that, within the scope of this five-dataset corpus, the pre-trained model performs and generalizes well on fault diagnosis tasks across different sampling frequencies. The experiments on the remaining useful life prediction tasks, however, reveal that the proposed approach does not improve the performance of remaining useful life prediction, as compared to a baseline without pretraining. This is a limitation we trace to a pretraining-task mismatch and discuss as a directional research target. arXiv:2609.20535v1 [cs.AI] 17 Sep 2026 2 Z. Raounak et al.                
+
+> Keywords: Foundation models ·Self-supervised learning ·Fault diag-nosis ·Prognostics and health management ·Transformer ·Domain gen-eralization ·FiLM ·Masked auto-encoding.
+
+## 1 Introduction 
+
+Predictive maintenance of industrial equipment like rotating and reciprocating machinery is essential for modern industry. Typically, predictive maintenance includes three tasks: fault detection, fault diagnosis, and remaining useful life prediction and maintenance planning. Currently, deep learning-based models have become mainstream of predictive maintenance. However, since labelled fault data are expensive and most public datasets are recorded under controlled lab conditions with artificially induced defects, the distributions of training data often diverge sharply from real operating environments. Supervised deep learning models trained on one such dataset routinely degrade when applied to a different machine, sensor configuration, or load profile: a manifestation of domain shift that has significantly limited industrial deployment of data-driven predictive maintenance models. The dominant response in the literature has been domain adaptation: align target-domain features to a labelled source. Adaptation methods, however, re-quire access to test data from the target domain at training time, which is unrealistic when the goal is to monitor a new machine that has not yet been instrumented. A more recent line of work – self-supervised pretraining followed by lightweight fine-tuning – offers a fundamentally different proposition: learn from a heterogeneous corpus once, transfer everywhere. Foundation models such as MOMENT [4] and NuTime [7] have proven this paradigm on general time-series benchmarks, and PHM-specific efforts (BearingFM [6], UniFault [2]) have started to extend it to fault diagnosis. Although existing foundation model-based predictive maintenance has shown some potential, it suffers a fundamental obstacle, i.e., the frequency-scale prob-lem. Industrial signals used for predictive maintenance span an extraordinary range of sampling frequencies: turbofan-engine cycle data sample at 1 Hz, while high-frequency bearing vibration is recorded at ∼100 kHz. This is a gap of five orders of magnitude in temporal resolution. Standard LayerNorm – a key compo-nent in the Transformer architecture of existing foundation models – normalizes activations identically regardless of physical sampling rate, implicitly assum-ing a uniform notion of “time step.” Existing foundation models for predictive maintenance side-step the issue by restricting pretraining to a narrow band of sampling rates (typically only bearing data at ∼10–50 kHz). This restriction limits the corpus and prevents joint pretraining on prognostic, low-rate, and high-rate diagnostic data. To address this issue, we propose in this paper FreqCondNorm, a FiLM-style [11] replacement for LayerNorm whose scale and shift parameters are pro-duced by a small MLP conditioned on log 10 (fs), where fs is the input signal’s sampling rate. The contribution is threefold: FreqCondNorm: Frequency-Conditioned Transformer for PHM 3
+
+1. A drop-in normalization layer that allows a single Transformer backbone to absorb signals spanning five orders of magnitude in sampling rate, initialized close to identity so training begins as standard LayerNorm and gradually specializes per frequency regime. 2. A multi-domain self-supervised pretraining recipe (Masked Auto-Encoding + temporal InfoNCE, balanced-domain sampling) on five public PHM datasets covering bearings, gearboxes, run-to-fail bearings, and turbofan engines – a corpus we deliberately describe as modest in scale rather than as foundation-model-scale – followed by a 3-stage progressive fine-tuning protocol that prevents catastrophic forgetting. 3. An empirical study on a leakage-free run-ID split, achieving 99.2% on CWRU full-data classification and 82.1% zero-shot on MFPT (held-out domain), to-gether with an honest analysis of why the same pretraining does not transfer to RUL regression, a result we believe is more useful to the community than overclaimed numbers. The rest of the paper is organized as follows: Section 2 reviews related work; Section 3 introduces FreqCondNorm and the full pipeline; Section 4 reports experiments; Section 5 provides the honest RUL assessment; Section 6 concludes. 
+
+## 2 Related Work 
+
+Supervised diagnosis. The literature on predictive maintenance is dominated by deep learning models like CNNs, LSTMs, and increasingly Transformers [14]. While intra-dataset accuracies often exceed 99%, Wheat et al. [15] demon-strated that many widely cited results suffer from data leakage induced by naive train/test splitting, specifically windows from the same physical bearing run ap-pearing in both train and test sets. To avoid the leakage, we adopt a stricter run-ID-stratified split throughout this work, following the bearing-wise parti-tioning protocol recommended by Vieira et al. [13]. 
+
+Domain adaptation vs. domain generalization. Adaptation techniques (DANN [3], distribution alignment, fine-tuned CNNs) require unlabelled tar-get data during training. Domain generalization, in contrast, aims for transfer to a target unseen during training. 
+
+General-purpose time-series foundation models. MOMENT [4] and Nu-Time [7] are pretrained on broad corpora but lack high-frequency industrial vibration data, leading to suboptimal representations for machinery diagnostics. PatchTST [9] introduced the channel-independent patch tokenization we build on. 
+
+Predictive maintenance-specific foundation models. BearingFM [6] in-troduces physics-informed augmentation but evaluates only on data adjacent to its pretraining corpus. UniFault [2] scales to 6.9M samples across 10 bear-ing datasets but does not address cross-modality (vibration ↔ cycle data) or signals outside the bearing-vibration band. Recent work [12] has explored fine-tuning LLMs for vibration analysis. In our preliminary baselines, RoBERTa from 4 Z. Raounak et al. 
+
+scratch (84%) marginally outperforms LoRA-fine-tuned LLM weights (82%), suggesting language pretraining carries little inductive bias for vibration physics. We did not find prior PHM work tackling joint pretraining across the 1 Hz– 100 kHz frequency span. 
+
+Conditional normalization. FiLM [11] is a feature-wise linear modulation layer originally proposed for visual reasoning. To our knowledge, conditioning normalization on sampling-frequency metadata for time-series foundation models is novel. We treat log 10 (fs) as a privileged side-channel always available at both pretraining and inference time. 
+
+## 3 Methodology 
+
+3.1 Problem Formulation 
+
+Let Dtrain = {D1, . . . , D K } be a collection of unlabelled heterogeneous source datasets and Dtest an unseen target with Nℓ ≪ N labels. Each signal x ∈ RC×T
+
+has C sensor channels and T time-steps; its provenance dataset Dk exposes a known sampling rate f (k) 
+
+> s
+
+∈ [1 , 10 5] Hz. The goal is to learn a single encoder fθ,pretrained on Dtrain without labels, that produces latent representations that generalize well to (i) classification, (ii) few-shot adaptation, and (iii) zero-shot evaluation on a new target domain. 
+
+3.2 Pretraining Corpus 
+
+Table 1 summarises the five datasets used. The key observation is the sampling-rate span: 5 orders of magnitude from CMAPSS (cycle-based) to MFPT (97.6 kHz). Aside from CMAPSS (cycle-domain), all signals are resampled to a unified 25,600 Hz before patching. We note here – and return to in Section 6 – that five datasets is a modest corpus by the standards of general-purpose foundation models, and the scope of our claims is calibrated to that scale.                       
+
+> Table 1. Multi-domain pretraining corpus. Dataset Equipment Task fs(Hz) log 10 (fs)CWRU Bearing (DE) Cls. 12,000 4.08 PRONOSTIA Bearing (run-to-fail) RUL 25,600 4.41 CMAPSS Turbofan engine RUL 1 (cyc.) 0.00 MFPT Bearing Cls. 97,656 4.99 UOC18 Gearbox Cls. 20,000 4.30
+
+3.3 FreqCondNorm: Frequency-Conditioned Normalization 
+
+The architectural core of our work is to replace every LayerNorm in the Trans-former encoder with a FiLM-style block whose affine parameters depend on the FreqCondNorm: Frequency-Conditioned Transformer for PHM 5
+
+input’s sampling frequency. Given a per-token activation h ∈ Rdmodel and the dataset-level scalar fs,FreqCondNorm( h) = γ(fs) · h − μ(h)
+
+σ(h) + β(fs), (1) [γ(fs), β (fs)] = MLP(log 10 fs), (2) where μ, σ are per-token statistics. The MLP has architecture R1 → Rdfreq →
+
+R2dmodel with GELU and dfreq = 32. 
+
+Identity initialization. The MLP’s output layer is initialized so that γ ≈ 1, 
+
+β ≈ 0 at step zero. Training therefore begins as standard LayerNorm and Fre-qCondNorm gradually learns frequency-specific corrections, providing a smooth optimization path. This also makes “FreqCondNorm → LayerNorm” a soft ab-lation: the layer can fall back to identity normalization if the frequency signal is uninformative for a given depth. The reason for choosing log 10 (fs) is because the sampling rates differ multiplicatively across machinery (bearings ∼ 10 4, prognos-tic ∼ 10 0). A logarithmic representation keeps the conditioning input on a unit scale ( ∆ log 10 fs ≤ 5 across our corpus) and makes the MLP’s effective Lipschitz constant well-controlled. 
+
+3.4 Architecture 
+
+We use a channel-independent PatchTST-style [9] backbone (Fig. 1). Each mul-tivariate input x ∈ RC×T is split per-channel into overlapping patches of length 
+
+P = 64 with stride s = 32. Patches are linearly embedded to dmodel = 128; learned positional encodings are added. The encoder stack has L = 4 Trans-former blocks, H = 8 heads, dff = 256, dropout rate = 0 .1. Every LayerNorm (pre-norm in MHSA and FFN sub-layers) is replaced by FreqCondNorm; the conditioning MLP is shared across depths but produces depth-specific ( γ, β ) via an additional learned linear projection per block. 
+
+3.5 Self-Supervised Pretraining 
+
+The model is pretrained on the corpus of datasets in Table 1 through self-supervised learning, i.e., part of the sequence is masked and the model is pre-trained to predict the masked parts. In the pretraining, we combine two com-plementary objectives: 
+
+(a) Masked Auto-Encoding (MAE). Following [5], we apply true masking: only unmasked patches enter the encoder, learnable [MASK] tokens are inserted afterwards before a lightweight 2-layer decoder ( ddec = 64) reconstructs the masked positions. This prevents the encoder from interpolating across visible neighbours. Mask ratio ρ = 0 .40. Targets are patch-normalized (per-patch zero-mean, unit-variance): 
+
+LMAE = 1
+
+∑ 
+
+> n
+
+mn
+
+∑ 
+
+> n:mn=1
+
+∥∥dψ
+
+(fθ ({pn : mn = 0 })) 
+
+> n
+
+− ˜pn
+
+∥∥2 . (3) 6 Z. Raounak et al.        
+
+> Raw signal
+> x∈ℝC×T
+> Patching P=64, s=32 + Pos. Encoding Transformer Encoder L=4, H=8, d=128 LayerNorm → FreqCondNorm MAE Decoder (pretrain only, discarded after) Pool + Head (cls / RUL) FreqCondNorm MLP log 10 fs→ ( γ,β)
+
+Fig. 1. The proposed architecture. FreqCondNorm replaces LayerNorm inside every Transformer block; its ( γ, β ) are produced from log 10 (fs) via a small shared MLP. The MAE decoder is discarded after pretraining; downstream tasks attach a pooling head and a classification or RUL regression module. 
+
+(b) Temporal InfoNCE. On the encoder’s CLS embedding zi ∈ Rd (L2-normalised), we apply InfoNCE [10] with temporal positive pairs – two windows from the same physical unit (bearing, engine) at different times. Different units within the batch act as negatives: 
+
+LInfoNCE = − 1
+
+|P |
+
+∑
+
+> (i,j )∈P
+
+log exp( z⊤ 
+
+> i
+
+zj /τ )
+
+∑  
+
+> k6=i
+
+exp( z⊤ 
+
+> i
+
+zk/τ ) , τ = 0 .07 . (4) The combined objective is L = LMAE + λLInfoNCE with λ = 0 .10, optimized by AdamW [8] for 200 epochs (LR 10 −4 cosine, batch 128, FP16). A balanced-domain sampler ( wi = 1 /|Dk(i)|) prevents larger datasets (CWRU, UOC18) from dominating gradients, ensuring the encoder is uniformly exposed to all five frequency regimes. 
+
+3.6 Progressive Fine-Tuning for Classification 
+
+To prevent catastrophic forgetting we use a 3-stage curriculum: 
+
+– Stage 1 (15 epochs, LR 10 −3) – backbone frozen; train task head, projector, and dataset embeddings only. 
+
+– Stage 2 (20 epochs, LR 5 × 10 −5) – unfreeze the last 2 encoder blocks. 
+
+– Stage 3 (30 epochs, LR 5 × 10 −5) – end-to-end refinement. 
+
+3.7 Temporal Attention Pooling for RUL 
+
+For RUL prediction, we replace mean-pooling with a learnable single-query multi-head attention over the patch sequence (4 heads, d = 128), with a learned query q ∈ Rd. A 3-layer MLP with Hardtanh(0 , 1) outputs the normalized RUL. Crucially, RUL fine-tuning skips Stage 1 and trains end-to-end from the start, since the spatial features extracted by MAE are not sufficient for tracking long-horizon temporal degradation (we revisit this in Section 5). FreqCondNorm: Frequency-Conditioned Transformer for PHM 7
+
+## 4 Experiments 
+
+4.1 Setup Splits. 70%/15%/15% by run ID (leakage-free), in line with [15, 13]. Hardware. 
+
+NVIDIA A100 80GB on an institutional HPC cluster. Baseline. A 5-block 1D-CNN (channels 32, 64, 128, 128, 64, kernel 7) trained from scratch per dataset, which is a strong point of comparison reflecting the best classical practice. Met-rics. Accuracy (classification); MAE and RMSE on [0 , 1]-normalized targets (RUL). 
+
+4.2 Pretraining Convergence 
+
+On the joint corpus, training MAE loss drops 28.5 →9.1 ( −68%) and validation 63.4 →15.8 ( −75%) over 200 epochs; the per-element MSE on N (0 , 1) targets stabilises at ≈ 0.14. We observe a sharp inflection around epoch 38, coinciding with the point where the encoder appears to discover cross-domain structure. We hypothesize this is related to FreqCondNorm’s ( γ, β ) outputs beginning to specialize across frequency regimes; however, we have not yet verified this with a dedicated ablation (e.g., comparing FreqCondNorm to a fixed-LayerNorm con-trol) or with gradient-level analysis of the conditioning MLP, so we present this as a plausible hypothesis rather than an established finding. We flag the corre-sponding ablation and gradient study as a concrete next step in Section 6. 
+
+4.3 Classification under Full Labels 
+
+Table 2 reports test results on three classification datasets. The model gains +6 .4 pp on CWRU (the most label-efficient regime, see Sec. 4.4) and +0 .36 pp on UOC18; on MFPT (only 117 labelled samples) the small CNN baseline narrowly wins by 2.6 pp, an expected effect of memorisation under a tiny test set.             
+
+> Table 2. Classification accuracy: our model vs. CNN baseline (full labels, leakage-free run-ID split). Dataset Baseline (%) Ours (%) ∆Acc. CWRU 92.8 99.2 +6.4 MFPT 99.2 96.6 −2.6UOC18 99.29 99.65 +0.36
+
+Comparison with prior baselines. On the same CWRU run-ID split, our prior internal baselines (Sec. 2) reached: RoBERTa from-scratch 84%, MOMENT fine-tuned 81.81%, RmGPT fine-tuned 81.47%, NuTime fine-tuned 94.7%. Our 99.2% improves upon the strongest pretrained baseline (NuTime) by +4 .5 pp under identical evaluation. 8 Z. Raounak et al. 
+
+4.4 Few-Shot Learning 
+
+We fine-tune the model with {1, 5, 10 , 50 , 100 }% of CWRU labels (3 random seeds per fraction, mean ±std reported in Table 3). The model substantially outperforms the from-scratch baseline at the 50–100% regime where its capacity is fully exploited; at 1–10% both methods struggle, with our model showing dramatically lower variance (e.g. ±0.002 vs. ±0.011 at 100%), indicating a more stable inductive bias from pretraining. Across-dataset, our model also achieves 2× accuracy on UOC18 with only 1% labels and +15 .7 pp on MFPT with 10% labels (vs. baseline).                   
+
+> Table 3. Few-shot CWRU classification, mean ±std (3 seeds). Fraction Base. Acc Ours Acc Base. F1 Ours F1 1% 0.611 ±0.018 0.593 ±0.057 0.604 0.521 5% 0.817 ±0.007 0.793 ±0.005 0.836 0.821 10% 0.861 ±0.013 0.853 ±0.005 0.876 0.874 50% 0.931 ±0.011 0.962 ±0.002 0.942 0.968 100% 0.929 ±0.002 0.982 ±0.001 0.940 0.985
+
+4.5 Cross-Domain Zero-Shot Transfer (Headline Result) 
+
+We adopt a strict leave-one-domain-out (LODO) protocol: pretrain on 4 datasets, evaluate on the held-out 5th using either (a) a frozen encoder with nearest-centroid classification (zero-shot) or (b) a single-layer linear probe trained on the held-out labels (Table 4).        
+
+> Table 4. Leave-one-domain-out transfer (Approach A). Held-out Domain Zero-Shot Acc. (%) Linear Probe (%) CWRU 24.7 73.7 MFPT 82.1 82.9 UOC18 9.9 12.1
+
+The 82.1% zero-shot result on MFPT is, to our knowledge, the first demon-stration of usable zero-shot transfer to an unseen bearing dataset for a PHM model of this kind under a strict LODO protocol. The features learned from the four other domains transfer directly: no MFPT data ever entered pretraining or supervised fine-tuning. Conversely, UOC18 (gearbox) does not transfer (9.9%), an expected and informative negative result: gearbox vibration signatures are structurally different from bearings, and with only 1 gearbox dataset in the cor-pus the encoder has no inductive basis to generalize across equipment-family. Within-family transfer succeeds; across-family fails. This is a useful finding for FreqCondNorm: Frequency-Conditioned Transformer for PHM 9
+
+future corpus design: a model trained predominantly on bearings transfers within bearings, not beyond – underscoring, again, that our claims are scoped to the five-dataset corpus actually used. 
+
+4.6 Feature Quality 
+
+t-SNE projections of 5,000 randomly sampled test embeddings (color-coded by domain and by fault type) show clear domain separation and fault-type sub-clusters within each domain, the latter discovered without any fault labels dur-ing pretraining. This qualitative evidence corroborates the quantitative cross-domain transfer results above. 
+
+## 5 RUL Regression: An Honest Assessment 
+
+We evaluate RUL on PRONOSTIA and CMAPSS (Table 5). The CNN baseline outperforms our model on both benchmarks, a result we report transparently because we believe a precise diagnosis of why self-supervised pretraining fails on RUL is more valuable to the community than a marginal positive headline.            
+
+> Table 5. RUL regression: our model vs. CNN baseline (lower is better; targets in [0 ,1]). Dataset Baseline MAE Ours MAE Baseline RMSE Ours RMSE PRONOSTIA 0.0031 0.0061 0.0049 0.0094 CMAPSS 0.230 0.330 0.2731 0.3011
+
+Why pretraining helps classification but not RUL. We trace the gap to a pretraining-task mismatch: 1. MAE objective is spatial. Reconstructing the local waveform shape pro-duces features well-suited for fault type discrimination but largely insensitive to long-horizon degradation trends, which is the signal RUL needs. 2. InfoNCE is invariance-driven. Our temporal-positive contrastive loss pulls together windows from the same unit across time, which is helpful for fault-class invariance but counter-productive for tracking how a unit’s signal evolves over its lifetime. 3. PRONOSTIA is small. With only ∼17 run-to-fail bearings, our 1.4M-parameter encoder has far more capacity than information, and therefore end-to-end overfitting dominates. 4. CMAPSS is structurally different. Cycle-domain sensor data (1 Hz, 14 channels) shares neither sampling rate nor spectral content with the high-frequency vibration signals that dominate the pretraining corpus. This finding is consistent with the broader SSL-for-time-series literature [1, 4]: classification consistently benefits from masked-reconstruction pretraining, 10 Z. Raounak et al. 
+
+while regression – and especially long-horizon prognostic regression – often does not. 
+
+Path forward. (i) Increase λ above 0.1 to bias representations toward tempo-ral coherence; (ii) replace MAE with a TS2Vec-style [16] temporal-contrastive pretext that directly targets degradation-relevant ordering; (iii) augment the temporal-attention head with explicit run-position embeddings. We leave a full study to future work. 
+
+## 6 Discussion and Future Work 
+
+Scope of the present work. We deliberately scoped the contribution of Fre-qCondNorm to the multi-domain industrial setting we have at hand: five datasets spanning vibration and cycle-based prognostic data. We use the term “foundation-model-style” advisedly and do not claim foundation-model scale; a corpus of five datasets is modest, and the empirical claims in this paper – including the classification and zero-shot results – should be read as bounded by that scope rather than as evidence of general-purpose industrial coverage. The underly-ing mechanism is nonetheless general: any signal with a known sampling rate (acoustic emission, EEG, seismic, motor current) can in principle benefit from FiLM-conditioned normalization on log 10 (fs). We leave (i) extension of the con-ditioning vector to richer metadata (sensor type, RPM, load), (ii) theoretical analysis of the FiLM-LayerNorm composition under heterogeneous-rate inputs, and (iii) application to other multi-rate signal modalities to future work. 
+
+Limitations. The pretraining corpus, while spanning five orders of magnitude in fs, contains five datasets only – modest by foundation-model standards, and we have revised the paper’s framing and terminology throughout to reflect this rather than describe the model as a foundation model outright. UOC18 (gear-box) does not transfer in LODO, an expected consequence of the corpus being bearing-dominated; richer corpora (e.g. pumps, gears, milling) are needed to claim broader industrial coverage. Separately, the epoch-38 inflection reported in Section 4.2 is currently only a qualitative observation; we have not run the ablation (FreqCondNorm vs. frozen-γβ control) or the gradient-level analysis of the conditioning MLP needed to confirm that FreqCondNorm specialization, rather than some other training dynamic, is the cause, and we now present that claim as a hypothesis pending such a study. Finally, our RUL results are honestly negative. 
+
+Conclusion. We presented FreqCondNorm, a frequency-conditioned normal-ization layer that allows a single Transformer-based architecture to absorb in-dustrial signals spanning 5 orders of magnitude of sampling rate. Combined with a multi-domain MAE + InfoNCE pretraining recipe on a five-dataset cor-pus, the resulting model achieves strong classification (99.2% CWRU full-data, 82.1% zero-shot MFPT) on a leakage-free evaluation, within the scope of that corpus. We complement this with a transparent negative result on RUL regres-sion, isolating a pretraining-task mismatch as the cause, and with an explicit acknowledgement that the epoch-38 specialization claim awaits ablation and FreqCondNorm: Frequency-Conditioned Transformer for PHM 11 
+
+gradient-level confirmation. We hope the design – alongside the released code, splits, and pretrained weights – supports broader adoption of this methodology in the PHM community, at a scale and with claims appropriately matched to the corpus used. 
+
+## References 
+
+1. Dong, J., Wu, H., Zhang, H., et al.: SimMTM: A simple pre-training framework for masked time-series modeling. In: NeurIPS (2023) 2. Eldele, E., Ragab, M., Qing, X., Chen, Z., Wu, M., Li, X., Lee, J.y.: UniFault: A fault diagnosis foundation model from bearing data. arXiv:2504.01373 (2025) 3. Ganin, Y., Ustinova, E., Ajakan, H., et al.: Domain-adversarial training of neural networks. JMLR 17 (2016) 4. Goswami, M., Szafer, K., Choudhry, A., Cai, Y., Li, S., Dubrawski, A.: MOMENT: A family of open time-series foundation models. In: ICML (2024) 5. He, K., Chen, X., Xie, S., Li, Y., Doll´ ar, P., Girshick, R.: Masked autoencoders are scalable vision learners. In: CVPR (2022) 6. Lai, Z., Yang, C., Lan, S., Wang, L., Shen, W., Zhu, L.: BearingFM: Towards a foundation model for bearing fault diagnosis by domain knowledge and con-trastive learning. International Journal of Production Economics 275 , 109319 (2024). https://doi.org/10.1016/j.ijpe.2024.109319 7. Lin, C., Wen, X., Cao, W., Huang, C., Bian, J., Lin, S., Wu, Z.: NuTime: Numer-ically multi-scaled embedding for large-scale time-series pretraining. Transactions on Machine Learning Research (TMLR) (2024) 8. Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: ICLR (2019) 9. Nie, Y., Nguyen, N.H., Sinthong, P., Kalagnanam, J.: A time series is worth 64 words: Long-term forecasting with transformers. In: ICLR (2023) 10. van den Oord, A., Li, Y., Vinyals, O.: Representation learning with contrastive predictive coding. arXiv:1807.03748 (2018) 11. Perez, E., Strub, F., de Vries, H., Dumoulin, V., Courville, A.: FiLM: Visual rea-soning with a general conditioning layer. In: AAAI (2018) 12. Tao, L., Liu, H., Ning, G., Cao, W., Huang, B., Lu, C.: LLM-based framework for bearing fault diagnosis. Mechanical Systems and Signal Processing 224 , 112127 (2025). https://doi.org/10.1016/j.ymssp.2024.112127 13. Vieira, J.P., Bauler, V.A., Rosa, R.K., Silva, D.: Towards a more realistic evaluation of machine learning models for bearing fault diagnosis. arXiv:2509.22267 (2025) 14. Wang, R., Dong, E., Cheng, Z., Liu, Z., Jia, X.: Transformer-based intelligent fault diagnosis methods of mechanical equipment: A survey. Open Physics 22 (1), 20240015 (2024). https://doi.org/10.1515/phys-2024-0015 15. Wheat, L., von Mohrenschildt, M., Habibi, S., Al-Ani, D.: Impact of data leakage in vibration signals used for bearing fault diagnosis. IEEE Access 12 , 169879–169896 (2024). https://doi.org/10.1109/ACCESS.2024.3497716 16. Yue, Z., Wang, Y., Duan, J., et al.: TS2Vec: Towards universal representation of time series. In: AAAI (2022)

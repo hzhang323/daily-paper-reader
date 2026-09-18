@@ -1,0 +1,915 @@
+Title: QUALS: Corpus Equilibrium for Universal Forecasting via Pattern Quantization and Learnability Synchronization
+
+URL Source: https://arxiv.org/pdf/2609.20156v1
+
+Published Time: Fri, 18 Sep 2026 01:33:40 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# QUALS: Corpus Equilibrium for Universal Forecasting via Pattern Quantization and Learnability Synchronization 
+
+## Yujie Li 1,2, Zezhi Shao 1∗, Chengqing Yu 1,2, Yisong Fu 1,2, Weijie Zhu 1, Yifan Du 1, Jilin Hu 3, Bin Yang 3,Yongjun Xu 1,2, Fei Wang 1,2∗
+
+> 1
+
+State Key Laboratory of AI Safety, Institute of Computing Technology, Chinese Academy of Sciences, Beijing, China 
+
+> 2
+
+University of Chinese Academy of Sciences, Beijing, China 
+
+> 3
+
+School of Data Science and Engineering, East China Normal University, Shanghai, China {liyujie23s, shaozezhi, yuchengqing22b, fuyisong24s, zhuweijie26s, duyifan, xyj, wangfei}@ict.ac.cn, {jlhu, byang}@dase.ecnu.edu.cn 
+
+## ABSTRACT 
+
+Ubiquitous time series data across diverse domains enables critical applications in areas such as transportation systems and power grids. Recently, training foundation models on massive datasets to achieve accurate zero-shot forecasting has emerged as a major research focus. However, current studies predominantly prioritize architectural innovations while insufficiently addressing data di-versity, often relying on simple data sampling strategies that fail to manage complex data distributions effectively, leading to inefficient use of training data and suboptimal performance. To address this, we propose QUALS, a large-scale time series corpus equilibrium framework. QUALS significantly enhances data efficiency, i.e., en-abling existing models to achieve superior performance using only a small fraction of the original training data. Specifically, QUALS op-erates through two core mechanisms. First, an pattern quantization framework systematically decodes heterogeneous patterns from mixed corpora via vector quantization and uniform binning. Sec-ond, a learnability synchronization framework calibrates sampling weights for heterogeneous patterns, which bridges the optimization gap between simple and complex motifs to maximize overall train-ing efficiency. Extensive benchmarks demonstrate that pre-training on QUALS consistently achieves superior zero-shot performance, even under substantially reduced training budgets. 
+
+PVLDB Reference Format: 
+
+Yujie Li, Zezhi Shao. Chengqing Yu, Yisong Fu, Weijie Zhu, Yifan Du, Jilin Hu, Bin Yang, Yongjun Xu, Fei Wang. QUALS: Corpus Equilibrium for Universal Forecasting via Pattern Quantization and Learnability Synchronization. PVLDB, 14(1): X-X, 2020. doi:XX.XX/XXX.XX 
+
+PVLDB Artifact Availability: 
+
+Source code: https://github.com/blisky-li/QUALS 
+
+## 1 INTRODUCTION 
+
+Time series data are fundamental to a wide range of critical real-world systems, including transportation management [14, 52], cloud 
+
+> ∗: Corresponding author. This work is licensed under the Creative Commons BY-NC-ND 4.0 International License. Visit https://creativecommons.org/licenses/by-nc-nd/4.0/ to view a copy of this license. For any use beyond those covered by this license, obtain permission by emailing info@vldb.org. Copyright is held by the owner/author(s). Publication rights licensed to the VLDB Endowment. Proceedings of the VLDB Endowment, Vol. 14, No. 1 ISSN 2150-8097. doi:XX.XX/XXX.XX
+
+resource monitoring [47, 67], public safety [28, 72], and beyond [44, 56, 69]. The strong heterogeneity [48, 51] of these applications has made universal time series forecasting 1 an increasingly im-portant goal: rather than building specialized models for each do-main [30, 32, 66], we seek models that can generalize across hetero-geneous domains and deliver strong zero-shot forecasting [2, 36] performance on previously unseen data. Recent progress has largely followed a foundation-model para-digm: train large models over massive corpora and rely on scale to induce emergent zero-shot capability. Representative models such as Chronos [3], MOIRAI [64], and Sundial [39] all perform large-scale pre-training based on different Transformer architectures and have achieved state-of-the-art performance. Notably, unlike natural language processing [24], where progress is often associated with scaling model capacity, universal time series forecasting has seen a more pronounced trend toward expanding the training corpus .To cope with the heterogeneity of cross-domain data and improve zero-shot performance, existing studies tend to typically aggregate open-source datasets from diverse domains and continuously ex-pand corpus size [10, 19, 54, 55], as illustrated in Figure 1(a). For example, the above three models contain only 200M, 311M, and 444M parameters, respectively, while their corresponding training corpora reach 84B, 231B, and even 1032B points. This data scale-driven strategy has improved performance, but it also reveals a fundamental limitation: the training distribution is not guaranteed to be well aligned with the needs of universal forecasting, while effectively leveraging larger corpora typically requires substantially greater computational cost. In particular, current corpora suffer from two coupled forms of imbalance. First, pattern distribution is highly skewed [50]. Expanding source domains does not necessarily increase the diversity of underlying temporal patterns. In large aggregated corpora, a few dominant motifs can occupy most of the probability mass, resulting in a pro-nounced long-tail distribution. As shown in Figure 1(b), climate data account for 87% of the GIFT-Eval Pretrain corpus [1]. This source-level imbalance is also reflected at the pattern level, where the measured distribution has a coefficient of variation (COV) of 3.8, indicating strong non-uniformity. Under standard sampling [64], models are repeatedly exposed to frequent patterns, while rare but important ones remain underrepresented, ultimately limiting                          
+
+> 1While these models are referred to as foundational or general models in some prior work, we adopt the term universal forecasting models [1, 18, 50, 62, 64] throughout this paper for consistency and to avoid confusion with multi-task models. arXiv:2609.20156v1 [cs.LG] 17 Sep 2026             Nature Web Traffic Health Finance Multi-domain Data ...
+> Chronos MOIRAI TimesFM TimeMoE Sundial
+> 84 203 309 1000 200 311 200 453 444
+> Data Scaling 307
+> Model Capacity (M) Corpus Size (B)
+> (b) Skewed pattern distribution.
+> Uneven Domain Distribution Uneven Pattern Distribution
+> Climate 87.46%
+> Energy 7.01% CloudOps 3.12% Transport 2.12% Others 0.29%
+> Convergence Speed Discrepancy
+> Coefficient of Variation= 3.8
+> (c) Heterogeneous pattern learnability.
+>                  
+>                  
+> Slow Fast
+> Convergence Speed
+> (a) Prevailing data-scaling paradigm: Uncurated cross-domain corpus.
+
+Figure 1: Overview of the data-scaling paradigm, highlighting skewed pattern distributions and imbalanced pattern learn-ability. In (b), domain shares are derived from GIFT-Eval Pre-train metadata, while the pattern distribution is measured using the analysis introduced later and projected into 2-D. 
+
+zero-shot generalization. Second, heterogeneous patterns differ sub-stantially in learnability [58]. Time series vary widely in complex-ity: regular motifs are typically easy to fit, whereas patterns with multiple seasonalities or non-stationarity are much harder to opti-mize [17, 59]. Thus, even with a distributionally balanced corpus, easy patterns may dominate training while difficult ones remain under-trained. As shown in Figure 1(c), Chronos exhibits markedly different convergence speeds across pattern types (each line), re-vealing a learnability gap between simple and complex motifs. These observations suggest that the key issue is not corpus size alone, but how to manage data diversity for pre-training. Unfortu-nately, existing corpus construction strategies rarely address this problem in a principled way. Simple strategies, including naive sampling [23, 54] and stratified sampling [3, 64], fail to address pattern-level imbalance, while recent heuristic balancing meth-ods [50] depend on handcrafted statistical descriptors that are costly to compute and often inadequate for capturing deep temporal se-mantics. More importantly, they do not account for learnability differences across patterns. In this paper, we propose QUALS, a pattern quantization and learnability synchronization corpus equilibrium framework for universal forecasting that explicitly targets both sources of imbal-ance. QUALS is built on the premise that an efficient pre-training corpus should be balanced not only in terms of what patterns it contains, but also in terms of how those patterns are learned. To achieve this, QUALS introduces two complementary mechanisms. First, QUALS performs data-driven pattern quantization and binning ,which maps highly heterogeneous time series into a discrete pattern space and partitions this space into balanced pattern bins through a multi-scale quantization architecture [29, 41, 57] coupled with a spectrum-aware strategy [25, 27]. This design replaces expensive heuristic characterization with a scalable, representation-driven alternative, while mitigating the long-tail skew in the raw corpus. Second, QUALS introduces learnability synchronization , which pro-files the convergence behavior of individual pattern bins during proxy training and adaptively adjusts sampling weights to prioritize difficult patterns while downweighting overly easy ones, based on an offline Group Relative Policy Optimization (GRPO) strategy [16]. In this way, QUALS aligns learning progress across the corpus and reduces redundant optimization on already saturated patterns. By jointly balancing pattern distribution and learnability, QUALS substantially improves the data efficiency of universal forecasting. Across extensive benchmarks, models pre-trained on QUALS con-sistently achieve stronger and more stable zero-shot performance under reduced training budgets; in some settings, it enables superior performance using only 10% of the original training data. The main contributions of this paper are as follows: 
+
+• We identify a previously underexplored dual imbalance in universal forecasting corpora—skewed pattern distributions and heterogeneous learnability across patterns—and pro-pose QUALS, a new framework for efficient cross-domain corpus management. 
+
+• We develop a scalable, data-driven pattern quantization 
+
+method that replaces expensive handcrafted heuristics with a more efficient alternative, effectively mitigating the long-tail issue in large-scale time series data. 
+
+• We introduce a learnability synchronization mechanism that adaptively aligns optimization difficulty across heteroge-neous patterns, thereby improving training efficiency under fixed computational budgets. 
+
+• Extensive experiments show that QUALS consistently im-proves the data efficiency of universal time series models, delivering more accurate zero-shot forecasting performance while substantially reducing training cost. 
+
+## 2 RELATED WORK 2.1 Universal Time Series Forecasting 
+
+Universal time series forecasting [33] aims to build foundation mod-els with robust zero-shot generalization across unseen domains. The fundamental paradigm relies on training advanced neural architec-tures over massive datasets to induce these zero-shot capabilities. Mainstream models predominantly adopt Transformer architec-tures across three paradigms: encoder-only models learning trans-ferable representations via masked modeling or reconstruction [23, 36, 63, 64]; decoder-only models treating forecasting as condi-tional autoregressive generation [10, 35, 38, 40, 54]; and encoder-decoder models using series discretization to frame probabilistic forecasting as sequence-to-sequence tasks [2, 3, 61]. Complemen-tary works explore alternative inductive biases, including prior-based meta-forecasting and cross-modal transfer [5, 8, 12, 13] Despite these architectural divergences, the consensus is that the emergence of zero-shot capabilities is fundamentally driven by data rather than mere structural design. Consequently, a prevalent trend in current research is to blindly scale up training pipelines by ag-gregating massive, multi-domain corpora to enhance performance. 
+
+> 2
+
+Table 1: Comparison of corpus curation paradigms. “Others” denotes scale-driven corpora with naive sampling or dataset-/domain-level balancing [3, 40, 54, 64]. Challenges QUALS (Ours) BLAST       
+
+> [50]
+> Others
+> [3, 40, 54, 64] Distribution Imbalance Deep Data-Driven Heuristic Dataset/Domain-level Learnability Synchronization GRPO-Synchronized ××
+
+However, this unchecked data scaling exposes critical vulnerabili-ties in data distribution and utilization efficiency, necessitating a closer examination of pre-training corpora 
+
+## 2.2 Time Series Pre-training Corpora 
+
+Time-series corpora underpin universal forecasting capability. Most pipelines follow a scale-driven paradigm—LOTSA for MOIRAI [64], the Chronos corpus [3], Time-300B for TimeMoE [54], and UTSD for Timer [40]—yet source-proportional or naive exposure still over-represents repetitive motifs and wastes pre-training budget. Subsequent work refines balancing at progressively finer granu-larity: dataset level (capped LOTSA stratification in MOIRAI and dataset-uniform training in Chronos [3, 64]), domain level (UTSD in Timer [40]), and pattern level via statistical descriptors (BLAST [50] and catch22 [42]). These strategies reduce redundancy but remain limited: dataset-/domain-level control is still coarse-grained and dominant within-domain motifs may persist; heuristic pattern buck-eting is costly at billion scale and may miss deep temporal seman-tics [50]. They also largely ignore learnability discrepancy —easy motifs converge faster than hard ones [6, 49, 58]—so uniform expo-sure leaves difficult patterns under-optimized. Table 1 summarizes these gaps: prior paradigms remain scale-centric and do not jointly address pattern distribution and learn-ability. QUALS targets both via data-driven pattern quantization and GRPO-synchronized learnability-aware curation. 
+
+## 3 PRELIMINARIES 3.1 Universal Time Series Forecasting 
+
+Let D𝑡𝑟𝑎𝑖𝑛 denote a large-scale pre-training distribution of time series spanning diverse domains. For an instance 𝑥 ∈ R𝐿 , universal forecasting aims to learn a global function 𝑓 𝜃 , parameterized by model weights 𝜃 , that predicts future values 𝑥 𝑓 𝑢𝑡𝑢𝑟𝑒 ∈ R𝐻 given the historical context 𝑥 ℎ𝑖𝑠𝑡𝑜𝑟 𝑦 ∈ R𝐶 .The training objective minimizes the expected risk over the data distribution defined by a loss function L:min  
+
+> 𝜃
+
+E𝑥 ∼D 𝑡𝑟𝑎𝑖𝑛 [L( 𝑓 𝜃 (𝑥 ℎ𝑖𝑠𝑡𝑜𝑟 𝑦 ), 𝑥 𝑓 𝑢𝑡𝑢𝑟𝑒 )] . (1) Unlike domain-specific forecasting [31, 51], 𝑓 𝜃 must make accu-rate forecasts in a zero-shot manner. 
+
+## 3.2 The Corpus Equilibrium Problem 
+
+Raw aggregated corpora D𝑟𝑎𝑤 suffer from pattern imbalance , where frequent motifs dominate gradients, and learnability discrepancy ,where simple patterns converge significantly faster. 
+
+Table 2: Key notations in QUALS. Notation Description 
+
+> Stage 1
+
+𝑥 Input time series instance 
+
+𝐿 Length of time series input 
+
+𝑃, 𝑆 Patch size and stride size 
+
+𝐻 Number of hierarchical stages in Swin Encoder 
+
+𝐷 Hidden layer dimension of Swin 
+
+𝐶, ˜𝐶 Learnable codebook and its spectrally rotated version 
+
+𝐾, 𝑑 Codebook size and embedding dimension ( 𝑑 ≪ 𝐷 )
+
+Z𝑚𝑠 Multi-scale patch representations extracted by Swin Stage 2  Σ Empirical covariance matrix of the codebook 
+
+𝜆 𝑖 , v𝑖 𝑖 -th eigenvalue and eigenvector of Σ
+
+b Vector of bin counts allocated to each latent dimension 
+
+E Set of ECDF-based partition boundaries 
+
+U Final set of Pattern Bins, U = {𝑢 1, . . . , 𝑢 𝑀 }
+
+𝑀 Target number of pattern bins (Capacity constraint) Stage 3  𝑣 𝑖 Static embedding of bin 𝑢 𝑖 for policy network 
+
+𝜋 𝜃 Policy network for dynamic weight adjustment 
+
+𝑤 𝑖 Sampling weight of bin 𝑢 𝑖 generated by policy 𝜋 𝜃 
+
+𝑟 𝑖,𝑡 Convergence speed of bin 𝑢 𝑖 at iteration 𝑡 𝑅 𝑖,𝑡 Reward signal derived from relative learning speed 
+
+H Group Pool storing historical experiences for GRPO We formulate corpus equilibrium as a two-stage policy optimiza-tion problem. The first policy, denoted by 𝜋 𝑐 , transforms the raw corpus D𝑟𝑎𝑤 into a pattern-balanced candidate corpus D𝑐𝑎𝑛𝑑 . The second policy, denoted by 𝜋 𝑠 , assigns sampling weights 𝑤 𝑖 ∈ [ 0, 1]
+
+to pattern bins in D𝑐𝑎𝑛𝑑 to control the actual pre-training subset selection. Accordingly, the objective is to jointly find a corpus con-struction policy and a sampling policy that minimize the zero-shot prediction error on the validation benchmark D𝑣𝑎𝑙 under a strict training budget 𝐵 :min  
+
+> 𝜋 𝑐 ,𝜋 𝑠
+
+ED𝑐𝑎𝑛𝑑 ∼𝜋 𝑐 ( D 𝑟𝑎𝑤 )  
+
+> 𝑆 ∼𝜋 𝑠 ( D 𝑐𝑎𝑛𝑑 )
+
+[E (D 𝑣𝑎𝑙 ; 𝑓 𝜃 𝑆 )] s.t. |𝑆 | ≤ 𝐵, (2) where D𝑐𝑎𝑛𝑑 is the candidate corpus constructed from D𝑟𝑎𝑤 , 𝑆 
+
+is the subset sampled from D𝑐𝑎𝑛𝑑 , 𝜃 𝑆 denotes the model parame-ters optimized on 𝑆 , and E (D 𝑣𝑎𝑙 ; 𝑓 𝜃 𝑆 ) is the zero-shot validation error. In QUALS, 𝜋 𝑐 is instantiated by pattern quantization , while 𝜋 𝑠 
+
+is optimized by learnability synchronization using pattern-specific convergence speeds 𝑟 𝑖,𝑡 . This objective separates corpus equilibrium into pattern equilibrium ( 𝜋 𝑐 : balanced bins in D𝑐𝑎𝑛𝑑 ) and learnabil-ity equilibrium ( 𝜋 𝑠 : budget allocation under |𝑆 | ≤ 𝐵 ). Ideally, the learnability of bin 𝑢 𝑖 is the minimum budget to reach a validation threshold, 
+
+𝐵 ★ 
+
+> 𝑖
+
+= min {𝐵 : ℓ𝑖 (𝐵 ) ≤ 𝜏 𝑖 },
+
+where ℓ𝑖 (𝐵 ) is the validation loss on 𝑢 𝑖 after budget 𝐵 and 𝜏 𝑖 is a convergence threshold. At billion scale, 𝐵 ★ 
+
+> 𝑖
+
+is not directly observable, so we use the uniform-probing convergence speed 
+
+𝑟 𝑖,𝑡 = − Δℓ𝑖 (𝑡 )
+
+Δ𝑡 
+
+(larger 𝑟 𝑖,𝑡 : faster under equal exposure). Policy 𝜋 𝑠 then sets 𝑤 𝑖 to synchronize the weighted speeds 𝑤 𝑖 𝑟 𝑖,𝑡 . Key mathematical notations used throughout this paper are summarized in Table 2. 
+
+> 3
+
+Stage 1: Patch-level Pattern Learning  
+
+> …
+> Reconstruction
+> Swin Stage ( × 1 )
+> �′2
+> … �′H
+> (QKV)
+> …
+> Swin Stage ( × 2 )
+> Shared Codebook Vector Quantization
+> Cross-Attention with Codebook Vectors (KV)
+> �′1
+> �� �� �� �� �� �� ��
+> Multi-scale Codebook Embeddings
+> All d-dimensional PCA
+> (H, D)-d Query Vector
+> Candidate Corpus Dcand
+> Bin Search
+
+Stage 2: Series-level Pattern Binning  
+
+> Universal Forecasters Metrics Pattern Bins Steps
+> Convergence Speed � i,t
+> QUALS Corpus
+> Sampling Weights
+> Policy Model
+> Group Computation
+> Reward
+> Uniform Sampling
+
+Stage 3: Learnability Synchronization      
+
+> Candidate Corpus Dcand �i
+> Decoder
+> �i,t
+> Inner loop  Outer loop Q
+> Raw Corpus Draw
+> VQ-SwinTTS Encoder
+> Shared Codebook Vector Quantization
+> Patch Embed
+> …
+> Multi-scale Patch Concatenation
+> �1 �2 …�H
+> …
+> Swin Stage (// 2)
+> Encoder
+> Pattern Sampling
+> Linear Merging
+> ECDF-based Binning
+> Pattern Bins
+
+Figure 2: Overview of the QUALS framework, a highly scalable, GPU-accelerated pipeline for billion-scale time series pre-training corpus construction. It systematically integrates deep temporal quantization via VQ-SwinTTS (Stage 1), spectral pattern binning (Stage 2), and GRPO-based learnability synchronization (Stage 3) to construct a pattern-balanced and learnability-synchronized corpus for efficient universal forecasting pre-training. 
+
+## 4 METHOD 4.1 Overview 
+
+QUALS constructs a pre-training corpus with a balanced pattern distribution from large-scale time series to improve zero-shot gen-eralization. We divide this process into three progressive stages: pattern representation, pattern sampling, and pattern rebalancing. As illustrated in Figure 2, QUALS achieves this goal through: 
+
+(1) Patch-Level Pattern Discretization. We transform continu-ous time series into discrete codes via VQ-SwinTTS (Figure 2, left), which uses a hierarchical Swin encoder to extract multi-scale patch embeddings and quantizes them with a shared codebook. 
+
+(2) Series-Level Pattern Binning. We conduct globally uniform pattern space by projecting the learned codebook onto PCA compo-nents (Figure 2, middle), and assign it into ECDF-defined semantic bins to obtain density-balanced pattern partitions. 
+
+(3) Learnability Synchronization. We address optimization im-balance across bins with GRPO-based Synchronization (Figure 2, right): a policy network adjusts bin sampling weights using conver-gence speeds as rewards, which allocates more focus to challenging patterns and synchronizes learning progress across the corpus. This three-stage structure follows the two-policy formulation in Section 3: Stages 1–2 implement 𝜋 𝑐 through pattern bins, and Stage 3 implements 𝜋 𝑠 through learnability-aware bin weights. 
+
+## 4.2 VQ-SwinTTS 
+
+Effective pattern balancing depends on a representation method that captures temporal features beyond heuristic properties. To this end, we introduce Vector-Quantized Swin T ransformer for 
+
+Time-Series (VQ-SwinTTS) to learn deep time-series semantics. Its design jointly supports multi-scale dependency modeling within individual series and sufficient pattern differentiation in the learned representation space: Swin captures temporal structures across scales, and vector quantization induces a discrete and collapse-resistant codebook for subsequent balancing. Stage 1 thus converts raw series into reusable multi-scale discrete codes. 
+
+Pre-processing. Using BLAST corpus as training samples [50], we pad or truncate variable-length time series [45] to fixed-length inputs 𝑥 ∈ R𝐿 for batch processing. These sequences are unfolded into patches 𝑥 𝑝 ∈ R𝑁 ×𝑃 with stride 𝑆 [7], mapped to embed-dings Z𝑖𝑛𝑝𝑢𝑡 ∈ R𝑁 ×𝐷 augmented with learnable positional en-codings. It should be noted that BLAST is used only for training VQ-SwinTTS, whereas the subsequent corpus-level encoding and balancing are carried out on the full raw corpus. 
+
+Swin Encoder. We use shifted-window self-attention (Swin [41]) to extract multi-scale patch representations. The encoder has 𝐻 
+
+blocks at progressively coarser temporal resolutions. Each block applies W-MSA and SW-MSA, followed by patch merging to halve the temporal resolution and expand channels. Instead of discarding intermediate features, we concatenate all patch embeddings Z(ℎ)
+
+from each block ℎ ∈ { 1, . . . , 𝐻 }:
+
+Zms =
+
+> 𝐻
+
+Ê
+
+> ℎ=1
+
+Z(ℎ) ∈ R𝑁 𝑚𝑠 ×𝐷 , 𝑁 𝑚𝑠 =
+
+> 𝐻
+
+∑︁ 
+
+> ℎ=1
+
+𝑁 ℎ, (3) which forms the continuous multi-scale representation to be dis-cretized by the subsequent VQ module. 
+
+Shared Codebook Vector Quantization. We discretize the ag-gregated multi-scale representations Zms using a single shared 
+
+> 4
+
+codebook [57]. Formally, we define a learnable codebook 𝐶 :
+
+𝐶 = [𝑞 1, . . . , 𝑞 𝐾 ] ∈ R𝐾 ×𝑑 . (4) For each patch embedding z𝑒 ∈ R𝐷 from Zms , the quantization layer identifies the optimal codebook index via a nearest-neighbor search based on cosine similarity [68]. To mitigate codebook collapse [11] and facilitate pattern space construction, we employ linear trans-formations W𝑖𝑛 ∈ R𝐷 ×𝑑 and W𝑜𝑢𝑡 ∈ R𝑑 ×𝐷 for dimensionality decoupling. The quantization process is formulated as: 
+
+𝑘 = arg max   
+
+> 𝑘 ∈ { 1,...,𝐾 }
+
+⟨W𝑖𝑛 z𝑒 , 𝑞 𝑘 ⟩∥W𝑖𝑛 z𝑒 ∥2 · ∥ 𝑞 𝑘 ∥2
+
+= arg max   
+
+> 𝑘 ∈ { 1,...,𝐾 }
+
+⟨W𝑖𝑛 z𝑒 , 𝛿 𝑘 𝐶 ⟩∥W𝑖𝑛 z𝑒 ∥2 · ∥ 𝛿 𝑘 𝐶 ∥2
+
+,
+
+(5) where 𝛿 𝑘 denotes the 𝑘 -th one-hot basis vector. The selected code-book vectors 𝛿 𝑚𝑠 𝐶 is then projected as Z′ 
+
+> ms
+
+= W𝑜𝑢𝑡 𝛿 𝑚𝑠 𝐶 , which serves as the output of the decoder. This design ensures that the learned patterns remain shape-invariant, focusing on geometric quality rather than absolute magnitudes. 
+
+Stabilized Codebook Optimization. To support stable pattern separation, broad coverage, and robust utilization for subsequent balancing, we redesign the standard VQ pipeline for temporal pat-tern learning. We impose a spherical constraint via cosine similarity to capture shape-invariant temporal patterns. To optimize the re-sulting manifold, we replace the standard Straight-Through Estima-tor [4] with the rotation trick [15], enabling more faithful gradient propagation through rotational displacements. Furthermore, we decouple quantization dimensions through a low-dimensional lin-ear projection ( R𝐷 → R𝑑 ) [68], and maintain codebook vitality via 
+
+exponential moving average (EMA) and dead code expiration . To-gether, these designs enable the codebook to evolve with sufficient coverage and separability, as further evidenced by the codebook geometry analysis in Section 5.6.1. 
+
+Swin Decoder. The VQ-SwinTTS decoder mirrors the encoder, replacing patch embedding with scale-invariant Swin blocks to reconstruct representations across all hierarchical scales. We first decompose the multi-scale quantized outputs Z′ 
+
+> ms
+
+into their con-stituent scales: 
+
+{Z′ 
+
+> (1)
+
+, Z′ 
+
+> (2)
+
+, ..., Z′  
+
+> (𝐻 )
+
+} = Z′
+
+> ms
+
+, Z′ 
+
+> (ℎ)
+
+∈ R𝑁 ℎ ×𝐷 , (6) where the patch counts 𝑁 1 = 𝑁 2 = 2𝑁 3 = · · · = 2𝐻 −1𝑁 𝐻 .The decoder takes the coarsest representation Z′(𝐻 ) as the initial input, and temporal resolution is incrementally restored through hierarchical upsampling. To ensure independent codebook opti-mization, there are no skip connections between the encoder and decoder. At each scale ℎ, the decoder performs cross-attention, employing the codebook-quantized tokens Z′(ℎ) as keys and val-ues, while the decoder’s hidden features serve as Queries. Finally, the processed representations are projected back to the temporal dimension to yield the reconstructed time series. 
+
+Training Objective. We optimize the model by minimizing a composite objective: a masked mean absolute error (MAE) to han-dle padded and missing values, alongside a commitment loss that 
+
+Algorithm 1 Pattern-Uniform Corpus Construction                                                                                                                                                                          
+
+> Require: Learned Codebook C∈R𝐾 ×𝑑 , Target Bins 𝑀 .
+> Ensure: Pattern Space Parameters Θ=(𝜇, V,b,E,T ) .
+> 1: Stage 1: Spectral Rotation (KLT)
+> 2: Calculate centroid 𝜇 ←mean (C)and covariance Σ←Cov (C).⊲Eq. 8
+> 3: Solve ΣV=VΛto get eigenvectors Vsorted by 𝜆 𝑖 .
+> 4: Project codebook: ˜ C← ( C−𝜇 )V.
+> 5: Stage 2: Optimal Resolution Allocation
+> 6: Init b←1∈Z𝑑 and priorities w← [ √𝜆 1, . . . , √𝜆 𝑑 ].
+> 7: while Î𝑏 𝑖 <𝑀 do
+> 8: 𝑗 ∗←arg max 𝑗 (w𝑗 /b𝑗 );𝑏 𝑗 ∗←𝑏 𝑗 ∗+1⊲Eq. 10
+> 9: end while
+> 10: Stage 3: Density-Balanced Grid Construction
+> 11: for 𝑖 =1 to 𝑑 do
+> 12: E𝑖 ←Quantile (˜C:,𝑖 ,linspace (0,1, 𝑏 𝑖 +1) ) ⊲Eq. 11
+> 13: end for
+> 14: Stage 4: Bin Unification
+> 15: Get keys h←MixedRadix (Digitize (˜C,E ) ,b)and histogram 𝐻 .
+> 16: Init map T,𝑎𝑐𝑐 ←0, 𝑢 ←0. ⊲Implements mapping 𝜓
+> 17: for 𝑗 =0 to Î𝑏 𝑖 −1do ⊲Merge adjacent grids
+> 18: T [ 𝑗 ] ← 𝑢 ;𝑎𝑐𝑐 ←𝑎𝑐𝑐 +𝐻 [𝑗 ]
+> 19: if 𝑎𝑐𝑐 ≥𝐾 𝑀 (𝑢 +1)and 𝑢 <𝑀 −1then 𝑢 ←𝑢 +1
+> 20: end if
+> 21: end for
+> 22: return Θ=(𝜇, V,b,E,T )
+
+anchors encoder outputs to their target codebook vectors: 
+
+L𝑡𝑜𝑡𝑎𝑙 = 1
+
+|M| ∑︁ 𝑖 ∈ M 
+
+|𝑥 𝑖 − ˆ𝑥 𝑖 |
+
+| {z }
+
+> L𝑟𝑒𝑐
+
++𝛽 ∥W𝑖𝑛 z𝑒 − sg [𝑞 𝑘 ] ∥ 22
+
+| {z }
+
+> L𝑐𝑜𝑚𝑚𝑖𝑡
+
+, (7) where M denotes the set of valid indices, ˆ 𝑥 is the reconstructed series, sg [·] is the stop-gradient operator, and 𝛽 is the commitment weight. This strategy enables VQ-SwinTTS to learn a compact yet expressive dictionary of cross-scale temporal patterns. The resulting shared codebook space serves as a crucial foundation for defining series-level pattern equilibrium. 
+
+## 4.3 Uniform Pattern Binning 
+
+While VQ-SwinTTS extracts patch-level multi-scale features and forms series-level semantics through codebook-based aggregation, these representations remain non-uniform and are not directly suit-able for corpus-level balancing over large-scale real-world data. Raw series occupy learned codes unevenly, and aggregated dimensions have unequal variance. To address this issue, we further construct a scalable pattern space and perform uniform pattern binning over the full raw corpus, resulting in a set of 𝑀 discrete pattern bins 
+
+U = {𝑢 1, . . . , 𝑢 𝑀 } for subsequent learnability synchronization. The key idea is to transform non-uniform series-level semantics into comparable and finite semantic units that support large-scale parti-tioning and reweighting. Concretely, each series is assigned a bin ID by (i) encoding it into codebook vectors, (ii) aggregating them into a series-level embedding, and (iii) discretizing the embedding into a finite state space, as summarized in Algorithm 1. 
+
+Spectral Rotation and Variance Alignment. To decorrelate codebook features and redistribute their spectral energy, we apply 
+
+spectral rotation via the Karhunen-Loève Transform (KLT) [20], which is empirically equivalent to principal component analy-sis (PCA). Given the codebook centroid 𝜇 = 1
+
+> 𝐾
+
+Í 𝑞 𝑘 , we compute 
+
+> 5
+
+the empirical covariance matrix Σ:
+
+Σ = 1
+
+𝐾 − 1
+
+> 𝐾
+
+∑︁ 
+
+> 𝑘 =1
+
+(𝑞 𝑘 − 𝜇 )( 𝑞 𝑘 − 𝜇 )⊤, (8) where 𝑞 𝑘 ∈ R𝑑 . Solving the eigenvalue problem ΣV = VΛ yields eigenvectors sorted by spectral energy 𝜆 1 ≥ · · · ≥ 𝜆 𝑑 . The codebook is then projected into this variance-ordered basis as ˜ C = (C − 𝜇 )V,so that higher-variance components are prioritized in subsequent discretization. Figure 6 reports the resulting spectral and geometric structure. 
+
+Optimal Resolution Allocation A core challenge is determining how finely to divide each rotated dimension 𝑖 . Rather than relying on simple heuristics, we formulate the allocation of bin granularity 
+
+𝑏 𝑖 grounded in high-resolution quantization theory [22, 26]. For a principal component with variance 𝜆 𝑖 , its dynamic range is proportional to its standard deviation 𝜎 𝑖 = √𝜆 𝑖 . If we allocate 
+
+𝑏 𝑖 bins to this dimension, the spatial quantization step size (or bin width) is Δ𝑖 ∝ √𝜆 𝑖 /𝑏 𝑖 . To ensure uniform geometric fidelity across the latent space, our goal is to minimize the maximum spatial quantization error ( i.e., min-max 𝐿 ∞ distortion) under a strict total capacity constraint 𝑀 .Mathematically, this min-max optimization translates to equaliz-ing the marginal step sizes across all dimensions. By integrating the bin width Δ𝑖 ∝ √𝜆 𝑖 /𝑏 𝑖 with respect to the bin count 𝑏 𝑖 , we derive the resource allocation objective 𝐽 (B) :max 𝐽 (B) =
+
+> 𝑑
+
+∑︁ 
+
+> 𝑖 =1
+
+√︁ 
+
+𝜆 𝑖 ln 𝑏 𝑖 , s.t. 
+
+> 𝑑
+
+Ö
+
+> 𝑖 =1
+
+𝑏 𝑖 ≤ 𝑀. (9) We solve this via a greedy allocation strategy (Algorithm 1), iter-atively incrementing the bin count 𝑏 𝑗 that yields the maximum discrete marginal gain: 
+
+𝑗 ∗ = arg max 
+
+> 𝑗
+
+ √︁ 𝜆 𝑗 ln (𝑏 𝑗 + 1) − √︁ 𝜆 𝑗 ln 𝑏 𝑗 
+
+ ≈ arg max 
+
+> 𝑗
+
+√︁ 
+
+𝜆 𝑗 
+
+𝑏 𝑗 
+
+. (10) This strategy elegantly guarantees that the dimension with the currently largest quantization error ( √︁ 𝜆 𝑗 /𝑏 𝑗 ) is selected for further refinement. It effectively performs soft dimensionality reduction by collapsing noise-dominated dimensions ( 𝑏 𝑖 = 1) while allocat-ing high resolution to principal components, preserving essential morphological diversity [21]. 
+
+Density-Balanced Grid and Bin Unification. To ensure ro-bustness against outliers, partition boundaries E𝑖 are defined us-ing the empirical cumulative distribution function (ECDF) of the projected values ˜ C:,𝑖 . Boundaries are selected at quantiles 𝑗 /𝑏 𝑖 for 
+
+𝑗 = 1, . . . , 𝑏 𝑖 − 1, giving equal codebook occupancy per interval: 
+
+𝑃 (𝑒 𝑖,𝑗 −1 < ˜𝑞 (𝑖 ) ≤ 𝑒 𝑖,𝑗 ) = 1
+
+𝑏 𝑖 
+
+. (11) The Cartesian product of these partitions forms a grid of size 𝑆 𝑔𝑟𝑖𝑑 =
+
+Î 𝑏 𝑖 . To align with the exact capacity 𝑀 , we apply bin unification .Grid indices are flattened via Mixed Radix Encoding and merged through a surjective mapping 𝜓 based on occupancy density, ensur-ing an approximately uniform probability mass Í𝜓 (ℎ (𝑔 ) ) =𝑢 𝑃 (𝑔 ) ≈ 
+
+1/𝑀 for each final bin 𝑢 ∈ U .
+
+Connectivity to the Training Pipeline. For any raw input series, its multi-scale representations from VQ-SwinTTS are determinis-tically projected onto V and assigned to a semantic bin 𝑢 𝑚 ∈ U .While applying standard Inverse Frequency Weighting on these bins achieves distribution equilibrium by flattening the long-tail distribution, it fatally ignores the intrinsic learnability discrepancy :simple patterns converge vastly faster than complex ones. Thus, Stage 2 yields a pattern-balanced candidate corpus, but still treats all bins as equally learnable. This remaining optimization gap is resolved in the final stage via GRPO-based synchronization. 
+
+## 4.4 Learnability Synchronization via GRPO 
+
+Stage 3 starts from the pattern-balanced bins U and learns weights for bins with different convergence speeds 𝑟 𝑖,𝑡 . As illustrated in Figure 2, we propose learnability synchronization , an offline bi-level optimization framework that explicitly profiles bin-wise learnability and uses it to guide reweighting. To ensure scalability, the frame-work is decoupled into two sequential phases: offline profiling and policy optimization, detailed below and in Eqs. (14)–(15). 
+
+Phase 1: Offline Learnability Profiling (Inner Loop). Pre-training universal forecasting models incurs prohibitive compu-tational overhead; training a lightweight proxy like ChronosBolt-Small takes ∼6 GPU-hours, while TimeMoE-Base requires 3 days. Thus, extracting online dynamic feedback to synchronously update the GRPO policy during training is computationally infeasible. To circumvent this bottleneck, we conduct an offline profiling session to efficiently estimate bin-wise convergence speeds 𝑟 𝑖,𝑡 .
+
+• Uniform probing: We initialize the forecasting model with uni-form sampling weights w𝑢𝑛𝑖 and train it for a complete session. 
+
+• Convergence speed extraction: Rather than relying on a single static metric, we record the validation loss trajectory across multiple training stages 𝑡 . The intrinsic convergence speed 𝑟 𝑖,𝑡 is computed dynamically as the slope of this trajectory at specific checkpoints ( e.g., the reduction in MSE per epoch). To ensure robustness, we average 𝑟 𝑖,𝑡 across multiple random seeds. This phase captures the non-stationary optimization dynamics, yielding a stage-aware "Learnability Profile" matrix R ∈ R𝑀 ×𝑇 ,where a higher 𝑟 𝑖,𝑡 indicates a pattern that converges faster at training stage 𝑡 .
+
+Phase 2: GRPO Optimization (Outer Loop). With the pre-computed profile R, we optimize the sampling weights to syn-chronize learning speeds. A naive closed-form inverse weighting (𝑤 𝑖 ∝ 1/𝑟 𝑖 ) is unstable in large-scale pre-training: the speeds are stage-dependent and estimated from stochastic, parameter-coupled mini-batches. To address this stochastic local context, we treat the weights as a policy 𝜋 𝜃 and employ group relative policy optimization (GRPO) , which uses group-normalized rewards. 
+
+Policy Modeling For each bin 𝑖 , we use a lightweight policy network 𝜋 𝜃 that maps its embedding 𝑣 𝑖 to a sampling logit. During optimization, instead of viewing all bins globally, we sample a subset B. We introduce exploration noise to the sample weights: 
+
+𝜇 𝑖 = 𝑓 𝜃 (𝑣 𝑖 ), 𝑤 𝑖 = Softmax (𝜇 𝑖 + N ( 0, 𝜎 )) , ∀𝑖 ∈ B . (12) 
+
+Reward Design We define the Effective Learning Speed of bin 𝑖 at stage 𝑡 as 𝑝 𝑖,𝑡 = 𝑤 𝑖 · 𝑟 𝑖,𝑡 . The goal is to ensure that all bins within the current stochastic batch learn at a synchronized pace. Thus, the reward penalizes the deviation of a bin’s speed from the local mean 
+
+> 6
+
+Table 3: Detailed setting configurations for the QUALS framework.                                              
+
+> Stage 1: VQ-SwinTTS Backbone Stage 2: Pattern Binning & Sampling Stage 3: GRPO Synchronization Setting Value Setting Value Setting Value
+> Input Sequence Length ( 𝐿 )4096 Valid Pattern Bins 2,499 Embedding Dimension( 𝑑 )32 Patch Size ( 𝑃 )32 Out-of-Bound Bins (Empty) 1Hidden Dimension 64 Stride Size ( 𝑆 )16 Sampled Sequence Length 4096 Learning Rate 1e-5 Codebook Size ( 𝐾 )2048 Train Series per Bin 8,000 Subset Size per Group ( | B | )480 Codebook Dimension ( 𝑑 )32 Pre-training Corpus Volume 81.89B Number of Groups ( 𝐺 )128 Hidden Dimension ( 𝐷 )256 Val Series per Bin 160 Clip Epsilon ( 𝜖 )0.2 Attention Heads [2,4,8,16 ]Validation Corpus Volume 1.64B Exploration Ratio 0.2
+
+speed ¯ 𝑝 𝑡 within the sampled subset B:
+
+𝑅 𝑖,𝑡 = −  𝑤 𝑖 𝑟 𝑖,𝑡 − ¯𝑝 𝑡 
+
+2 , where ¯ 𝑝 𝑡 = 1
+
+|B| ∑︁ 𝑗 ∈ B 
+
+𝑤 𝑗 𝑟 𝑗,𝑡 . (13) This reward mechanism automatically assigns lower weights to "fast-learner" bins and higher weights to "slow-learners" within highly variable local contexts, forcing dynamic synchronization. 
+
+Group Update We employ GRPO to update 𝜃 efficiently. To reduce variance, we maintain a group pool H of historical weight-reward pairs. For a sampled group G, we first compute the standardized advantage 𝐴 𝑖 to normalize the reward scale: 
+
+𝐴 𝑖 = 𝑅 𝑖 − E𝑗 ∈ G [𝑅 𝑗 ]
+
+Std 𝑗 ∈ G (𝑅 𝑗 ) + 𝜖 . (14) Subsequently, we minimize the policy gradient objective with im-portance sampling clipping: 
+
+LGRPO = −EG∼H 
+
+ 1
+
+|G| ∑︁ 𝑖 ∈ G 
+
+min  𝜌 𝑖 𝐴 𝑖 , clip (𝜌 𝑖 , 1−𝜖, 1+𝜖 )𝐴 𝑖 
+
+
+
+. (15) Since 𝑟 𝑖 is pre-computed, this outer loop does not involve expensive model training, allowing for thousands of rapid policy iterations to find the optimal weight w∗. Consequently, comparable or bet-ter forecasting accuracy can be achieved with fewer pre-training tokens, as demonstrated in our experiments. Overall, Stages 1–3 complete the QUALS pipeline, progressing from deep pattern extraction, to uniform pattern binning over the full raw corpus, and finally to learnability-aware reweighting. To-gether, they construct a corpus balanced in both pattern distribution and optimization dynamics. 
+
+## 4.5 Implementation Detail 
+
+To synthesize QUALS, we outline the implementation pipeline, and the relevant settings are shown in Table 3: 
+
+• Stage 1: The VQ-SwinTTS backbone is trained on the BLAST corpus comprising 81.1B tokens ( ∼20 GPU-hours), solely for rep-resentation learning so as to reduce model bias. No subsequent pattern binning or corpus balancing is performed on BLAST. 
+
+• Stage 2: We first apply the frozen VQ-SwinTTS to the massive 239B raw GIFT-Eval Pretrain corpus ( ∼2 GPU-hours). Using PCA and ECDF, the codebook space is partitioned into 2,499 valid pattern bins (the 2,500th remains empty due to empirical bound-ary conditions). For each sequence, we extract its multi-scale representations, linearly aggregate and project them into the global space, and assign a bin index. Then, based on the global bin assignments, we construct the candidate corpus by sampling sequences of fixed length 𝐿 = 4096. Specifically, 8,000 series per bin are selected for pre-training (yielding 81.89B points) and 160 series per bin for validation (1.64B points). The data sampling and disk I/O operations are executed efficiently ( ∼10 hours). The 8,000-per-bin quota is used to construct the Stage 2 candidate corpus, while Stage 3 determines the final sampling probabilities. 
+
+• Stage 3: A lightweight proxy, ChronosBolt-Small, is trained uni-formly on the candidate corpus to extract convergence speeds (∼6 GPU-hours). Offline GRPO weight optimization then con-verges rapidly ( ∼1 GPU-hour). Stage 3 outputs normalized bin weights w∗ ∈ R𝑀 over the 2,499 valid bins. 
+
+## 5 EXPERIMENTS 
+
+We evaluate QUALS by retraining representative universal forecast-ers and assessing their zero-shot performance across large-scale benchmarks and systematic ablations. 
+
+## 5.1 Experimental Setup 
+
+Baselines. We evaluate six models: the base and large versions of TimeMoE [54] and MOIRAI [64], and the small and base versions of Chronos 2. Models without superscripts use official open-source checkpoints. Superscript B denotes BLAST-based versions 3, trained on an 81.1B corpus curated from a 321B raw corpus with potentially untraceable leakage. Superscript Q denotes models trained from scratch on QUALS, using an 81.89B candidate corpus constructed from a strictly leakage-free 239B raw corpus collected from GIFT-Eval Pretrain datasets 4 and synthetic data [3]. Training protocols otherwise follow the original implementations, with only batch size and gradient accumulation adjusted for TimeMoE-large to fit 4 ×L40 GPUs. The QUALS length 𝐿 =4096 is only the stored corpus-slice length; each model still uses its official context, masking, and roll-out protocol. Notably, Stage 3 synchronization in QUALS enables convergence with fewer updates than the original settings. Addi-tional experiments on alternative corpus-construction strategies and domain-specific forecasting models are presented in Section 5.3. 
+
+Benchmarks & Data Leakage Declaration. To ensure fair and rigorous evaluation, we categorize our benchmarks based on their data leakage status ( i.e., whether test sets inadvertently appeared in official pre-training corpora) [3, 54, 64]: 
+
+• Strictly Leakage-Free: ARIES TEST 5 [58], BLAST-configured GIFT-Eval [1]. 
+
+• Leakage-Present (Declared): We explicitly identify: (1) LTSF [32] 6: ETTh1, ETTh2, ETTm1, ETTm2, and Weather; Weather is leaked in TimeMoE. 
+
+> 2We employ the Chronos-Bolt release.
+> 3https://huggingface.co/datasets/ZezhiShao/BLAST
+> 4https://huggingface.co/datasets/Salesforce/GiftEvalPretrain
+> 5https://huggingface.co/spaces/Blisky-li/ARIES-TEST
+> 6https://github.com/GestaltCogTeam/BasicTS
+> 7
+
+Table 4: Performance of models retrained from scratch on BLAST (B) or QUALS (Q) versus their pretrained counterparts. Lower MAE/MSE is better. 𝑠 /𝑏 /𝑙 denote small/base/large. Models with superior or equal performance are highlighted in red. Models TimeMoE Q 
+
+> 𝑙
+
+TimeMoE B 
+
+> 𝑙
+
+TimeMoE 𝑙 TimeMoE Q 
+
+> 𝑏
+
+TimeMoE B 
+
+> 𝑏
+
+TimeMoE 𝑏 MOIRAI Q 
+
+> 𝑙
+
+MOIRAI B 
+
+> 𝑙
+
+MOIRAI 𝑙 MOIRAI Q 
+
+> 𝑏
+
+MOIRAI B 
+
+> 𝑏
+
+MOIRAI 𝑏 Chronos Q 
+
+> 𝑏
+
+Chronos B 
+
+> 𝑏
+
+Chronos 𝑏 Chronos Q 
+
+> 𝑠
+
+Chronos B 
+
+> 𝑠
+
+Chronos 𝑠 
+
+Metrics MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1  96 .340 .373 .348 .375 .350 .382 .342 .373 .352 .376 .357 .381 .364 .379 .359 .383 .381 .388 .369 .380 .362 .384 .376 .392 .347 .370 .357 .375 .384 .379 .342 .371 .359 .376 .394 .381 192 .376 .399 .381 .399 .388 .412 .375 .397 .389 .401 .384 .404 .404 .401 .395 .404 .434 .415 .406 .406 .400 .405 .412 .413 .390 .396 .397 .401 .441 .412 .383 .396 .403 .402 .455 .414 336 .402 .416 .409 .424 .411 .430 .395 .410 .408 .419 .411 .434 .424 .411 .411 .416 .495 .445 .426 .416 .416 .420 .433 .428 .412 .409 .422 .417 .475 .430 .406 .409 .431 .416 .499 .444 720 .437 .447 .447 .451 .427 .455 .421 .441 .450 .455 .449 .477 .413 .427 .420 .430 .611 .510 .428 .429 .430 .439 .447 .444 .415 .427 .460 .443 .472 .446 .398 .421 .449 .439 .520 .476 AVG .389 .408 .396 .412 .394 .419 .383 .405 .399 .412 .400 .424 .401 .404 .396 .408 .480 .439 .407 .408 .402 .412 .417 .419 .391 .401 .409 .409 .443 .416 .382 .399 .410 .408 .467 .428 ETTh2  96 .273 .330 .276 .329 .302 .354 .265 .328 .285 .332 .305 .359 .278 .320 .288 .325 .296 .330 .280 .319 .284 .324 .294 .325 .275 .319 .282 .321 .289 .330 .275 .319 .281 .326 .282 .328 192 .342 .380 .345 .376 .364 .385 .331 .378 .348 .378 .351 .386 .338 .362 .353 .370 .361 .371 .344 .362 .348 .369 .365 .375 .342 .364 .356 .369 .359 .369 .341 .365 .353 .371 .354 .373 336 .366 .401 .384 .416 .417 .425 .360 .398 .372 .405 .391 .418 .364 .387 .369 .382 .390 .390 .372 .393 .367 .386 .376 .390 .378 .393 .378 .397 .399 .400 .372 .392 .387 .403 .416 .410 720 .401 .438 .442 .470 .537 .496 .395 .433 .419 .452 .419 .454 .382 .412 .387 .406 .423 .418 .382 .404 .387 .410 .416 .433 .399 .419 .403 .424 .420 .425 .394 .417 .411 .430 .428 .431 AVG .345 .387 .361 .397 .405 .415 .338 .384 .356 .391 .366 .404 .341 .370 .349 .370 .367 .377 .344 .369 .346 .372 .362 .382 .349 .374 .355 .377 .366 .381 .346 .373 .358 .382 .370 .385 ETTm1  96 .288 .332 .327 .343 .309 .357 .300 .340 .334 .350 .338 .368 .341 .347 .355 .355 .380 .361 .334 .349 .348 .354 .363 .356 .321 .334 .310 .327 .331 .333 .309 .335 .314 .331 .328 .332 192 .328 .362 .368 .378 .346 .381 .337 .366 .388 .386 .353 .388 .378 .370 .388 .380 .412 .383 . 366 .369 .385 .378 .388 .375 .377 .373 .363 .360 .386 .365 .355 .366 .364 .365 .365 .384 336 .356 .385 .373 .396 .373 .408 .364 .387 .400 .412 .381 .413 .398 .385 .399 .387 .436 .400 .387 .384 .410 .394 .416 .392 .405 .387 .410 .387 .408 .382 .382 .390 .417 .391 .425 .391 720 .410 .421 .445 .438 .475 .477 .415 .419 .457 .451 .504 .493 .428 .407 .429 .413 .462 .420 .423 .409 .448 .416 .460 .418 .458 .422 .477 .427 .503 .430 .435 .433 .521 .452 .525 .445 AVG .346 .375 .378 .388 .375 .405 .354 .378 .394 .399 .394 .415 .386 .377 .392 .383 .422 .391 .377 .378 .397 .385 .406 .385 .390 .379 .390 .375 .407 .377 .371 .381 .404 .385 .411 .388 ETTm2  96 .161 .249 .180 .259 .197 .286 .166 .254 .181 .260 .201 .291 .174 .246 .192 .259 .211 .274 .186 .258 .194 .265 .205 .273 .173 .245 .175 .249 .177 .244 .182 .251 .180 .248 .180 .251 192 .212 .288 .245 .305 .250 .322 .218 .294 .247 .307 .258 .334 .230 .284 .256 .302 .281 .318 .242 .297 .257 .304 .275 .316 .235 .289 .242 .290 .251 .293 .251 .297 .243 .292 .251 .298 336 .260 .324 .283 .338 .337 .375 .268 .329 .293 .344 .324 .373 .279 .318 .289 .329 .341 .355 .294 .331 .301 .342 .329 .350 .293 .327 .299 .326 .305 .327 .311 .338 .302 .331 .315 .338 720 .338 .378 .364 .392 .480 .461 .350 .385 .376 .396 .488 .464 .352 .366 .372 .384 .428 .428 .373 .381 .387 .396 .437 .411 .397 .394 .394 .387 .419 .394 .405 .396 .406 .396 .421 .403 AVG .243 .310 .268 .323 .316 .361 .251 .316 .274 .326 .317 .365 .259 .303 .277 .318 .315 .343 .274 .317 .284 .326 .311 .337 .275 .313 .277 .313 .288 .314 .287 .321 .282 .316 .291 .330 Weather  96 .156 .203 .161 .209 .159 .213 .156 .205 .163 .213 .160 .214 .167 .201 .168 .200 .278 .376 .170 .203 .171 .202 .220 .217 .156 .191 .163 .197 .177 .210 .157 .193 .164 .198 .172 .206 192 .211 .254 .217 .261 .215 .266 .211 .257 .215 .263 .210 .260 .212 .244 .217 .246 .301 .409 .220 .251 .218 .247 .271 .259 .202 .236 .210 .241 .224 .253 .205 .240 .213 .244 .218 .248 336 .273 .303 .276 .304 .291 .322 .271 .303 .273 .297 .309 .309 .264 .283 .275 .288 .329 .420 .278 .289 .278 .291 .286 .297 .259 .279 .264 .282 .260 .276 .261 .282 .273 .288 .266 .282 
+
+720 .354 .361 .342 .353 .415 .400 .353 .363 .328 .339 .418 .405 .344 .333 .375 .351 .370 .463 .364 .345 .370 .350 .373 .354 .341 .330 .339 .334 .345 .331 .348 .339 .349 .342 .358 .339 AVG .248 .280 .249 .281 .270 .300 .248 .282 .244 .278 .274 .297 .247 .265 .259 .271 .319 .417 .258 .272 .259 .272 .287 .281 .240 .259 .244 .263 .251 .267 .243 .263 .249 .268 .253 .268 
+
+# Wins 23 22 1 4 1 0 22 22 2 4 1 0 21 22 4 4 0 0 19 20 7 5 0 0 21 17 6 6 0 3 21 19 4 7 1 1(2) Full GIFT-Eval 7: partially leaked in TimeMoE, Chronos, their BLAST variants, and MOIRAI 𝐵 .(3) TSFM-Bench 8 [33]: our audit flags contamination on 13 of 21 evaluation datasets in TimeMoE, MOIRAI, Chronos, and their BLAST variants. (4) FEV-Bench 9 [53]: partially leaked in TimeMoE, MOIRAI, their BLAST variants, and Chronos 𝐵 .These benchmarks are not leaked in QUALS-based retrained models. 
+
+Metrics We report Mean Squared Error (MSE) and Mean Absolute Error (MAE) as the primary metrics in the main experiments. Un-der the regular setting, we report the mean and median values of MAE and MSE on ARIES TEST. For GIFT-EVAL, we adopt Mean Absolute Scaled Error (MASE) and Continuous Ranked Probability Score (CRPS). For TSFM-Bench, we likewise report MSE and MAE as skill scores relative to Seasonal Naive, following the FEV-Bench and GIFT-Eval convention due to space constraints. For FEV-Bench, we report Scaled Quantile Loss (SQL), Mean Absolute Scaled Er-ror (MASE), Weighted Quantile Loss (WQL), and Weighted Absolute Percentage Error (WAPE), all measured as skill scores relative to Seasonal Naive [43]. 
+
+## 5.2 Benchmark Comparison Experiment 
+
+Long-term Time Series Forecasting. As presented in Table 4, models pre-trained on the QUALS corpus demonstrate consistent improvements of 3% to 20% (MSE/MAE) over their official open-source checkpoints. Compared to BLAST-balanced counterparts, QUALS achieves an additional 5–10% MSE reduction in specific sce-narios ( e.g., Chronos on ETTh1, TimeMoE on ETTh2 and ETTm1/2). Crucially, QUALS maintains a decisive lead even on the notoriously stable Weather dataset. Overall, QUALS secures the lowest errors across the most horizons, proving that corpus equilibrium translates directly into stronger long-term zero-shot forecasts. 
+
+> 7
+
+https://huggingface.co/spaces/Salesforce/GIFT-Eval 
+
+> 8
+
+https://github.com/decisionintelligence/TSFM-Bench 
+
+> 9
+
+https://huggingface.co/spaces/autogluon/fev-bench 
+
+Table 5 summarizes zero-shot results on ARIES, GIFT-Eval-B/F, FEV, and TSFM-Bench under a unified layout. 
+
+ARIES TEST. On ARIES TEST, a synthetic benchmark with diverse temporal properties, baselines struggle with these patterns, while QUALS reduces the original MOIRAI MSE by over 60%. This shows that balancing pattern distribution and learnability improves robust zero-shot forecasting. 
+
+BLAST-configured GIFT-Eval. To ensure a fair comparison free from the severe data leakage prevalent in massive pre-training corpora, we evaluate on the leakage-free BLAST-configured GIFT-Eval. Under this rigorous setting, QUALS models deliver relative error reductions of 7% to 22% (MASE/CRPS) compared to their original versions, and yield an additional 1% to 9% performance gain over the BLAST framework across all architectures. 
+
+Full GIFT-Eval. We further evaluate on the full 97-task GIFT-Eval. In this setting, official corpora and BLAST models inherently pos-sess an unfair memorization advantage due to explicit downstream data leakage. Astonishingly, despite using a strictly leakage-free and substantially smaller training budget, QUALS consistently out-performs all baselines. Most strikingly, it reduces the MASE of the leakage-advantaged TimeMoE models by 17% to 23% , alongside consistent wins for Chronos and MOIRAI. 
+
+TSFM-Bench. Table 5 further reports TSFM-Bench results using MAE and MSE Skill Scores. Official pre-training corpora and BLAST partially leak TSFM-Bench test data, while QUALS remains strictly leakage-free. Nevertheless, QUALS-trained variants achieve the highest Skill Scores across all metrics and model families. Most strikingly, they rescue leakage-advantaged TimeMoE models that fall below Seasonal Naive and improve Skill Scores over original Chronos and MOIRAI checkpoints by 11% to 50% , while also sys-tematically eclipsing their BLAST counterparts. 
+
+FEV-Bench. Table 5 also reports FEV-Bench Skill Scores (vs. Sea-sonal Naive). Official corpora and BLAST leak FEV-Bench test data— e.g., MOIRAI has 28% leakage (28 of 100 configurations)—so BLAST can underperform originals by diluting this advantage. QUALS is retrained from leakage-free GIFT-Eval Pretrain with overlapping 
+
+8Table 5: Cross-benchmark zero-shot results. GIFT-Eval-B: BLAST-configured GIFT-Eval, retaining only leakage-free test data. GIFT-Eval-F: full 97-task GIFT-Eval. Models with superior performance are highlighted in red. Models TimeMoE Q                                                                                                                                                                                                                                             
+
+> 𝑙 TimeMoE B
+> 𝑙 TimeMoE 𝑙 TimeMoE Q
+> 𝑏 TimeMoE B
+> 𝑏 TimeMoE 𝑏 MOIRAI Q
+> 𝑙 MOIRAI B
+> 𝑙 MOIRAI 𝑙 MOIRAI Q
+> 𝑏 MOIRAI B
+> 𝑏 MOIRAI 𝑏 Chronos Q
+> 𝑏 Chronos B
+> 𝑏 Chronos 𝑏 Chronos Q
+> 𝑠 Chronos B
+> 𝑠 Chronos 𝑠
+> ARIES-TEST MAE ↓0.322 0.366 0.401 0.320 0.343 0.363 0.363 0.454 0.671 0.368 0.494 0.658 0.303 0.326 0.337 0.333 0.337 0.339
+> MSE ↓0.353 0.412 0.424 0.347 0.415 0.411 0.412 0.522 1.012 0.435 0.583 2.193 0.313 0.338 0.349 0.338 0.349 0.352
+> GIFT-Eval-B MASE ↓0.677 0.742 0.872 0.734 0.760 0.888 0.729 0.740 0.816 0.745 0.759 0.812 0.659 0.682 0.724 0.663 0.684 0.736
+> CRPS ↓0.557 0.593 0.702 0.593 0.616 0.706 0.576 0.580 0.642 0.585 0.614 0.641 0.450 0.468 0.489 0.453 0.470 0.485
+> GIFT-Eval-F MASE ↓0.846 0.852 1.110 0.881 0.896 1.067 0.858 0.880 0.875 0.888 0.908 0.901 0.798 0.804 0.808 0.803 0.809 0.822
+> CRPS ↓0.723 0.728 0.882 0.759 0.766 0.906 0.580 0.598 0.599 0.608 0.623 0.610 0.568 0.574 0.574 0.571 0.574 0.577
+> TSFM-Bench MAE ↑0.139 0.111 -0.138 0.122 0.079 -0.167 0.154 0.153 0.103 0.162 0.151 0.117 0.215 0.050 0.188 0.199 0.175 0.174
+> MSE ↑0.387 0.362 -0.017 0.371 0.321 -0.060 0.368 0.360 0.202 0.365 0.346 0.258 0.442 0.268 0.387 0.435 0.393 0.391
+> FEV SQL ↑0.102 0.086 0.035 0.094 0.059 0.032 0.360 0.303 0.351 0.350 0.292 0.321 0.393 0.386 0.389 0.391 0.382 0.378
+> MASE ↑0.110 0.095 0.044 0.102 0.067 0.040 0.226 0.151 0.216 0.214 0.140 0.181 0.275 0.266 0.265 0.275 0.260 0.256
+> WQL ↑0.138 0.113 0.088 0.123 0.097 0.070 0.398 0.352 0.405 0.388 0.338 0.374 0.437 0.428 0.432 0.430 0.422 0.422
+> WAPE ↑0.125 0.100 0.075 0.109 0.083 0.056 0.247 0.192 0.259 0.236 0.175 0.228 0.307 0.296 0.298 0.303 0.287 0.290
+
+Table 6: Performance comparison of different corpus construction strategies. Red and Blue indicate the best and second-best results within each model family, respectively. Variant ETTh1 ETTh2 ETTm1 ETTm2 Weather ARIES-TEST GIFT-Eval-B GIFT-Eval-F TSFM-Bench FEV MSE ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ MASE ↓ CRPS ↓ MASE ↓ CRPS ↓ MAE ↑ MSE ↑ SQL ↑ MASE ↑ WQL ↑ WAPE ↑
+
+> ChronosBolt 𝑠
+
+Original .467 .428 .370 .385 .411 .388 .291 .330 .253 .268 .352 .339 .736 .485 .822 .577 .174 .391 .378 .256 .422 .290 AvgDataset .414 .412 .355 .381 .386 .391 .329 .351 .261 .282 .794 .596 .757 .522 .886 .629 .126 .283 .379 .255 .427 .293 AvgDomain .419 .417 .375 .394 .382 .389 .303 .335 .251 .268 .729 .566 .755 .524 .882 .628 .200 .429 .345 .218 .391 .249 Catch22 .398 .407 .350 .380 .679 .486 .327 .358 .275 .290 .798 .596 .793 .545 .939 .670 .116 .341 .332 .198 .372 .226 BLAST .410 .408 .358 .382 .404 .385 .282 .316 .249 .268 .349 .337 .684 .470 .809 .574 .175 .393 .382 .260 .422 .287 Online-GRPO .403 .404 .346 .371 .391 .380 .288 .321 .247 .266 .332 .305 .687 .461 .838 .588 .184 .417 .383 .265 .428 .297 
+
+QUALS .382 .399 .346 .373 .371 .381 .287 .321 .243 .263 .338 .333 .663 .453 .803 .571 .199 .435 .391 .275 .430 .303 TimeMoE 𝑏  Original .400 .424 .366 .404 .394 .415 .317 .365 .274 .297 .411 .363 .888 .706 1.067 .906 -0.167 -0.060 .032 .040 .070 .056 AvgDataset .432 .445 .361 .391 .443 .423 .314 .353 .263 .301 .731 .604 1.067 .819 1.031 .873 .058 .319 .002 .011 .035 .021 AvgDomain .407 .423 .356 .388 .428 .417 .303 .346 .257 .292 .728 .604 1.056 .811 1.021 .866 .085 .343 -0.022 -0.013 -0.000 -0.015 Catch22 .393 .413 .362 .398 .688 .535 .313 .361 .271 .307 .757 .613 1.066 .819 1.086 .937 .025 .280 -0.021 -0.011 .004 -0.011 BLAST .399 .412 .356 .391 .394 .399 .274 .326 .244 .278 .415 .343 .760 .616 .896 .766 .079 .321 .059 .067 .097 .083 Online-GRPO .394 .407 .352 .389 .397 .391 .276 .326 .255 .290 .390 .354 .841 .686 .949 .814 .123 .374 .095 .103 .118 .105 
+
+QUALS .383 .405 .338 .384 .354 .378 .251 .316 .248 .282 .347 .320 .734 .593 .881 .759 .122 .371 .094 .102 .123 .109 
+
+sources removed, yet still attains the highest Skill Scores, beat-ing leakage-advantaged originals by 9% to 18% and their BLAST counterparts. 
+
+## 5.3 Baseline Comparison Experiment 
+
+5.3.1 Corpus Strategies. We compare five corpus-construction alternatives by retraining ChronosBolt-Small and TimeMoE-Base on the same GIFT-Eval Pretrain pool: AvgDataset balances sub-datasets, AvgDomain balances domains, Catch22 uses catch22 fea-tures in the BLAST-style pipeline [42], BLAST , and Online-GRPO 
+
+learns online weights on ChronosBolt-Small and transfers them. As Table 6 reports all benchmark results, QUALS consistently ranks first or second within each model family. On GIFT-Eval-B, ChronosBolt-Small improves by ∼10% and ∼3% over Original 
+
+and BLAST ; AvgDataset , AvgDomain , and Catch22 trail by larger margins. TimeMoE-Base leads on all LTSF datasets and delivers 
+
+∼3% and ∼17% GIFT-Eval-B gains over BLAST and Original with far fewer tokens. Online-GRPO matches QUALS on a few FEV/TSFM metrics but not overall. 
+
+5.3.2 Domain-Specific Models. We compare QUALS-pretrained universal forecasters with domain-specific full-shot models on ETTh1, ETTh2, ETTm1, ETTm2, and Weather. As Table 7 reports, QUALS variants rank first or second on most splits and outperform domain-specific models on average. 
+
+## 5.4 Efficiency Analysis 
+
+In this section, we first compare QUALS and BLAST in data scale and processing efficiency. We then analyze pre-training data efficiency across QUALS, BLAST, and the original baselines, focusing on the trade-off between training budget and forecasting performance. 
+
+Data Scale. Early paradigms assume that scaling inherently im-proves performance, leading BLAST to aggregate a ∼321B corpus (Table 9). To prevent data leakage, QUALS restricts its raw corpus to ∼239B points. Moreover, expanded corpora can be processed via VQ-SwinTTS inference, avoiding costly statistical features. 
+
+Data Processing Efficiency. Building upon the computational accounting in Section 4.5, we compare the end-to-end efficiency of QUALS and BLAST, as summarized in Table 9. The fundamental ad-vantage of QUALS lies in its paradigm shift from CPU-bound math-ematical heuristics to a highly scalable, GPU-accelerated pipeline. Specifically, BLAST’s reliance on statistical feature extraction incurs a prohibitive 336 CPU-hours on server-grade hardware and scales poorly to massive datasets. Furthermore, its high-complexity UMAP dimensionality reduction forces it to down-sample and train on merely 1% of the raw corpus, causing irreversible information loss. In contrast, QUALS bypasses these bottlenecks entirely. By re-placing CPU-intensive feature engineering with rapid VQ-SwinTTS inference and substituting UMAP with efficient PCA and ECDF, QUALS processes the full 239B corpus in a strictly lossless manner. Even with the introduction of the novel learnability synchroniza-tion stage (Stage 3), the additional overhead remains remarkably low ( ∼7 GPU-hours). Ultimately, QUALS reduces the end-to-end preparation timeframe from weeks to under two days while elim-inating the compromises introduced by down-sampling, thereby establishing a robust foundation for billion-scale pre-training. 
+
+Pre-training Budget Efficiency. Table 10 challenges the conven-tional scaling law for universal time series forecasting by demon-strating that QUALS achieves superior zero-shot accuracy with 
+
+> 9
+
+Table 7: Comparison of zero-shot models pretrained on QUALS and domain-specific models. Red and Blue indicate the best and second-best results, respectively. Pre-training on QUALS Domain-specific Models Models TimeMoE Q                                                                                                                                                  
+
+> 𝑏 TimeMoE Q
+> 𝑙 MOIRAI Q
+> 𝑏 MOIRAI Q
+> 𝑙 Chronos Q
+> 𝑏 Chronos Q
+> 𝑠
+> TQNet
+> 2025 [34]
+> OLinear
+> 2025 [70]
+> TimeMixer
+> 2024 [60]
+> iTransformer
+> 2024 [37]
+> TimesNet
+> 2023 [65]
+> PatchTST
+> 2023 [46]
+> TiDE
+> 2023 [9]
+> DLinear
+> 2023 [71]
+> Metrics MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE
+> ETTh1 .383 .405 .389 .408 .407 .408 .401 .404 .391 .401 .382 .399 .437 .433 .444 .446 .448 .442 .454 .447 .454 .450 .468 .454 .540 .507 .455 .451 ETTh2 .338 .384 .345 .387 .344 .369 .341 .370 .349 .374 .346 .373 .390 .417 .393 .420 .364 .395 .383 .406 .414 .496 .386 .406 .611 .549 .558 .515 ETTm1 .354 .378 .346 .375 .377 .378 .386 .377 .390 .379 .371 .381 .355 .371 .350 .374 .381 .395 .407 .409 .400 .405 .387 .400 .419 .419 .403 .406 ETTm2 .251 .316 .243 .310 .274 .317 .259 .303 .275 .313 .287 .321 .259 .312 .263 .314 .275 .323 .288 .332 .291 .332 .280 .326 .358 .403 .350 .400 Weather .248 .282 .248 .280 .258 .272 .247 .265 .240 .259 .243 .263 .221 .249 .226 .250 .240 .271 .257 .278 .258 .286 .258 .280 .270 .320 .265 .316
+
+Average .315 .353 .314 .352 .332 .349 .327 .344 .329 .345 .326 .347 .332 .356 .335 .361 .342 .365 .358 .374 .363 .394 .356 .373 .440 .440 .406 .418 
+
+Table 8: Ablation study of QUALS. Variants with superior performance are highlighted in red. QUALS w/o Stage3 (Candidate Corpus) w/o Stage2 (Codebook Sample) w/o Stage1 (BLAST) 
+
+Model Metric ETTh1 ETTh2 ETTm1 ETTm2 Weather ETTh1 ETTh2 ETTm1 ETTm2 Weather ETTh1 ETTh2 ETTm1 ETTm2 Weather ETTh1 ETTh2 ETTm1 ETTm2 Weather 
+
+ChronosBolt 𝑠 MSE ↓ .382 .346 .371 .287 .243 .397 .354 .386 .285 .243 .419 .362 .405 .278 .247 .411 .358 .404 .282 .249 MAE ↓ .399 .373 .381 .321 .263 .402 .381 .379 .314 .262 .412 .384 .384 .313 .264 .409 .382 .382 .316 .268 
+
+ChronosBolt 𝑏 MSE ↓ .391 .349 .390 .275 .240 .393 .352 .401 .280 .248 .404 .350 .397 .282 .259 .409 .355 .390 .277 .244 MAE ↓ .401 .374 .379 .313 .259 .403 .380 .381 .321 .269 .410 .381 .384 .322 .281 .409 .377 .375 .313 .263 
+
+TimeMoE 𝑏 MSE ↓ .383 .338 .354 .251 .248 .398 .341 .360 .254 .242 .405 .338 .363 .269 .255 .399 .356 .394 .274 .244 MAE ↓ .405 .384 .378 .316 .282 .407 .382 .382 .318 .274 .416 .383 .381 .319 .288 .412 .391 .399 .326 .278 
+
+Table 9: QUALS vs. BLAST: scale and efficiency. 
+
+Metric QUALS BLAST 
+
+Raw Corpus Scale 239 B 321 B Curated Corpus Scale 81.89 B 81.10 B Representation Time 20 GPU-hours 336 CPU-hours Sampling Time 12 CPU-hours 18 CPU-hours Rebalancing Time 7 GPU-hours -
+
+Table 10: Zero-Shot performance (MSE / MAE) across 5 bench-marks in Table 4 and their training efficiency (tokens). Bot-tom value represents the pre-training token budget (Billions, B). "-" indicates the pretraining budgets is not disclosed. 
+
+Model QUALS (Ours) BLAST Official Baseline ChronosBolt-Small 0.326 / 0.347 61.86 B 
+
+0.341 / 0.352 104.85 B 0.358 / 0.360 -
+
+ChronosBolt-Base 0.329 / 0.345 125.82 B 
+
+0.335 / 0.347 167.77 B 0.351 / 0.351 -
+
+MOIRAI-Base 0.332 / 0.349 35.360 B 
+
+0.338 / 0.353 52.400 B 0.357 / 0.361 52.400 B 
+
+MOIRAI-Large 0.327 / 0.344 38.640 B 
+
+0.335 / 0.350 52.400 B 0.381 / 0.393 52.400 B 
+
+TimeMoE-Base 0.315 / 0.353 26.20 B 
+
+0.333 / 0.361 78.64 B 0.350 / 0.381 419.43 B 
+
+TimeMoE-Large 0.314 / 0.352 99.61 B 
+
+0.330 / 0.360 209.71 B 0.352 / 0.380 419.43 B 
+
+drastically reduced data volume. Most notably, for TimeMoE-Base, QUALS achieves a significantly lower MSE (0.315 vs. 0.350) using only 26.20B tokens—a 16 × reduction compared to the official 419.43B budget. This implies that over 90% of the training tokens constitute redundant patterns that yield diminishing returns. This efficiency gain is consistent across architectures: ChronosBolt-Small reduces the token budget by 40% compared to BLAST while im-proving MSE by 4.4%, and MOIRAI-Large outperforms its official checkpoint and the BLAST counterpart with 26% fewer tokens. These results confirm that optimizing corpus equilibrium with re-spect to pattern distribution and learnability, rather than merely increasing scale, yields a far more efficient pre-training paradigm. 200 500 1000 2000 2500 4000 5000 10000 0.32 0.33 0.34 0.35 0.36 0.37 
+
+> MSE MAE
+
+Figure 3: Impact of Stage 2 bin granularity of ECDF. 
+
+## 5.5 Ablation & Hyper-parameter Studies 
+
+Table 8 presents a stepwise ablation study validate the role of each QUALS component. Removing Stage 3 (learnability synchroniza-tion) consistently increases forecasting errors, proving that mere distribution balancing is insufficient. Further removing Stage 2 (pattern binning) and relying instead on naive codebook sampling exacerbates the degradation, confirming that our spectral discretiza-tion is vital to prevent long-tail motif loss. Finally, replacing Stage 1’s VQ-SwinTTS with BLAST’s statistical heuristics yields the worst performance. This shows that deep semantic quantization captures temporal morphologies far more effectively than rigid metrics. Figure 3 illustrates the sensitivity to the number of pattern bins (𝑀 ) in Stage 2, evaluated under a fixed total training volume. We observe a distinct U-shaped trade-off: a small 𝑀 (e.g., 200) causes under-fitting by collapsing diverse motifs into coarse bins, whereas excessive bins ( > 5000) lead to over-fragmentation and data sparsity. Optimal performance occurs between 2,000 and 4,000 bins, where QUALS successfully hits the "sweet spot" balancing high-resolution pattern coverage and sufficient sampling density. 
+
+> 10
+
+## 5.6 Deeper Analysis & Visualization 
+
+In this section, we analyze QUALS to validate the role of each stage in its three-stage framework. Our goal is to explain why QUALS works, rather than merely reporting performance gains. To this end, we examine the method from pattern disentanglement, pattern or-ganization, learnability synchronization, and forecasting behavior, thereby connecting the three stages of QUALS to its robustness in complex time-series scenarios. 
+
+5.6.1 Codebook Disentanglement . This subsection validates Stage 1 by examining whether VQ-SwinTTS learns semantically separated codebook. We verify this through similarity distributions and patch visualizations across different codebook indices. 0.0 0.2 0.4 0.6 0.8 1.0 0% 5% 10% 15% 
+
+> Abs. Cosine of subseries assigned to codebook
+> Intra-Codebook (Within Index) Inter-Codebook (Across Indices)
+
+Figure 4: Distribution of Abs. cosine for inter- and intra-codebook subseries. 0 5 10 15 20 25 30 -2 02                  
+
+> Codebook Index: 42
+> 0510 15 20 25 30 -1 01
+> Codebook Index: 1211
+> 0510 15 20 25 30 -2 02
+> Codebook Index: 1919
+> 0510 15 20 25 30 012
+> Codebook Index: 2024
+
+Figure 5: Visualization of learned patch-level pattern. 
+
+Using the ARIES Synth dataset [58], a synthetic dataset with rich pattern diversity, we compare the absolute cosine similarity distributions of intra-code and inter-code subseries. Figure 4 shows that subseries assigned to the same codebook index are much more similar than those assigned to different indices, indicating clear within-code consistency and cross-code separation. Figure 5 further shows that different codebook indices capture distinct local motifs, while preserving strong regularity within each index. These results confirm that Stage 1 organizes patches into clearly separated patch-level semantics before the higher-level binning stage. 
+
+5.6.2 Pattern Space Organization . This subsection validates Stage 2 by showing how QUALS transfers information from a code-book space with directionally concentrated spectral energy to a more uniform space. We then examine semantic preservation after merging and uneven pattern distributions of existing datasets. 
+
+Spectral Distribution. Analyzing the principal components of the learned codebook C reveals a slow, nearly linear eigenvalue decay (Figure 6(a)). In particular, 28 of 32 dimensions are required 0 10 20 30 Principal Component Index 10 2  
+
+> Explained Variance (Log)
+> (a) Spectral Energy Analysis
+> 0.5 0.0 0.5 PC1 (7.27%) 0.75
+> 0.50
+> 0.25
+> 0.00 0.25 0.50 0.75 PC2 (6.16%) (b) PC1 vs PC2 (Isotropy: 0.85) 0.2 0.4 0.6 0.8 1.0 Cumulative Variance Ratio
+
+Figure 6: Spectral and geometric analysis of the codebook. 0.0 0.2 0.4 0.6 0.8 1.0 0% 2% 5% 8% 10% 12% 
+
+> Abs. Cosine of subseries assigned to pattern bins
+> Intra-Bin (Same pattern) Inter-Bin (Different pattern)
+
+Figure 7: Distribution of Abs. cosine for subseries from inter-and intra- pattern bins. 
+
+to capture 90% of the spectral energy, indicating that semantic information spreads across nearly all dimensions while remaining concentrated along different directions in a non-uniform manner. Figure 6(b) further shows a highly isotropic 2D projection on the primary PCA axes, where the variance ratio 𝑃𝐶 2/𝑃𝐶 1 reaches 0.85. Together, these results suggest that the codebook retains substantial high-dimensional information before Stage 2 merging. 
+
+Semantic Preservation. To evaluate whether Stage 2 preserves semantic information after merging patch-level codebook indices into series-level Pattern Bins ( U), we compare the cosine similarity distributions of subseries assigned to pattern bins in Figure 7 with the codebook-level results in Figure 4, and find a modest increase in overlap, indicating slight semantic drift but largely preserved separation at the bin level. 
+
+Distributional Bias. Figure 8 shows large disparities in pattern-bin occupancy: ETT and Weather cover only 2% to 4% of the pattern 
+
+´BLAST         
+
+> sparsity=0.00%, cv=2.36
+> Synth
+> sparsity=48.78%, cv=4.22
+> ETTh&m1
+> sparsity=98.72%, cv=9.09
+> ETTh2
+> sparsity=98.72%, cv=9.31
+> ETTm2
+> sparsity=98.72%, cv=9.31
+> Weather
+> sparsity=96.92%, cv=6.40
+> 10 510 410 310 2
+
+Figure 8: Bin distributions across different datasets.         
+
+> 11 0k 25k 50k 75k 100k 125k 150k 175k 200k
+
+Training Steps 0.0 0.2 0.4 0.6 0.8 1.0 Shared Min-Max Normalized Loss  Convergence - Fast 
+
+> w/o Stage3 (Uniform Sampling) w/ Stage3 (Weighted Sampling)
+
+126k         
+
+> 0k 25k 50k 75k 100k 125k 150k 175k 200k
+
+Training Steps 
+
+Convergence - Medium 
+
+44k         
+
+> 0k 25k 50k 75k 100k 125k 150k 175k 200k
+
+Training Steps 
+
+Convergence - Slow 
+
+26k (Saved 87.0% Budget) Figure 9: Convergence of ChronosBolt 𝑠 under uniform vs. weighted sampling across fast, medium, and slow patterns. 0 200 400 600 800 1000 1200 012 History Prediction Ground Truth 
+
+(a) ChronosBolt-Base with QUALS 0 200 400 600 800 1000 1200 012 History Prediction Ground Truth (b) ChronosBolt-Base with BLAST 0 200 400 600 800 1000 1200 012 History Prediction Ground Truth (c) ChronosBolt-Base 0 200 400 600 800 1000 1200 012 History Prediction Ground Truth 
+
+(d) TimeMoE-Large with QUALS 0 200 400 600 800 1000 1200 012 History Prediction Ground Truth (e) TimeMoE-Large with BLAST 0 200 400 600 800 1000 1200 012 History Prediction Ground Truth (f) TimeMoE-Large 0 200 400 600 800 1000 1200 1400 012 History Prediction Ground Truth 
+
+(g) MOIRAI-Large with QUALS 0 200 400 600 800 1000 1200 1400 012 History Prediction Ground Truth (h) MOIRAI-Large with BLAST 0 200 400 600 800 1000 1200 1400 012 History Prediction Ground Truth (i) MOIRAI-Large 
+
+Figure 10: Comparison of the universal forecasting model trained on the original dataset and on BLAST and QUALS datasets 
+
+space, while even Synth leaves nearly 50% unused; BLAST remains concentrated on these benchmark-dominant regions, whereas QUALS enforces more balanced occupancy. 
+
+5.6.3 Learnability Analysis . This subsection validates Stage 3 by examining whether the sampling weights learned by learnability synchronization can accelerate the training convergence of univer-sal forecasting models. Figure 9 visualizes the shared min-max normalized validation loss trajectories of the three groups under uniform and weighted sampling. The fast group shows only a small difference in con-vergence speed under the two strategies, indicating that uniform sampling already allocates sufficient budget to easy patterns. In contrast, the slow group converges much more slowly under uni-form sampling, but is markedly accelerated by weighted sampling. In particular, the weighted strategy reaches the target convergence threshold for the slow group in only 25k steps, saving 87% of the optimization budget relative to uniform sampling. This improved convergence is also consistent with Table 10, where QUALS reduces training tokens while improving the generalization performance of the evaluated models. 
+
+5.6.4 Visualization of Forecast Cases . To provide a qualitative view of forecasting behavior, we visualize zero-shot predictions of models pre-trained on the original corpus, BLAST, and QUALS on a synthetic seasonal-trend sequence [58]. As shown in Figure 10, the original and BLAST-trained models frequently fail to recover the joint structure of trend and seasonality. ChronosBolt mainly exhibits scale mismatch and phase misalign-ment, TimeMoE is largely unable to model the seasonal component, and MOIRAI often shows distorted seasonal perception. In contrast, QUALS consistently produces more structurally accurate forecasts across all three model families, yielding better recovery of both trend and seasonality. 
+
+## 6 CONCLUSION 
+
+In this paper, we show that unconstrained scaling of pre-training corpora in universal time series forecasting can introduce two im-portant sources of imbalance: skewed pattern distributions and het-erogeneous learnability across patterns. To address these issues, we propose QUALS, a three-stage corpus curation framework designed to promote corpus equilibrium. Specifically, QUALS combines VQ-SwinTTS-based pattern quantization, spectral discretization, and learnability synchronization to organize heterogeneous time series into a more balanced pattern space while allocating training em-phasis according to optimization difficulty. Experiments show that models pre-trained on QUALS achieve consistently stronger zero-shot forecasting performance than baseline corpus construction strategies. At the same time, QUALS reduces both data processing overhead and the pre-training token budget required to reach com-petitive or better performance. Taken together, these results suggest that corpus curation based on pattern distribution and learnability can provide a more data-efficient alternative to purely scale-driven pre-training for universal time series forecasting. 
+
+12 REFERENCES 
+
+[1] Taha Aksu, Gerald Woo, Juncheng Liu, Xu Liu, Chenghao Liu, Silvio Savarese, Caiming Xiong, and Doyen Sahoo. 2024. GIFT-Eval: A Benchmark For General Time Series Forecasting Model Evaluation. CoRR abs/2410.10393 (2024). https: //doi.org/10.48550/ARXIV.2410.10393 [2] Abdul Fatir Ansari, Oleksandr Shchur, Jaris Küken, Andreas Auer, Boran Han, Pedro Mercado, Syama Sundar Rangapuram, Huibin Shen, Lorenzo Stella, Xiyuan Zhang, Mononito Goswami, Shubham Kapoor, Danielle C. Maddix, Pablo Guer-ron, Tony Hu, Junming Yin, Nick Erickson, Prateek Mutalik Desai, Hao Wang, Huzefa Rangwala, George Karypis, Yuyang Wang, and Michael Bohlke-Schneider. 2025. Chronos-2: From Univariate to Universal Forecasting. arXiv preprint arXiv:2510.15821 (2025). https://arxiv.org/abs/2510.15821 [3] Abdul Fatir Ansari, Lorenzo Stella, Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebas-tian Pineda Arango, Shubham Kapoor, et al. 2024. Chronos: Learning the Lan-guage of Time Series. Transactions on Machine Learning Research (2024). [4] Yoshua Bengio, Nicholas Léonard, and Aaron C. Courville. 2013. Estimating or Propagating Gradients Through Stochastic Neurons for Conditional Computa-tion. CoRR abs/1308.3432 (2013). arXiv:1308.3432 http://arxiv.org/abs/1308.3432 [5] Mouxiang Chen, Lefei Shen, Zhuo Li, Xiaoyun Joy Wang, Jianling Sun, and Chenghao Liu. 2025. VisionTS: Visual Masked Autoencoders Are Free-Lunch Zero-Shot Time Series Forecasters. In Forty-second International Conference on Machine Learning, ICML 2025, Vancouver, BC, Canada, July 13-19, 2025 (Proceed-ings of Machine Learning Research) , Vol. 267. PMLR / OpenReview.net. [6] Yunyao Cheng, Peng Chen, Chenjuan Guo, Kai Zhao, Qingsong Wen, Bin Yang, and Christian S Jensen. 2023. Weakly Guided Adaptation for Robust Time Series Forecasting. Proc. VLDB Endow. 17, 4 (2023), 766–779. [7] Razvan-Gabriel Cirstea, Chenjuan Guo, Bin Yang, Tung Kieu, Xuanyi Dong, and Shirui Pan. 2022. Triformer: Triangular, Variable-Specific Attentions for Long Sequence Multivariate Time Series Forecasting. In Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence, IJCAI 2022, Vienna, Austria, 23-29 July 2022 . ijcai.org, 1994–2001. [8] Luke Nicholas Darlow, Qiwen Deng, Ahmed Hassan, Martin Asenov, Rajkarn Singh, Artjom Joosen, Adam Barker, and Amos Storkey. 2024. DAM: Towards a Foundation Model for Forecasting. In The Twelfth International Conference on Learning Representations .[9] Abhimanyu Das, Weihao Kong, Andrew Leach, Shaan K Mathur, Rajat Sen, and Rose Yu. [n.d.]. Long-term Forecasting with TiDE: Time-series Dense Encoder. 
+
+Transactions on Machine Learning Research ([n. d.]). [10] Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. [n.d.]. A decoder-only foundation model for time-series forecasting. In Forty-first International Conference on Machine Learning .[11] Prafulla Dhariwal, Heewoo Jun, Christine Payne, Jong Wook Kim, Alec Radford, and Ilya Sutskever. 2020. Jukebox: A generative model for music. arXiv preprint arXiv:2005.00341 (2020). [12] Samuel Dooley, Gurnoor Singh Khurana, Chirag Mohapatra, Siddartha Naidu, and Colin White. 2023. ForecastPFN: synthetically-trained zero-shot forecasting. In NeurIPS .[13] Vijay Ekambaram, Arindam Jati, Pankaj Dayama, Sumanta Mukherjee, Nam H Nguyen, Wesley M. Gifford, Chandra Reddy, and Jayant Kalagnanam. 2024. Tiny Time Mixers (TTMs): Fast Pre-trained Models for Enhanced Zero/Few-Shot Forecasting of Multivariate Time Series. In NeurIPS .[14] Ziquan Fang, Lu Pan, Lu Chen, Yuntao Du, and Yunjun Gao. 2021. MDTP: A multi-source deep traffic prediction framework over spatio-temporal trajectory data. Proceedings of the VLDB Endowment 14, 8 (2021), 1289–1297. [15] Christopher Fifty, Ronald Guenther Junkins, Dennis Duan, Aniketh Iyengar, Jerry Weihong Liu, Ehsan Amid, Sebastian Thrun, and Christopher Ré. 2025. Restructuring Vector Quantization with the Rotation Trick. In The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 . OpenReview.net. [16] Jiayi Fu, Xuandong Zhao, Chengyuan Yao, Heng Wang, Qi Han, and Yanghua Xiao. 2025. Reward shaping to mitigate reward hacking in rlhf. arXiv preprint arXiv:2502.18770 (2025). [17] Yisong Fu, Zezhi Shao, Chengqing Yu, Yujie Li, Zhulin An, Qi Wang, Yongjun Xu, and Fei Wang. 2025. Selective Learning for Deep Time Series Forecasting. 
+
+arXiv preprint arXiv:2510.25207 (2025). [18] Shanghua Gao, Teddy Koker, Owen Queen, Thomas Hartvigsen, Theodoros Tsiligkaridis, and Marinka Zitnik. 2024. UniTS: A Unified Multi-Task Time Series Model. In NeurIPS .[19] Azul Garza and Max Mergenthaler-Canseco. 2023. TimeGPT-1. arXiv preprint arXiv:2310.03589 (2023). [20] Michael Gastpar, Pier Luigi Dragotti, and Martin Vetterli. 2006. The distributed karhunen–loeve transform. IEEE Transactions on Information Theory 52, 12 (2006), 5177–5196. [21] Allen Gersho. 1979. Asymptotically optimal block quantization. IEEE Transactions on information theory 25, 4 (1979), 373–380. [22] Allen Gersho and Robert M Gray. 2012. Vector quantization and signal compression .Vol. 159. Springer Science & Business Media. [23] Mononito Goswami, Konrad Szafer, Arjun Choudhry, Yifu Cai, Shuo Li, and Artur Dubrawski. [n.d.]. MOMENT: A Family of Open Time-series Foundation Models. In Forty-first International Conference on Machine Learning .[24] Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, Lisa Anne Hendricks, Jo-hannes Welbl, Aidan Clark, et al. 2022. Training compute-optimal large language models. In Proceedings of the 36th International Conference on Neural Information Processing Systems . 30016–30030. [25] Harold Hotelling. 1933. Analysis of a complex of statistical variables into principal components. Journal of educational psychology 24, 6 (1933), 417. [26] J Huang and P Schultheiss. 1963. Block quantization of correlated Gaussian random variables. IEEE Transactions on Communications Systems 11, 3 (1963), 289–296. [27] Hervé Jégou, Matthijs Douze, and Cordelia Schmid. 2011. Product Quantization for Nearest Neighbor Search. IEEE Trans. Pattern Anal. Mach. Intell. 33, 1 (2011), 117–128. [28] Søren Kejser Jensen, Christian Schmidt Godiksen, Christian Thomsen, and Tor-ben Bach Pedersen. 2025. Demonstration of ModelarDB: model-based manage-ment of high-frequency time series across edge, cloud, and client. Proceedings of the VLDB Endowment 18, 12 (2025), 5247–5250. [29] Daesoo Lee, Sara Malacarne, and Erlend Aune. 2023. Vector Quantized Time Series Generation with a Bidirectional Prior Model. In International Conference on Artificial Intelligence and Statistics, 25-27 April 2023, Palau de Congressos, Valencia, Spain (Proceedings of Machine Learning Research) , Vol. 206. PMLR, 7665–7693. [30] Ruikun Li, Dai Shi, Ye Xiao, and Junbin Gao. 2025. UFGTime: Mining Intertwined Dependencies in Multivariate Time Series via an Efficient Pure Graph Approach. 
+
+Proceedings of the VLDB Endowment 18, 9 (2025), 3175–3188. [31] Yujie Li, Zezhi Shao, Yongjun Xu, Qiang Qiu, Zhaogang Cao, and Fei Wang. 2024. Dynamic frequency domain graph convolutional network for traffic forecasting. In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 5245–5249. [32] Yujie Li, Zezhi Shao, Chengqing Yu, Yisong Fu, Tao Sun, Yongjun Xu, and Fei Wang. 2025. APT: Affine Prototype-Timestamp For Time Series Forecasting Under Distribution Shift. arXiv preprint arXiv:2511.12945 (2025). [33] Zhe Li, Xiangfei Qiu, Peng Chen, Yihang Wang, Hanyin Cheng, Yang Shu, Jilin Hu, Chenjuan Guo, Aoying Zhou, Christian S. Jensen, and Bin Yang. 2025. TSFM-Bench: A Comprehensive and Unified Benchmark of Foundation Models for Time Series Forecasting. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining, V.2, KDD 2025, Toronto ON, Canada, August 3-7, 2025 . ACM, 5595–5606. [34] Shengsheng Lin, Haojun Chen, Haijie Wu, Chunyun Qiu, and Weiwei Lin. 2025. Temporal Query Network for Efficient Multivariate Time Series Forecasting. In 
+
+International Conference on Machine Learning . PMLR, 37797–37814. [35] Chenghao Liu, Taha Aksu, Juncheng Liu, Xu Liu, Hanshu Yan, Quang Pham, Silvio Savarese, Doyen Sahoo, Caiming Xiong, and Junnan Li. 2025. Moirai 2.0: When Less Is More for Time Series Forecasting. CoRR abs/2511.11698 (2025). https://doi.org/10.48550/ARXIV.2511.11698 arXiv:2511.11698 [36] Xu Liu, Juncheng Liu, Gerald Woo, Taha Aksu, Yuxuan Liang, Roger Zimmer-mann, Chenghao Liu, Silvio Savarese, Caiming Xiong, and Doyen Sahoo. 2024. Moirai-MoE: Empowering Time Series Foundation Models with Sparse Mixture of Experts. arXiv preprint arXiv:2410.10469 (2024). [37] Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. 2024. iTransformer: Inverted Transformers Are Effective for Time Series Forecasting. In ICLR .[38] Yong Liu, Guo Qin, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. 2024. Timer-XL: Long-Context Transformers for Unified Time Series Forecasting. 
+
+arXiv preprint arXiv:2410.04803 (2024). [39] Yong Liu, Guo Qin, Zhiyuan Shi, Zhi Chen, Caiyin Yang, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. 2025. Sundial: A Family of Highly Capable Time Series Foundation Models. In International Conference on Machine Learning .PMLR, 39295–39317. [40] Yong Liu, Haoran Zhang, Chenyu Li, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. 2024. Timer: generative pre-trained transformers are large time series models. In Proceedings of the 41st International Conference on Machine Learning . 32369–32399. [41] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. 2021. Swin Transformer: Hierarchical Vision Transformer using Shifted Windows. In 2021 IEEE/CVF International Conference on Computer Vision, ICCV 2021, Montreal, QC, Canada, October 10-17, 2021 . IEEE, 9992–10002. [42] Carl H Lubba, Sarab S Sethi, Tristan Knaute, Simon R Schultz, Ben D Fulcher, and Nick S Jones. 2019. catch22: CAnonical Time-series CHaracteristics. Data Mining and Knowledge Discovery 33, 6 (2019), 1821–1852. [43] Spyros Makridakis, Evangelos Spiliotis, and Vassilios Assimakopoulos. 2020. The M4 Competition: 100,000 time series and 61 forecasting methods. International Journal of Forecasting 36, 1 (2020), 54–74. [44] Hao Miao, Ziqiao Liu, Yan Zhao, Chenjuan Guo, Bin Yang, Kai Zheng, and Christian S Jensen. 2024. Less is more: Efficient time series dataset condensation via two-fold modal matching. Proceedings of the VLDB Endowment 18, 2 (2024), 
+
+> 13
+
+226–238. [45] Hao Miao, Yan Zhao, Chenjuan Guo, Bin Yang, Kai Zheng, and Christian S Jensen. 2025. Spatio-temporal prediction on streaming data: A unified federated continuous learning framework. IEEE Transactions on Knowledge and Data Engineering 37, 4 (2025), 2126–2140. [46] Yuqi Nie, Nam H Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. 2023. A Time Series is Worth 64 Words: Long-term Forecasting with Transformers. In 
+
+ICLR .[47] Olga Poppe, Tayo Amuneke, Dalitso Banda, Aritra De, Ari Green, Manon Kno-ertzer, Ehi Nosakhare, Karthik Rajendran, Deepak Shankargouda, Meina Wang, et al. 2020. Seagull: an infrastructure for load prediction and optimized resource allocation. Proceedings of the VLDB Endowment 14, 2 (2020), 154–162. [48] Xiangfei Qiu, Jilin Hu, Lekui Zhou, Xingjian Wu, Junyang Du, Buang Zhang, Chenjuan Guo, Aoying Zhou, Christian S Jensen, Zhenli Sheng, et al. 2024. TFB: Towards Comprehensive and Fair Benchmarking of Time Series Forecasting Methods. Proceedings of the VLDB Endowment 17, 9 (2024), 2363–2377. [49] Xiangfei Qiu, Xiuwen Li, Ruiyang Pang, Zhicheng Pan, Xingjian Wu, Liu Yang, Jilin Hu, Yang Shu, Xuesong Lu, Chengcheng Yang, et al. 2025. Easytime: Time series forecasting made easy. In 2025 IEEE 41st International Conference on Data Engineering (ICDE) . IEEE, 4564–4567. [50] Zezhi Shao, Yujie Li, Fei Wang, Chengqing Yu, Yisong Fu, Tangwen Qian, Bin Xu, Boyu Diao, Yongjun Xu, and Xueqi Cheng. 2025. Blast: Balanced sampling time series corpus for universal forecasting models. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 . 2502–2513. [51] Zezhi Shao, Fei Wang, Yongjun Xu, Wei Wei, Chengqing Yu, Zhao Zhang, Di Yao, Tao Sun, Guangyin Jin, Xin Cao, et al. 2024. Exploring progress in multi-variate time series forecasting: Comprehensive benchmarking and heterogeneity analysis. TKDE 37, 1 (2024), 291–305. [52] Zezhi Shao, Zhao Zhang, Wei Wei, Fei Wang, Yongjun Xu, Xin Cao, and Chris-tian S Jensen. 2022. Decoupled Dynamic Spatial-Temporal Graph Neural Network for Traffic Forecasting. Proceedings of the VLDB Endowment 15, 11 (2022), 2733– 2746. [53] Oleksandr Shchur, Abdul Fatir Ansari, Caner Turkmen, Lorenzo Stella, Nick Erickson, Pablo Guerron, Michael Bohlke-Schneider, and Yuyang Wang. 2025. fev-bench: A Realistic Benchmark for Time Series Forecasting. (2025). arXiv:2509.26468 [cs.LG] [54] Xiaoming Shi, Shiyu Wang, Yuqi Nie, Dianqi Li, Zhou Ye, Qingsong Wen, and Ming Jin. 2024. Time-MoE: Billion-Scale Time Series Foundation Models with Mixture of Experts. arXiv:2409.16040 https://arxiv.org/abs/2409.16040 [55] Yinbo Sun, Yuchen Fang, Zhibo Zhu, Jia Li, Yu Liu, Qiwen Deng, Jun Zhou, Hang Yu, Xingyu Lu, and Lintao Ma. 2025. Xihe: Scalable Zero-Shot Time Series Learner Via Hierarchical Interleaved Block Attention. arXiv preprint arXiv:2510.21795 
+
+(2025). [56] Luan Tran, Min Y Mun, Matthew Lim, Jonah Yamato, Nathan Huh, and Cyrus Shahabi. 2020. DeepTRANS: a deep learning system for public bus travel time estimation using traffic forecasting. Proceedings of the VLDB Endowment 13, 12 (2020), 2957–2960. [57] Aäron van den Oord, Oriol Vinyals, and Koray Kavukcuoglu. 2017. Neural Discrete Representation Learning. In Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems 2017, December 4-9, 2017, Long Beach, CA, USA . 6306–6315. [58] Fei Wang, Yujie Li, Zezhi Shao, Chengqing Yu, Yisong Fu, Zhulin An, Yongjun Xu, and Xueqi Cheng. 2025. ARIES: Relation Assessment and Model Recommendation for Deep Time Series Forecasting. arXiv preprint arXiv:2509.06060 (2025). [59] Hao Wang, Licheng Pan, Zhichao Chen, Degui Yang, Sen Zhang, Yifei Yang, Xinggao Liu, Haoxuan Li, and Dacheng Tao. 2025. FreDF: Learning to Forecast in the Frequency Domain. In ICLR .[60] Shiyu Wang, Haixu Wu, Xiaoming Shi, Tengge Hu, Huakun Luo, Lintao Ma, James Y Zhang, and JUN ZHOU. 2024. TimeMixer: Decomposable Multiscale Mixing for Time Series Forecasting. In ICLR .[61] Yihang Wang, Yuying Qiu, Peng Chen, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Chenjuan Guo. 2025. LightGTS: A Lightweight General Time Series Forecasting Model. In Forty-second International Conference on Machine Learning, ICML 2025, Vancouver, BC, Canada, July 13-19, 2025 (Proceedings of Machine Learning Research) . PMLR / OpenReview.net. [62] Yihang Wang, Yuying Qiu, Peng Chen, Kai Zhao, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Chenjuan Guo. 2024. ROSE: Register Assisted General Time Series Forecasting with Decomposed Frequency Learning. arXiv preprint arXiv:2405.17478 (2024). [63] Yihang Wang, Yuying Qiu, Peng Chen, Kai Zhao, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Chenjuan Guo. 2025. Towards a General Time Series Forecasting Model with Unified Representation and Adaptive Transfer. In Forty-second International Conference on Machine Learning, ICML 2025, Vancouver, BC, Canada, July 13-19, 2025 (Proceedings of Machine Learning Research) . PMLR / OpenReview.net. [64] Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and Doyen Sahoo. 2024. Unified Training of Universal Time Series Forecasting Transformers. In Forty-first International Conference on Machine Learning .[65] Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. 2023. TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1–5, 2023 . OpenReview.net. [66] Xinle Wu, Dalin Zhang, Miao Zhang, Chenjuan Guo, Bin Yang, and Christian S Jensen. 2023. AutoCTS+: Joint neural architecture and hyperparameter search for correlated time series forecasting. Proceedings of the ACM on Management of Data 1, 1 (2023), 1–26. [67] Zhe Xie, Zeyan Li, Xiao He, Longlong Xu, Xidao Wen, Tieying Zhang, Jianjun Chen, Rui Shi, and Dan Pei. 2025. ChatTS: Aligning Time Series with LLMs via Synthetic Data for Enhanced Understanding and Reasoning. Proceedings of the VLDB Endowment 18, 8 (2025), 2385–2398. [68] Jiahui Yu, Xin Li, Jing Yu Koh, Han Zhang, Ruoming Pang, James Qin, Alexander Ku, Yuanzhong Xu, Jason Baldridge, and Yonghui Wu. 2022. Vector-quantized Image Modeling with Improved VQGAN. In The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022 . OpenRe-view.net. [69] Haitao Yuan, Guoliang Li, Zhifeng Bao, and Ling Feng. 2021. An effective joint prediction model for travel demands and traffic flows. In 2021 IEEE 37th International Conference on Data Engineering (ICDE) . IEEE, 348–359. [70] Wenzhen Yue, Yong Liu, Hao Wang, Haoxuan Li, Xianghua Ying, Ruohao Guo, Bowei Xing, and Ji Shi. 2026. OLinear: A Linear Model for Time Series Forecasting in Orthogonally Transformed Domain. Advances in Neural Information Processing Systems 38 (2026), 60573–60632. [71] Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. 2023. Are transformers effective for time series forecasting?. In AAAI , Vol. 37. 11121–11128. [72] Bolong Zheng, Yongyong Gao, Jingyi Wan, Lingsen Yan, Long Hu, Bo Liu, Yunjun Gao, Xiaofang Zhou, and Christian S Jensen. 2023. Declog: decentralized logging in non-volatile memory for time series database systems. Proceedings of the VLDB Endowment 17, 1 (2023), 1–14.

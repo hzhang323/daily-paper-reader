@@ -1,0 +1,365 @@
+Title: CoRe: Coherence and Relational Alignment for Multivariate Time Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2609.19670v1
+
+Published Time: Fri, 18 Sep 2026 00:45:10 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+## CoRe: Coherence and Relational Alignment for Multivariate Time Series Forecasting 
+
+Xiaoyu Lin 1, Huiran Duan 2, Yining Liu 3, Zhixiang Wu 4, Chu Lin 2
+
+, and Lin Lu 1,∗ 
+
+> 1
+
+College of Computer and Information Technology, China Three Gorges University, China  
+
+> 2
+
+City University of New York, USA  
+
+> 3
+
+University of California, Berkeley, USA  
+
+> 4
+
+Emory University, USA 
+
+> *
+
+Corresponding author. lulin@ctgu.edu.cn 
+
+Abstract. Direct forecasting has become a standard paradigm for multivariate time-series forecasting because it predicts the full future horizon in a single pass. However, its training objective is often still decomposed into pointwise errors such as MSE. Such objectives provide stable supervision, but they do not explicitly preserve the structure of the future trajectory: temporal coherence within each variable and relational consistency across variables can both be weakened. We propose CoRe, a model-agnostic learning objective for direct multivariate forecasting. CoRe replaces pointwise supervision with two output-space constraints: a frequency coherence loss that aligns predicted and target spectra, and a low-rank relational graph loss that matches sampled pairwise differences in a target-derived PCA subspace. The resulting objective introduces no trainable parameters and can be applied to existing forecasting backbones by changing only the loss. Experiments on standard benchmarks show that CoRe improves strong baselines, compares favorably with recent forecasting objectives, and remains effective across different backbones, datasets, and hyperparameter settings overall consistently. 
+
+Keywords: Multivariate time-series forecasting · Relational alignment ·Frequency-domain learning 
+
+1 Introduction 
+
+Deep learning is transforming a wide range of research domains[63, 25, 52, 27, 26, 30, 59, 54, 20]. Particularly rapid progress has been achieved in multimodal learning and high-performance AI[29, 28, 19, 7, 8, 12]. These advances create new possibilities for improving and extending scientific computing methods[21, 23, 56, 53, 55]. Multivariate time-series forecasting (MTSF) is a core problem in energy systems, traffic networks, meteorology, and industrial monitoring. Given historical observations from multiple correlated variables, the task is to predict their future evolution over a target horizon. Recent forecasting models arXiv:2609.19670v1 [cs.LG] 17 Sep 2026 2 X. Lin et al. 
+
+have improved accuracy with stronger temporal encoders, channel interaction modules, and scalable architectures [35, 34, 50, 22]. Among forecasting paradigms, direct forecasting (DF), which predicts the full horizon in one pass, is especially attractive because it avoids the error accumulation of iterative forecasting and supports efficient training and inference in practice. Despite this architectural progress, the objective used to train DF models remains comparatively simple. Standard losses such as MSE decompose the future output into pointwise errors. This is convenient, but it does not explicitly match the structure of a multivariate future. Along the temporal dimension, future labels are autocorrelated and often contain periodic or long-range patterns. Along the variable dimension, channels are coupled by shared latent factors, such as neighboring sensors in traffic networks or correlated loads in electricity systems. A model can therefore reduce pointwise error while still producing predictions with distorted temporal profiles or weakened cross-variable geometry. Recent work has begun to close this gap by revisiting the learning objective. Frequency-domain objectives such as FreDF [43] and dependency-aware objectives such as Time-o1 [42] show that modeling future-label structure can improve direct forecasting without changing the backbone. However, these objectives mainly focus on temporal dependencies within each variable. For MTSF, the predicted future is also a joint multivariate object, and its cross-variable structure is typically left to the architecture rather than explicitly regularized at the output level. We propose CoRe (Co herence and Re lational Alignment), a model-agnostic objective for direct multivariate forecasting. Instead of supervising each future value independently, CoRe trains the model with two complementary output-space constraints. A frequency coherence loss aligns predicted and target spectra along the future horizon, encouraging global temporal agreement. A low-rank relational graph loss projects predictions and targets into a target-derived PCA subspace and matches sampled pairwise differences between latent components, providing scalable supervision for cross-variable geometry. CoRe is a plug-in ob-jective: it introduces no trainable parameters and can be used with representative Transformer, MLP, and CNN backbones by replacing their native loss. Our contributions are summarized as follows: • We identify an output-level objective gap in direct MTSF: pointwise losses do not explicitly preserve future-horizon coherence or cross-variable relational consistency in direct multivariate forecasting outputs. • We propose CoRe, a model-agnostic objective that combines frequency coher-ence loss with efficient low-rank relational graph alignment without adding trainable parameters or architecture-level changes to the backbone. • We validate CoRe on standard multivariate forecasting benchmarks, showing improvements over strong baselines, competitive objective-level methods, and multiple forecasting backbones across datasets and horizons. CoRe for Multivariate Time Series Forecasting 3
+
+2 Related Work 
+
+2.1 MTSF Architectures and Cross-Variable Dependency Modeling 
+
+MTSF requires modeling both temporal dynamics and dependencies among vari-ables [37, 5]. Early statistical methods [49, 1] have been largely extended by deep architectures, including RNNs [40], CNNs [50], GNNs [9], MLPs [61, 48, 47], and Transformers [22, 24, 4, 58, 18]. A central question in these models is how to repre-sent cross-variable dependencies. Channel Dependence (CD) methods explicitly model cross-channel interactions [62, 34], while recent Channel Partiality (CP) methods filter noisy or redundant dependencies, e.g., DUET [39] with frequency-domain clustering and TimeFilter [10] with patch-specific routing graphs. These approaches mainly improve how the backbone extracts dependencies from historical observations. CoRe is complementary: it does not modify the backbone, but regularizes the structure of the predicted future itself. This dis-tinction is important because a model can learn useful historical dependencies while still producing multivariate forecasts whose output geometry deviates from the target future horizon during forecasting. 
+
+2.2 Direct Forecasting Objectives 
+
+For multi-step forecasting, Iterative Forecasting (IF) recursively predicts future values and naturally preserves label autoregression, but it suffers from error accumulation [14, 41]. Direct Forecasting (DF) predicts the entire horizon in one pass and is widely used for its efficiency and empirical strength [32, 35, 34]. However, standard DF training typically decomposes the future horizon into pointwise targets, weakening explicit supervision over future-label dependencies. Recent learning objectives address this limitation from different angles. Shape-based objectives align temporal trajectories [33, 2], distribution-aware objectives improve probabilistic or likelihood-based supervision [44, 42, 36, 45], and local objectives align steps or patches [57, 13]. FreDF [43] moves direct forecasting supervision into the frequency domain, and Time-o1 [42] further studies objective-level modeling of future temporal dependencies. Related spectral models, such as Autoformer [51], FedFormer [64], and FreTS [60], also show that frequency representations capture periodicity and long-range structure. Unlike these ob-jectives, CoRe jointly regularizes future-horizon coherence and cross-variable relational geometry in the output space. 
+
+3 Proposed Methodology 
+
+3.1 Problem Formulation and Objective Gap 
+
+Let X ∈ RB×L×D denote a batch of historical observations, where B is the batch size, L is the look-back length, and D is the number of variables. Given a forecasting backbone fθ, direct forecasting predicts the full future sequence 
+
+ˆY = fθ(X) ∈ RB×T ×D for a target Y ∈ RB×T ×D.4 X. Lin et al. Input    
+
+> Label
+> Visualization of
+> Variable Original
+> Space PCA Extraction / Projection Scalable Relational Graph Alignment
+> Visualization of Dimensions: k
+> Dimensions: D
+> ×
+> Dimensions:
+> Orthogonal basis matrix
+> Low -rank
+> relation graph
+
+Fig. 1. Overall framework of CoRe, including frequency coherence and low-rank rela-tional graph alignment. 
+
+Most DF models are trained with pointwise losses, e.g., MSE or MAE. These objectives are effective scalar criteria, but they do not explicitly constrain the joint structure of ˆY. We focus on two missing output-level constraints. First, the future horizon has temporal structure: neighboring and periodic labels are correlated, and matching isolated time steps may underconstrain the global trajectory. Second, the multivariate output has relational structure: variables should preserve relative patterns induced by shared latent factors. CoRe addresses this objective gap by replacing pointwise supervision with frequency coherence and low-rank relational graph alignment in the output space. Fig. 1 summarizes the overall framework of CoRe. 
+
+3.2 Frequency Coherence Loss 
+
+The first component aligns predictions and targets at the sequence level by applying the 1D real fast Fourier transform (RFFT) along the temporal dimension to both targets and predicted trajectories: 
+
+˜Y = F(Y), ˆ˜Y = F( ˆY), (1) where ˜Y, ˆ˜Y ∈ CB×F ×D and F = ⌊T / 2⌋ + 1 .The frequency coherence loss averages the complex-modulus distance over all batches, frequencies, and observed variables: 
+
+Lf req = 1
+
+BF D 
+
+> B
+
+X
+
+> b=1
+> F
+
+X 
+
+> f=1
+> D
+
+X
+
+> d=1
+
+ˆ˜Yb,f,d − ˜Yb,f,d . (2) Because the loss compares spectra rather than individual time steps, it constrains both amplitude and phase information of the predicted trajectory. This encourages global temporal agreement, including periodicity and long-range evolution, while remaining independent of the forecasting backbone. CoRe for Multivariate Time Series Forecasting 5
+
+3.3 Low-Rank Relational Graph Alignment 
+
+The second component preserves cross-variable structure in the output space. Directly matching pairwise relations among all D variables costs O(BT D 2) and can be sensitive to noisy high-dimensional correlations. Following recent efforts to explicitly preserve cross-variable relational structure [6], we instead perform the alignment in a target-derived low-rank relational subspace. For each training batch, we center the target sequence over the batch and temporal dimensions. Let ¯Y ∈ R1×1×D be the target mean, and let V ∈ RD×k
+
+contain the top-k orthonormal principal directions computed from the target-side covariance over variables. We project predictions and targets with the same basis: 
+
+Z = ( Y − ¯Y)V, ˆZ = ( ˆY − ¯Y)V, (3) where Z, ˆZ ∈ RB×T ×k. Sharing the target-derived centering and projection gives both outputs a common coordinate system for relational comparison. We then sample unordered latent component pairs E ⊂ { 1, . . . , k }2 and match first-order differences between each sampled pair: 
+
+Lgraph = 1
+
+BT |E| 
+
+> B
+
+X
+
+> b=1
+> T
+
+X
+
+> t=1
+
+X
+
+> (i,j )∈E
+
+ˆZb,t,i − ˆZb,t,j 
+
+
+
+− (Zb,t,i − Zb,t,j ) . (4) This LR-Diff loss penalizes deviations in relative latent responses rather than isolated channel values. After projection, random edge sampling reduces the pairwise comparison cost from O(BT k 2) to O(BT |E| ), making the relational constraint scalable for datasets with many variables. 
+
+3.4 Overall Objective 
+
+CoRe trains the forecasting backbone with a weighted objective that combines the two structural terms used by CoRe: 
+
+Ltotal = αLgraph + (1 − α)Lf req , (5) where α ∈ [0 , 1] controls the trade-off between relational alignment and frequency coherence throughout the objective optimization process. During training, the backbone produces ˆY from the historical input, and CoRe computes both losses directly on the predicted and target future sequences. MSE and MAE are not used as training losses in CoRe; they are kept only as evaluation metrics for comparability. Since CoRe changes only the objective, it can be applied to existing forecasting architectures without adding train-able parameters or modifying the model design. Its extra cost stays in the output space during training: the RFFT over the horizon costs O(BDT log T ),and edge sampling reduces the latent pairwise comparison from O(BT k 2) to 
+
+O(BT |E| ), while inference remains unchanged. 6 X. Lin et al. 
+
+4 Experiments 
+
+4.1 Setup 
+
+Datasets. We use standard multivariate forecasting benchmarks: ETT [17], Weather, ECL, Traffic [51], and PEMS [31]. These datasets cover electricity transformers, meteorological measurements, electricity consumption, freeway traffic occupancy, and traffic sensor networks, and therefore include both low-dimensional and high-dimensional forecasting settings. Following common pro-tocols [34], all datasets are split chronologically into training, validation, and test sets to avoid temporal leakage. The input length is fixed to 96 for ETT, Weather, ECL, and Traffic, with prediction lengths {96 , 192 , 336 , 720 }; for PEMS, the prediction lengths are {12 , 24 , 36 , 48 }.
+
+Baselines. We compare with representative forecasting architectures from three families: Transformer-based models (PatchTST [35], FEDformer [64], iTrans-former [34]), MLP-based models (DLinear [61], TiDE [3], FreTS [60]), and other competitive architectures (TimesNet [50], MICN [46]). Since CoRe is an objective rather than a new backbone, we also compare with objective-level baselines, including FreDF [43] and Time-o1 [42], in the dedicated learning-objective study. 
+
+Implementation. Baselines are reproduced using the scripts from [34] and trained with Adam [11] under the standard MSE objective. We follow the same chrono-logical splits and evaluation protocol for all methods, and disable the drop-last trick during testing following [38]. When applying CoRe to an existing back-bone, we keep the benchmark hyperparameters whenever possible, so that the comparison mainly reflects the effect of the training objective. We tune only the learning rate and two CoRe-specific parameters: the loss weight α and PCA dimension k. The PCA basis is estimated from the target side of each mini-batch, and the same target-derived basis is used to project both predictions and targets. Latent component pairs are sampled uniformly without replace-ment for the relational graph loss, and the selected hyperparameters are chosen on the validation split. Experiments are conducted on Intel(R) Xeon(R) Gold 6248R CPUs and 8 NVIDIA RTX 3090 GPUs. 
+
+4.2 Overall Performance 
+
+Table 1 reports the main long-term forecasting results across nine benchmarks and multiple prediction horizons. CoRe achieves the best average performance on most datasets and remains competitive on the remaining cases, with consistent gains over the iTransformer baseline on both MSE and MAE. The improvements are especially meaningful on high-dimensional benchmarks such as ECL, Traffic, PEMS03, and PEMS08, where modeling variables independently is more likely to distort cross-variable structure. These results suggest that CoRe can improve direct forecasting without changing the underlying architecture. CoRe for Multivariate Time Series Forecasting 7
+
+Table 1. Long-term forecasting results with input length 96 following [34]. Bold denotes the best result and underlined denotes the second-best result for each metric. 
+
+Models CoRe FreDF iTransformer FreTS TimesNet MICN TiDE DLinear PatchTST FEDformer Transformer 
+
+(Ours) (2025) (2024) (2023) (2023) (2023) (2023) (2023) (2023) (2022) (2017) Metrics MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTm1  96 0.308 0.346 0.324 0.362 0.346 0.379 0.339 0.374 0.338 0.379 0.318 0.366 0.364 0.387 0.345 0.372 0.325 0.364 0.389 0.427 0.591 0.549 192 0.360 0.373 0.373 0.385 0.392 0.400 0.382 0.397 0.389 0.400 0.364 0.396 0.398 0.404 0.381 0.390 0.363 0.383 0.402 0.431 0.704 0.629 336 0.393 0.395 0.402 0.404 0.427 0.422 0.421 0.426 0.429 0.428 0.398 0.428 0.428 0.425 0.414 0.414 0.404 0.413 0.438 0.451 1.171 0.861 720 0.462 0.434 0.469 0.444 0.494 0.461 0.485 0.462 0.495 0.464 0.514 0.501 0.487 0.461 0.473 0.451 0.463 0.442 0.529 0.498 1.307 0.893 Avg 0.381 0.387 0.392 0.399 0.415 0.416 0.407 0.415 0.413 0.418 0.399 0.423 0.419 0.419 0.404 0.407 0.389 0.400 0.440 0.451 0.943 0.733 ETTm2  96 0.172 0.250 0.173 0.252 0.184 0.266 0.190 0.282 0.185 0.264 0.178 0.275 0.207 0.305 0.195 0.294 0.180 0.266 0.194 0.284 0.317 0.408 192 0.237 0.294 0.241 0.298 0.257 0.315 0.260 0.329 0.254 0.307 0.240 0.317 0.290 0.364 0.283 0.359 0.285 0.339 0.264 0.324 1.069 0.758 336 0.296 0.333 0.298 0.334 0.315 0.351 0.373 0.405 0.314 0.345 0.299 0.354 0.377 0.422 0.384 0.427 0.309 0.347 0.319 0.359 1.325 0.869 720 0.394 0.391 0.398 0.393 0.419 0.409 0.517 0.499 0.434 0.413 0.482 0.479 0.558 0.524 0.516 0.502 0.437 0.422 0.430 0.424 2.576 1.223 Avg 0.275 0.317 0.278 0.319 0.294 0.335 0.335 0.379 0.297 0.332 0.300 0.356 0.358 0.404 0.344 0.396 0.303 0.344 0.302 0.348 1.322 0.814 ETTh1  96 0.376 0.391 0.382 0.400 0.390 0.410 0.399 0.412 0.422 0.433 0.383 0.418 0.479 0.464 0.396 0.410 0.381 0.400 0.377 0.418 0.796 0.691 192 0.424 0.425 0.430 0.427 0.443 0.441 0.453 0.443 0.465 0.457 0.500 0.491 0.521 0.503 0.449 0.444 0.450 0.443 0.421 0.445 0.813 0.699 336 0.463 0.446 0.474 0.451 0.480 0.457 0.503 0.475 0.492 0.470 0.546 0.530 0.659 0.603 0.487 0.465 0.501 0.470 0.468 0.472 1.181 0.876 720 0.473 0.471 0.463 0.462 0.484 0.479 0.596 0.565 0.532 0.502 0.671 0.620 0.893 0.736 0.516 0.513 0.463 0.492 0.500 0.493 1.182 0.885 Avg 0.434 0.433 0.437 0.435 0.449 0.447 0.488 0.474 0.478 0.466 0.525 0.515 0.628 0.574 0.462 0.458 0.459 0.451 0.441 0.457 0.993 0.788 ETTh2  96 0.285 0.334 0.289 0.337 0.301 0.349 0.350 0.403 0.320 0.364 0.361 0.404 0.400 0.440 0.343 0.396 0.299 0.349 0.347 0.391 2.072 1.140 192 0.363 0.383 0.363 0.385 0.382 0.402 0.472 0.475 0.409 0.417 0.495 0.490 0.528 0.509 0.473 0.474 0.383 0.404 0.430 0.443 5.081 1.814 336 0.409 0.420 0.419 0.426 0.430 0.434 0.564 0.528 0.449 0.451 0.671 0.588 0.643 0.571 0.603 0.546 0.439 0.444 0.469 0.475 3.564 1.475 720 0.413 0.435 0.415 0.437 0.447 0.455 0.815 0.654 0.473 0.474 0.968 0.712 0.874 0.679 0.812 0.650 0.438 0.455 0.473 0.480 2.469 1.247 Avg 0.367 0.393 0.371 0.396 0.390 0.410 0.550 0.515 0.413 0.426 0.624 0.549 0.611 0.550 0.558 0.516 0.390 0.413 0.430 0.447 3.296 1.419 ECL  96 0.143 0.231 0.144 0.233 0.148 0.239 0.189 0.277 0.171 0.273 0.168 0.280 0.237 0.329 0.210 0.302 0.170 0.264 0.200 0.315 0.252 0.352 192 0.158 0.246 0.159 0.247 0.167 0.258 0.193 0.282 0.188 0.289 0.177 0.289 0.236 0.330 0.210 0.305 0.179 0.273 0.207 0.322 0.266 0.364 336 0.171 0.261 0.172 0.263 0.179 0.272 0.207 0.296 0.208 0.304 0.185 0.296 0.249 0.344 0.223 0.319 0.195 0.288 0.226 0.340 0.292 0.383 720 0.202 0.289 0.204 0.294 0.209 0.298 0.245 0.332 0.289 0.363 0.218 0.323 0.284 0.373 0.258 0.350 0.234 0.320 0.282 0.379 0.287 0.371 Avg 0.168 0.257 0.170 0.259 0.176 0.267 0.209 0.297 0.214 0.307 0.187 0.297 0.251 0.344 0.225 0.319 0.195 0.286 0.229 0.339 0.274 0.367 Traffic  96 0.387 0.248 0.391 0.265 0.397 0.272 0.528 0.341 0.504 0.298 0.609 0.317 0.805 0.493 0.697 0.429 0.444 0.284 0.577 0.362 0.686 0.385 192 0.405 0.269 0.410 0.273 0.418 0.279 0.531 0.338 0.526 0.305 0.621 0.328 0.756 0.474 0.647 0.407 0.454 0.291 0.603 0.372 0.679 0.377 336 0.419 0.277 0.424 0.280 0.432 0.286 0.551 0.345 0.540 0.310 0.641 0.342 0.762 0.477 0.653 0.410 0.469 0.298 0.615 0.378 0.663 0.361 720 0.452 0.292 0.460 0.298 0.467 0.305 0.598 0.367 0.570 0.324 0.671 0.354 0.719 0.449 0.694 0.429 0.506 0.319 0.649 0.403 0.693 0.381 Avg 0.416 0.272 0.421 0.279 0.428 0.286 0.552 0.348 0.535 0.309 0.636 0.335 0.760 0.473 0.673 0.419 0.468 0.298 0.611 0.379 0.680 0.376 Weather  96 0.163 0.202 0.164 0.202 0.201 0.247 0.184 0.239 0.178 0.226 0.182 0.250 0.202 0.261 0.197 0.259 0.189 0.230 0.221 0.304 0.332 0.383 192 0.216 0.250 0.220 0.253 0.250 0.283 0.223 0.275 0.227 0.266 0.234 0.301 0.242 0.298 0.236 0.294 0.228 0.262 0.275 0.345 0.634 0.539 336 0.275 0.293 0.275 0.294 0.302 0.317 0.272 0.316 0.283 0.305 0.268 0.325 0.287 0.335 0.282 0.332 0.288 0.305 0.338 0.379 0.656 0.579 720 0.353 0.345 0.356 0.347 0.370 0.362 0.340 0.363 0.359 0.355 0.361 0.399 0.351 0.386 0.347 0.384 0.362 0.354 0.408 0.418 0.908 0.706 Avg 0.251 0.272 0.254 0.274 0.281 0.302 0.255 0.299 0.262 0.288 0.261 0.319 0.271 0.320 0.265 0.317 0.267 0.288 0.311 0.361 0.632 0.552 PEMS03  12 0.066 0.169 0.068 0.172 0.069 0.175 0.083 0.194 0.082 0.188 0.087 0.203 0.117 0.225 0.122 0.245 0.092 0.210 0.123 0.248 0.107 0.209 24 0.093 0.202 0.096 0.205 0.098 0.210 0.127 0.241 0.110 0.216 0.086 0.198 0.233 0.320 0.202 0.320 0.144 0.263 0.160 0.287 0.121 0.227 36 0.122 0.232 0.128 0.240 0.131 0.243 0.169 0.281 0.133 0.236 0.105 0.220 0.380 0.422 0.275 0.382 0.200 0.309 0.191 0.321 0.133 0.243 48 0.155 0.264 0.161 0.269 0.164 0.275 0.204 0.311 0.146 0.251 0.120 0.235 0.536 0.511 0.335 0.429 0.245 0.344 0.223 0.350 0.144 0.253 Avg 0.109 0.217 0.113 0.219 0.116 0.226 0.146 0.257 0.118 0.223 0.099 0.214 0.316 0.370 0.233 0.344 0.170 0.282 0.174 0.302 0.126 0.233 PEMS08  12 0.078 0.179 0.080 0.182 0.085 0.189 0.095 0.204 0.110 0.209 2.193 0.871 0.121 0.231 0.152 0.274 0.106 0.223 0.175 0.275 0.213 0.236 24 0.113 0.213 0.118 0.220 0.131 0.236 0.150 0.259 0.142 0.239 0.235 0.339 0.232 0.326 0.245 0.350 0.162 0.275 0.211 0.305 0.238 0.256 36 0.140 0.233 0.161 0.258 0.182 0.282 0.202 0.305 0.167 0.258 0.197 0.300 0.379 0.428 0.344 0.417 0.234 0.331 0.250 0.338 0.263 0.277 48 0.178 0.265 0.206 0.293 0.236 0.323 0.250 0.341 0.195 0.274 0.242 0.324 0.543 0.527 0.437 0.469 0.301 0.382 0.293 0.371 0.283 0.295 Avg 0.127 0.222 0.141 0.238 0.159 0.258 0.174 0.277 0.154 0.245 0.717 0.459 0.319 0.378 0.294 0.377 0.201 0.303 0.232 0.322 0.249 0.266 
+
+1st Count 37 40 2 2 0 0 0 0 1 0 5 4 0 0 0 0 0 0 1 0 0 0
+
+Qualitative forecasts. Fig. 2 visualizes representative forecasts from ETTh2, Weather, and ECL. Standard DF captures the coarse trend in many cases, but it often smooths local fluctuations, underestimates sharp changes, or misses repeated peaks. In contrast, CoRe produces trajectories that stay closer to the ground truth, especially around short-term variations in ETTh2 and Weather and recurring peak patterns in ECL. These qualitative results are consistent with the design of CoRe: frequency coherence encourages global temporal alignment, while relational alignment discourages forecasts that fit each variable independently but distort the multivariate structure of future outputs. 
+
+(a) ETTh2 snapshot. (b) Weather snapshot. (c) ECL snapshot. 
+
+Fig. 2. Forecast sequences of Ground Truth (black), DF (orange), and CoRe (blue), with historical length H = 96 in each case. 8 X. Lin et al. 
+
+4.3 Ablation studies 
+
+Table 2 ablates the two components of CoRe. CoRe † keeps the frequency coherence loss and removes the low-rank relational graph loss, while CoRe ‡ keeps the relational graph loss and removes the frequency term. This design separates the temporal and cross-variable parts of the objective while leaving the backbone and training protocol unchanged. Both variants improve over the MSE baseline, indicating that temporal coherence and cross-variable relational alignment are individually useful for direct forecasting accuracy. The graph-only variant is particularly effective on ETTh1, ECL, and short-horizon Weather, suggesting that preserving cross-variable relationships is impor-tant when the target variables are strongly coupled. The frequency-only variant remains competitive on ETTm1 and long-horizon Weather, where temporal structure and repeated patterns are prominent. Combining both components gives the strongest overall results, which supports the view that the two losses address different failure modes of pointwise supervision rather than acting as redundant regularizers during model training and evaluation. 
+
+Table 2. Ablation study results.                                                                                                                                                                
+
+> Model Fre. Gra. Data T=96 T=192 T=336 T=720 Avg MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE %%
+> ETTm1 0.346 0.379 0.391 0.400 0.426 0.422 0.493 0.460 0.414 0.415 ETTh1 0.390 0.409 0.442 0.440 0.479 0.457 0.483 0.479 0.449 0.446 ECL 0.147 0.239 0.166 0.258 0.178 0.271 0.209 0.298 0.175 0.266 Weather 0.201 0.246 0.250 0.282 0.302 0.317 0.370 0.361 0.280 0.302 CoRe †!%
+> ETTm1 0.324 0.362 0.372 0.385 0.402 0.404 0.468 0.443 0.391 0.398 ETTh1 0.381 0.400 0.430 0.426 0.474 0.451 0.470 0.465 0.439 0.436 ECL 0.144 0.233 0.160 0.250 0.174 0.265 0.204 0.293 0.171 0.260 Weather 0.166 0.205 0.220 0.252 0.274 0.293 0.356 0.346 0.254 0.274 CoRe ‡%!
+> ETTm1 0.335 0.370 0.382 0.392 0.415 0.412 0.480 0.452 0.403 0.406 ETTh1 0.380 0.398 0.429 0.424 0.468 0.448 0.459 0.455 0.434 0.431 ECL 0.145 0.236 0.158 0.248 0.172 0.263 0.206 0.295 0.170 0.261 Weather 0.164 0.203 0.219 0.251 0.285 0.300 0.360 0.350 0.257 0.278 CoRe !!
+> ETTm1 0.308 0.346 0.360 0.373 0.393 0.395 0.462 0.434 0.381 0.387
+> ETTh1 0.376 0.391 0.424 0.425 0.463 0.446 0.450 0.449 0.428 0.428
+> ECL 0.143 0.231 0.156 0.246 0.169 0.259 0.202 0.289 0.168 0.256
+> Weather 0.161 0.200 0.216 0.250 0.272 0.291 0.353 0.345 0.251 0.272
+> Note :Bold and underlined denote best and second-best results, respectively. “Fre.” and “Gra.” are abbreviations for frequency and graph.
+
+4.4 Learning objective comparison 
+
+Table 3 compares CoRe with recent time-series learning objectives, including Time-o1 [42], FreDF [43], Koopman [15], DILATE [16], and Soft-DTW [2]. For a fair comparison, we integrate their official implementations into iTransformer [34] and keep the same backbone, data splits, and evaluation metrics. This setting isolates the effect of the objective design from architectural differences. CoRe for Multivariate Time Series Forecasting 9
+
+Table 3. Comparable results with other objectives for time-series forecast.                                                                                
+
+> Loss CoRe Time-o1 FreDF Koopman Dilate Soft-DTW MSE Metrics MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE iTransformer ETTm1 0.381 0.387 0.395 0.401 0.405 0.405 0.413 0.416 0.407 0.412 0.417 0.415 0.411 0.414 ETTh1 0.428 0.428 0.438 0.434 0.442 0.437 0.455 0.451 0.452 0.448 0.470 0.457 0.452 0.448 ECL 0.168 0.256 0.170 0.260 0.176 0.264 0.178 0.269 0.178 0.269 0.175 0.266 0.179 0.270 Weather 0.251 0.272 0.251 0.272 0.257 0.276 0.289 0.313 0.286 0.309 0.292 0.316 0.269 0.289
+> Note :Bold and underlined denote best and second results. Follow the settings of Time-o1 [42]
+
+As shown in Table 3, CoRe achieves the best or tied-best results across the four datasets. It improves over the MSE baseline on both MSE and MAE, supporting the benefit of replacing purely pointwise supervision with structural output constraints. Compared with FreDF and Time-o1, CoRe remains competitive on Weather and yields clearer gains on ETTm1, ETTh1, and ECL. These results suggest that cross-variable relational consistency provides information complementary to temporal objective design, especially in multivariate settings where variables should not be optimized independently. 
+
+4.5 Generalization Studies 
+
+Varying forecast models. Figure 3 integrates CoRe with iTransformer [34], Times-Net [50], DLinear [61], and PatchTST [35], covering Transformer, convolutional, linear, and patch-based forecasting designs. CoRe improves both MSE and MAE for all reported backbone–dataset combinations, with larger gains on challeng-ing datasets such as Weather, ETTm2, and ECL. The consistency across these heterogeneous models indicates that CoRe is not compensating for a particular architectural weakness. Instead, it provides a model-agnostic training signal that can be attached to different direct forecasting backbones. 
+
+Varying relational graph loss variants. We compare three relational graph losses, each combined with the same frequency coherence loss and the same training protocol. • LR-Diff. This is the default relational loss used in CoRe. It projects predictions and targets into the target-derived PCA subspace and matches first-order differences between randomly sampled latent component pairs. • Cov. It aligns prediction and ground-truth covariance matrices in the original variable space after separate centering, providing a global constraint on cross-variable dependency among the observed variables. • PCA-Cov. It uses the same target-derived PCA projection as LR-Diff, but replaces sampled pairwise difference matching with covariance alignment in the low-rank subspace of latent variables. As shown in Table 4, LR-Diff performs best in most cases. Cov and PCA-Cov are also competitive, showing that covariance-based relational alignment can improve multivariate forecasting. However, they are generally weaker than LR-Diff, possibly because global covariance statistics discard fine-grained pairwise 10 X. Lin et al. iTrans. Times. DLine. Patch.        
+
+> 23
+> 22
+> 21
+> MSE
+> with CoRe w/o CoRe
+> -8.2% -6.3% -4.7% -8.0%
+
+(a) ETTm1 with MSE iTrans. Times. DLine. Patch.         
+
+> 23
+> 22
+> 21
+> MAE
+> with CoRe w/o CoRe
+> -7.0% -5.3% -3.7% -6.0%
+
+(b) ETTm1 with MAE iTrans. Times. DLine. Patch.      
+
+> 23
+> 22
+> MSE
+> with CoRe w/o CoRe
+> -6.5% -6.1% -9.3% -9.9%
+
+(c) ETTm2 with MSE iTrans. Times. DLine. Patch.       
+
+> 23
+> 22
+> 21
+> MAE
+> with CoRe w/o CoRe
+> -5.4% -4.2% -7.8% -8.1%
+
+(d) ETTm2 with MAE iTrans. Times. DLine. Patch.        
+
+> 23
+> 22
+> 21
+> MSE
+> with CoRe w/o CoRe
+> -3.3% -4.6% -3.0% -5.0%
+
+(e) ETTh1 with MSE iTrans. Times. DLine. Patch.         
+
+> 23
+> 22
+> 21
+> MAE
+> with CoRe w/o CoRe
+> -3.1% -3.0% -2.4% -4.2%
+
+(f) ETTh1 with MAE iTrans. Times. DLine. Patch.       
+
+> 23
+> 22
+> 21
+> MSE
+> with CoRe w/o CoRe
+> -5.9% -7.5% -6.5% -6.9%
+
+(g) ETTh2 with MSE iTrans. Times. DLine. Patch.       
+
+> 23
+> 22
+> 21
+> MAE
+> with CoRe w/o CoRe
+> -4.1% -5.2% -4.8% -5.1%
+
+(h) ETTh2 with MAE iTrans. Times. DLine. Patch.     
+
+> 23
+> 22
+> MSE
+> with CoRe w/o CoRe
+> -4.5% -7.5% -4.4% -9.2%
+
+(i) ECL with MSE iTrans. Times. DLine. Patch.      
+
+> 23
+> 22
+> MAE
+> with CoRe w/o CoRe
+> -3.7% -5.2% -3.4% -7.0%
+
+(j) ECL with MAE iTrans. Times. DLine. Patch.        
+
+> 23
+> 22
+> MSE
+> with CoRe w/o CoRe
+> -10.7% -9.9% -7.5% -6.0%
+
+(k) Weather with MSE iTrans. Times. DLine. Patch.      
+
+> 23
+> 22
+> MAE
+> with CoRe w/o CoRe
+> -9.9% -7.3% -5.7% -4.2%
+
+(l) Weather with MAE 
+
+Fig. 3. Effect of incorporating CoRe into different forecasting backbones across six datasets in our experiments and evaluation protocol. 
+
+differences that are directly relevant to preserving relative variable behavior. We therefore use LR-Diff as the default relational graph loss in CoRe. 
+
+4.6 Hyperparameter Sensitivity 
+
+Sensitivity of loss weight α. We vary the loss weight α from 0 to 1 on ECL, ETTm1, Weather, and ETTh2 with prediction lengths T = 192 and T = 336 . As shown in Fig. 4, MSE and MAE change smoothly in most cases, without abrupt degradation when α moves away from the best value. This indicates that CoRe does not require delicate balancing between the frequency coherence loss and the low-rank relational graph loss. In practice, a broad range of intermediate weights provides stable gains, which is important when transferring the objective to new forecasting datasets and backbones. 
+
+Sensitivity of PCA dimension k. We further evaluate the PCA dimension k
+
+in Fig. 5. CoRe remains stable across a range of values, suggesting that the low-rank projection is not highly sensitive to this choice. Low-dimensional ETT datasets typically prefer most available components, which is expected because only a few variables are present and discarding components can remove useful signal. High-dimensional datasets exhibit more dataset-specific optima: ECL, PEMS03, and PEMS08 benefit from relatively larger subspaces, while Weather and Traffic can perform well with more compact projections. This behavior CoRe for Multivariate Time Series Forecasting 11 
+
+Table 4. Comparison of different graph loss variants. Data Variant T=96 T=192 T=336 T=720 Avg MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTm1  Diff 0.308 0.346 0.360 0.373 0.393 0.395 0.462 0.434 0.381 0.387 
+
+Cov 0.325 0.360 0.373 0.385 0.404 0.405 0.468 0.442 0.392 0.398 PCA-Cov 0.326 0.361 0.373 0.385 0.404 0.405 0.468 0.442 0.393 0.398 ETTm2  Diff 0.172 0.250 0.237 0.294 0.296 0.333 0.394 0.391 0.275 0.317 
+
+Cov 0.173 0.251 0.239 0.296 0.298 0.334 0.396 0.391 0.276 0.318 PCA-Cov 0.174 0.252 0.238 0.295 0.296 0.333 0.395 0.391 0.276 0.318 ETTh1  Diff 0.376 0.391 0.424 0.425 0.463 0.446 0.473 0.471 0.434 0.433 
+
+Cov 0.382 0.396 0.426 0.427 0.472 0.446 0.492 0.477 0.443 0.436 PCA-Cov 0.382 0.396 0.426 0.427 0.469 0.448 0.495 0.476 0.443 0.437 ETTh2  Diff 0.285 0.334 0.363 0.383 0.409 0.420 0.413 0.435 0.367 0.393 
+
+Cov 0.285 0.335 0.364 0.384 0.412 0.421 0.417 0.437 0.369 0.394 PCA-Cov 0.285 0.335 0.363 0.384 0.412 0.421 0.416 0.437 0.369 0.394 ECL  Diff 0.143 0.231 0.158 0.246 0.171 0.261 0.202 0.289 0.168 0.257 
+
+Cov 0.144 0.233 0.159 0.248 0.172 0.263 0.205 0.291 0.170 0.259 PCA-Cov 0.144 0.233 0.159 0.248 0.172 0.263 0.205 0.293 0.170 0.259 Weather  Diff 0.163 0.202 0.216 0.250 0.275 0.293 0.353 0.345 0.252 0.272 
+
+Cov 0.163 0.202 0.217 0.251 0.277 0.294 0.354 0.346 0.253 0.273 PCA-Cov 0.165 0.203 0.217 0.252 0.275 0.294 0.354 0.346 0.253 0.274 
+
+suggests that the PCA projection preserves dominant relational structure while filtering redundant or noisy cross-variable variation. 
+
+(a) ECL MSE (b) ECL MAE (c) ETTm1 MSE (d) ETTm1 MAE 
+
+(e) Weather MSE (f) Weather MAE (g) ETTh2 MSE (h) ETTh2 MAE 
+
+Fig. 4. Sensitivity to the loss weight α for prediction lengths T = 192 and T = 336 .
+
+5 Conclusion 
+
+We introduced CoRe, a model-agnostic objective for direct multivariate time-series forecasting. Rather than relying solely on pointwise errors, CoRe imposes two complementary structural constraints on the predicted future: frequency co-herence alignment for temporal structure and low-rank relational graph alignment 12 X. Lin et al. 
+
+(a) ETTh1 (b) ETTh2 (c) ETTm1 (d) ETTm2 
+
+(e) ECL (f) PEMS03 (g) PEMS08 (h) Weather (i) Traffic 
+
+Fig. 5. Effect of the number of principal components k across datasets. The orange marker indicates the best k selected by MSE. 
+
+for cross-variable consistency. It can be applied to existing forecasting backbones without architectural changes or additional trainable parameters. Experiments on standard benchmarks show consistent improvements across strong baselines and different backbones. Ablation and sensitivity analyses further confirm the complementarity and robustness of the two components, supporting output-space structural supervision as an effective approach to multivariate forecasting. Ex-tending the relational term beyond a linear low-rank basis is a natural next step. 
+
+References 
+
+1. Asteriou, D., Hall, S.G.: Arima models and the box–jenkins methodology. Applied Economics 2(2), 265–286 (2011) 2. Cuturi, M., Blondel, M.: Soft-dtw: a differentiable loss function for time-series. In: Proc. Int. Conf. Mach. Learn. pp. 894–903. PMLR (2017) 3. Das, A., Kong, W., Leach, A., Sen, R., Yu, R.: Long-term forecasting with tide: Time-series dense encoder. arXiv preprint arXiv:2304.08424 (2023) 4. Ding, K., Fan, F., Hou, C., Wang, Z., Wang, L., Yang, Z., Zhan, J.: Timemosaic: Temporal heterogeneity guided time series forecasting via adaptive granularity patch and segment-wise decoding. Proceedings of the AAAI Conference on Artificial Intelligence (2026) 5. Ding, K., Fan, F., Wang, Y., Jian, R., Wang, X., Gong, L., Jiang, Y., Luo, C., Zhan, J.: Dualsg: A dual-stream explicit semantic-guided multivariate time series forecasting framework. In: Proceedings of the 33rd ACM International Conference on Multimedia (2025) 6. Ding, K., Hu, Y., Wang, H., Xue, H.: Multivariate time series forecasting needs cross variable loss (2026) 7. Feng, W., Yang, C., Qin, H., et al.: Mpq-dmv2: Flexible residual mixed preci-sion quantization for low-bit diffusion models with temporal distillation. IEEE Transactions on Pattern Analysis and Machine Intelligence (2026) 8. Feng, W., Yang, C., Qin, H., et al.: S 2 Q-VDiT +: Accurate quantized video diffu-sion transformer with multi-resolution sampling and structural distillation. IEEE Transactions on Pattern Analysis and Machine Intelligence (2026) CoRe for Multivariate Time Series Forecasting 13 9. Hou, C., Yu, Y., Ji, J., Zhang, S., Shen, X., Yan, J.: Graph-patchformer: Patch interaction transformer with adaptive graph learning for multivariate time series forecasting. Neural Networks 194 , 108140 (2026) 10. Hu, Y., Zhang, G., Liu, P., Lan, D., Li, N., Cheng, D., Dai, T., Xia, S.T., Pan, S.: Timefilter: Patch-specific spatial-temporal graph filtration for time series forecasting. In: Forty-second International Conference on Machine Learning (2025) 11. Kingma, D.P., Ba, J.: Adam: A method for stochastic optimization. In: ICLR. pp. 1–9 (2015) 12. Kong, Z., Li, Y., Zeng, F., Xin, L., et al.: Token reduction should go beyond efficiency in generative models–from vision, language to multimodality. arXiv preprint arXiv:2505.18227 (2025) 13. Kudrat, D., Xie, Z., Sun, Y., Jia, T., Hu, Q.: Patch-wise structural loss for time series forecasting. In: Forty-second International Conference on Machine Learning (2025) 14. Lai, G., Chang, W.C., Yang, Y., Liu, H.: Modeling long-and short-term temporal patterns with deep neural networks. In: SIGIR (2018) 15. Lange, H., Brunton, S.L., Kutz, J.N.: From fourier to koopman: Spectral methods for long-term time series prediction. Journal of Machine Learning Research 22 (41), 1–38 (2021) 16. Le Guen, V., Thome, N.: Shape and time distortion loss for training deep time series forecasting models. Proc. Adv. Neural Inf. Process. Syst. 32 (2019) 17. Li, J., Hui, X., Zhang, W.: Informer: Beyond efficient transformer for long se-quence time-series forecasting. In: The Thirty-Fifth AAAI Conference on Artificial Intelligence (2021) 18. Li, X., Xia, Y., Zhao, X., Xu, Y., Liu, Y., Lu, C., Long, Y., Ma, Y., Cao, J., Fan, L., Xu, Y.: Grace: Grounded reasoning via adapter composition and evidence-aware calibration for educational visual question answering (2026) 19. Li, Y., Lu, L., Kong, Z., Wang, Y., Zhao, P., Lin, X.: Diff-stygs: 3d gaussian splatting stylization via tuning-free multi-view sparse diffusion. In: International Conference on Pattern Recognition (2026) 20. Li, Y., Yang, N., Yin, S., Thogarrati, S., Chang, S.E.o.: Mrmad: A multi-round multi-audio benchmark for evaluating acoustic degradation perception in large audio-language models. arXiv preprint arXiv:2608.22236 (2026) 21. Li, Y., Zhang, Y., Liu, S., Lin, X.: Pruning then reweighting: Towards data-efficient training of diffusion models. In: ICASSP (2025) 22. Li, Y., Ding, K., Yang, C., Chen, S.Y., Tian, Y.: Distilling time series foundation models for efficient forecasting. In: ICASSP (2026) 23. Li, Y., Ding, K., Yang, C., Wang, H., Wang, H., Duan, H., Liu, J., Tian, Y.: Ddtime: Dataset distillation with spectral alignment and information bottleneck for time-series forecasting. arXiv preprint arXiv:2511.16715 (2025) 24. Li, Y., Ding, K., Yang, C., Wang, H., Wang, H., Duan, H., Liu, J., Tian, Y.: Ddtime: Dataset distillation with spectral alignment and information bottleneck for time-series forecasting (2025) 25. Li, Y., Dong, J., Zeng, H., Zhang, F., Dong, Z., Yang, C., Tian, Y.: Towards robust medical image segmentation: Spectro-spatial domain generalization with mram and dmir. Computer Vision and Image Understanding (2026) 26. Li, Y., Meng, S., Yang, C., Feng, W., Liu, J., An, Z., Wang, Y., Tian, Y.: A comprehensive survey of interaction techniques in 3d scene generation. IJCAI (2026) 14 X. Lin et al. 27. Li, Y., Xiao, X., Zhang, Y., Zhao, L., Li, Y., Zhao, A., Wang, T., Xu, H., Tian, Y.: Rethinking layer-wise information allocation for vision foundation model adaptation. arXiv preprint arXiv:2607.21973 (2026) 28. Li, Y., Yang, C., Zeng, H., Dong, Z., An, Z., Xu, Y., Tian, Y., Wu, H.: Frequency-aligned knowledge distillation for lightweight spatiotemporal forecasting. In: Pro-ceedings of the IEEE/CVF International Conference on Computer Vision. pp. 7262–7272 (2025) 29. Li, Y., Zeng, H., Zhang, F., Yang, C., Li, Y., Ding, W.: Efficient Medical Im-age Segmentation via Reinforcement Learning-Driven K-Space Sampling. IEEE Transactions on Emerging Topics in Computational Intelligence (2025) 30. Lin, Z., Zhao, K., Zhang, S., Yu, P., Xiao, C.: Cec-zero: Zero-supervision character error correction with self-generated rewards. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 40, pp. 23612–23620 (2026) 31. Liu, M., Zeng, A., Chen, M., Xu, Z., Lai, Q., Ma, L., Xu, Q.: Scinet: time series modeling and forecasting with sample convolution and interaction. In: Advances in Neural Information Processing Systems (2022) 32. Liu, S., Ghosh, R., Motani, M.: Towards better long-range time series forecasting using generative forecasting. CoRR abs/2212.06142 (2022) 33. Liu, X., Li, N., Xia, S.T.: Gdtw: A novel differentiable dtw loss for time series tasks. In: ICASSP. IEEE (2021) 34. Liu, Y., Hu, T., Zhang, H., Wu, H., Wang, S., Ma, L., Long, M.: itransformer: Inverted transformers are effective for time series forecasting. In: ICLR (2024) 35. Nie, Y., Nguyen, N.H., Sinthong, P., Kalagnanam, J.: A time series is worth 64 words: Long-term forecasting with transformers. In: ICLR (2023) 36. Pan, L., Wang, H., Yang, H., Li, Y., Wen, Q., Li, X., Chen, Z., Li, H., Chu, Z., Lu, Y.: Deep time-series forecasting needs kernelized moment balancing (2026) 37. Qiu, X., Cheng, H., Wu, X., Lu, J., Hu, J., Guo, C., Jensen, C.S., Yang, B.: A comprehensive survey of deep learning for multivariate time series forecasting: A channel strategy perspective (2026) 38. Qiu, X., Hu, J., Zhou, L., Wu, X., Du, J., Zhang, B., Guo, C., Zhou, A., Jensen, C.S., Sheng, Z., Yang, B.: Tfb: Towards comprehensive and fair benchmarking of time series forecasting methods. In: VLDB. pp. 2363–2377 (2024) 39. Qiu, X., Wu, X., Lin, Y., Guo, C., Hu, J., Yang, B.: Duet: Dual clustering enhanced multivariate time series forecasting. In: SIGKDD. pp. 1185–1196 (2025) 40. Salinas, D., Flunkert, V., Gasthaus, J., Januschowski, T.: Deepar: Probabilistic fore-casting with autoregressive recurrent networks. International Journal of Forecasting 
+
+36 (3), 1181–1191 (2020) 41. Taieb, S.B., Atiya, A.F.: A bias and variance analysis for multistep-ahead time series forecasting. IEEE Transactions on Neural Networks and Learning Systems 
+
+27 (1), 62–76 (2015) 42. Wang, H., Pan, L., Chen, Z., Chen, X., Dai, Q., Wang, L., Li, H., Lin, Z.: Time-o1: Time-series forecasting needs transformed label alignment. Proc. Adv. Neural Inf. Process. Syst. (2025) 43. Wang, H., Pan, L., Chen, Z., Yang, D., Zhang, S., Yang, Y., Liu, X., Li, H., Tao, D.: Fredf: Learning to forecast in the frequency domain. In: ICLR (2025) 44. Wang, H., Pan, L., Lu, Y., Chen, Z., et al.: Quadratic direct forecast for training multi-step time-series forecast models. In: ICLR (2026) 45. Wang, H., Pan, L., Lu, Y., Chu, Z., Li, X., He, S., Chen, Z., Li, H., Wen, Q., Lin, Z.: Distdf: Time-series forecasting needs joint-distribution wasserstein alignment. In: Proc. Int. Conf. Learn. Represent. pp. 1–9 (2026) CoRe for Multivariate Time Series Forecasting 15 46. Wang, H., Peng, J., Huang, F., Wang, J., Chen, J., Xiao, Y.: Micn: Multi-scale local and global context modeling for long-term series forecasting. In: ICLR (2023) 47. Wang, S., Li, J., Shi, X., Ye, Z., Mo, B., Lin, W., Ju, S., Chu, Z., Jin, M.: Timemixer++: A general time series pattern machine for universal predictive analysis. arXiv preprint arXiv:2410.16032 (2024) 48. Wang, S., Wu, H., Shi, X., Hu, T., Luo, H., Ma, L., Zhang, J.Y., ZHOU, J.: Timemixer: Decomposable multiscale mixing for time series forecasting. In: ICLR (ICLR) (2024) 49. Watson, M.W.: Vector autoregressions and cointegration. Working Paper Series, Macroeconomic Issues 4 (1993) 50. Wu, H., Hu, T., Liu, Y., Zhou, H., Wang, J., Long, M.: Timesnet: Temporal 2d-variation modeling for general time series analysis. In: ICLR (2023) 51. Wu, H., Xu, J., Wang, J., Long, M.: Autoformer: Decomposition transformers with Auto-Correlation for long-term series forecasting. In: Advances in Neural Information Processing Systems (2021) 52. Wu, H., Li, Y., Gao, Y., Xu, F., Zhang, F., Wang, K., Zhao, P., Wang, Q., Zhao, Y., Wang, W., et al.: Roboalign-r1: Distilled multimodal reward alignment for robot video world models. arXiv preprint arXiv:2605.03821 (2026) 53. Xiao, C., Dou, J., Lin, Z., Ke, Z., Hou, L.: From points to coalitions: Hierarchical contrastive shapley values for prioritizing data samples. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 40, pp. 15995–16003 (2026) 54. Xiao, C., Hou, L.: Prototype-aligned federated soft-prompts for continual web personalization. In: Proceedings of the ACM Web Conference 2026 (2026) 55. Xiao, C., Xu, T., Ma, S., Jiang, Y., Gao, H., Wu, Y.: Reversible primitive– composition alignment for continual vision–language learning. In: ICLR (2026) 56. Xie, Y., Xiang, Y., You, H., Liu, N., Liu, F., Zhao, B., Kang, Z., Li, Y., Li, Y.: Symmetry-aware causal inference for robust neural pde solvers. In: Proceedings of the 2026 International Conference on Multimedia Retrieval (2026) 57. Xiong, Q., Tang, K., Ma, M., Zhang, J., Xu, J., Li, T.: Modeling temporal depen-dencies within the target for long-term time series forecasting. IEEE Transactions on Knowledge and Data Engineering (2025) 58. Xu, Y., Hong, Z., Yang, Z., Li, X., Ma, Y.: Chain-aware encoding for microservice trace anomaly detection (2026) 59. Yang, N., Li, Y., Cuji, D.A., Corey, R.M., Zhao, P., Lin, X., Singer, A.C.: A survey of advancing audio super-resolution and bandwidth extension from discriminative to generative models. arXiv preprint arXiv:2605.16681 (2026) 60. Yi, K., Zhang, Q., Fan, W., Wang, S., Wang, P., He, H., An, N., Lian, D., Cao, L., Niu, Z.: Frequency-domain mlps are more effective learners in time series forecasting. In: Proc. Adv. Neural Inf. Process. Syst. (2023) 61. Zeng, A., Chen, M., Zhang, L., Xu, Q.: Are transformers effective for time series forecasting? In: Proc. AAAI Conf. Artif. Intell. (2023) 62. Zhang, Y., Yan, J.: Crossformer: Transformer utilizing cross-dimension dependency for multivariate time series forecasting. In: ICLR (2023) 63. Zhao, B., Yu, H., Liu, L., Chu, Z., Liu, Y., Liu, C., Chen, S.Y., Xie, Z.: Mis-hcc: Hierarchical channel clustering for efficient medical image segmentation. arXiv preprint arXiv:2607.17329 (2026) 64. Zhou, T., Ma, Z., Wen, Q., Wang, X., Sun, L., Jin, R.: FEDformer: Frequency enhanced decomposed transformer for long-term series forecasting. In: International Conference on Machine Learning. pp. 27268–27286. PMLR (2022)

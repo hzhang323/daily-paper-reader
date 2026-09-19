@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-18</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-19</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 5 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>2</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-18 21:55:57 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-19 21:38:58 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-18 日报完成：10 篇论文中精读 7 篇、速读 3 篇，多元时间序列预测成为今日最强主线。最值得看的是双 9 分工作——CoRe 用一致性与关系对齐、SETTer 用稀疏编码器 Transformer 攻长期预测；下步建议普通读者先从这两篇入手，理解长时序建模的核心思路，再按需扫读速读列表。</p>
+<p>今日从5篇中精读2篇、速读3篇，主线是长时程智能体的安全校准与多轮指令遵循评测。</p>
+<p>最值得看的是BLINDSPOT（9.0）对长时程工具智能体&quot;该拒答时能否拒答&quot;的安全盲区基准，以及MTAC-IFBench（8.0）把指令遵循评测推进到多轮编码场景；SIMLIFE与EconSkills则分别补充人机长期协作和真实经济数据下的技能迁移视角。</p>
+<p>普通读者不妨先看这两篇基准的失败案例与结论，再借SIMLIFE、EconSkills了解智能体在真实长期任务中容易踩的坑。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">2 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CoRe: Coherence and Relational Alignment for Multivariate Time Series Forecasting">CoRe: Coherence and Relational Alignment for Multivariate Time Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="SETTer: Sparse-Encoder Transformer for Long-term Multivariate Time Series Forecasting">SETTer: Sparse-Encoder Transformer for Long-term Multivariate Time Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="QUALS: Corpus Equilibrium for Universal Forecasting via Pattern Quantization and Learnability Synchronization">QUALS: Corpus Equilibrium for Universal Forecasting via Pattern Quantization and Learnability Synchronization</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="BLINDSPOT: A Benchmark for Safety and Refusal Calibration in Long-Horizon Tool-Using Agents">BLINDSPOT: A Benchmark for Safety and Refusal Calibration in Long-Horizon Tool-Using Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="MTAC-IFBench: Benchmarking Instruction-Following in Multi-Turn Agentic Coding">MTAC-IFBench: Benchmarking Instruction-Following in Multi-Turn Agentic Coding</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +89,7 @@
     <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Bad Genius: Counterfactual-Guided Harness Evolution Beyond Task-Specific Shortcuts">Bad Genius: Counterfactual-Guided Harness Evolution Beyond Task-Specific Shortcuts</span></li><li><span class="dpr-home-dashboard-paper-title" title="Mo&#x27; Models, Mo&#x27; Problems: How to best select model pools when designing Multi-Agent Systems">Mo&#x27; Models, Mo&#x27; Problems: How to best select model pools when designing Multi-Agent Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="TuiML: Machine Learning for AI Agents">TuiML: Machine Learning for AI Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SIMLIFE: Pattern Understanding for Long-Horizon Human-Agent Partnership">SIMLIFE: Pattern Understanding for Long-Horizon Human-Agent Partnership</span></li><li><span class="dpr-home-dashboard-paper-title" title="The natural components of an autoregressive time series on Banach space">The natural components of an autoregressive time series on Banach space</span></li><li><span class="dpr-home-dashboard-paper-title" title="EconSkills: Studying Skill Transfer and Retrieval for Web Agents on Live Economic Data">EconSkills: Studying Skill Transfer and Retrieval for Web Agents on Live Economic Data</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>1</strong></span></div>
 </section>

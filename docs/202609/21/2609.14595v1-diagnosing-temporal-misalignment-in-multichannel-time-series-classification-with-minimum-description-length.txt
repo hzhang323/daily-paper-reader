@@ -1,0 +1,586 @@
+Title: Diagnosing Temporal Misalignment in Multichannel Time-Series Classification with Minimum Description Length
+
+URL Source: https://arxiv.org/pdf/2609.14595v1
+
+Published Time: Tue, 15 Sep 2026 01:27:54 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Diagnosing Temporal Misalignment in Multichannel Time-Series Classification via Minimum Description Length 
+
+## Sebastian Buschjäger 1, Michael Frichert 2, Daniel Kuhse 2, Jian-Jia Chen 3
+
+> 1
+
+Lamarr Institute, TU Dortmund University, Germany 
+
+> 2
+
+DAES Group, TU Dortmund University, Germany 
+
+> 2
+
+Cyber-Physical Systems, RWTH Aachen, Germany {sebastian.buschjaeger,michael.frichert,daniel.kuhse}@tu-dortmund.de, jian-jia.chen@cps.rwth-aachen.de 
+
+Abstract 
+
+Multichannel time-series classification commonly assumes synchronized sensor streams, although latency, clock drift, and preprocessing can introduce relative delays during data collection or after deployment. Existing synchronization so-lutions are often hardware-specific and difficult to apply retro-spectively. Consequently, synchronization problems may re-main undetected while classification performance is subopti-mal. We introduce a classifier- and label-free diagnostic based on minimum description length (MDL). Our method applies candidate temporal shifts to sensor groups and measures how efficiently one group can be encoded through a representation of the remaining channels. An increased codelength indicates that the shift destroys shared temporal structure, whereas the minimum identifies the alignment most strongly supported by the data. Unlike learned synchronization methods, the diag-nostic requires neither retraining nor a trusted aligned ref-erence and can therefore test both training and deployment data for misalignments. Experiments on two controlled syn-thetic tasks and nine real-world datasets show that the metric exposes alignment structure and can recover accuracy un-der induced deployment drift. A whole-dataset audit further identifies stable nonzero MDL optima in established bench-marks including FordChallenge, Opportunity, PAMAP2, and UCIActivity, revealing potential systematic offsets that con-ventional model evaluation does not expose. Our method thus provides a general-purpose tool for detecting, understanding, and correcting temporal misalignment throughout the time-series learning pipeline. Our code is available under https: //github.com/sbuschjaeger/mdl-temporal-misalignment. 
+
+## Introduction 
+
+Multivariate time-series classification is central to many ap-plications in which several sensors observe the same under-lying process over time. Examples include human activity recognition from wearable sensors, physiological monitor-ing, industrial process control, scientific instrumentation, and cyber-physical systems (Varela 2000; Zhang et al. 2020; Shri-vastava et al. 2016). In these settings, the individual channels are usually not arbitrary features: they are simultaneous mea-surements of a shared temporal event. As a result, many clas-sification tasks depend not only on the values observed within each channel, but also on the relative timing among these channels. This dependence on synchronization is often taken for granted. Most multichannel time-series classifiers assume that the channels are already aligned, or that any remaining timing errors are small enough to be ignored (Aeberhard and Kaempchen 2011; Kuhse et al. 2024). In practice, however, perfect synchronization is difficult to guarantee. Sensors may have different sampling rates, buffering delays, clock drift, preprocessing pipelines, or communication latencies. Even in highly controlled scientific settings, timing and synchro-nization remain a practical challenge (Varela 2000; Damerau 2018; Moscardi et al. 2025). The impact of temporal misalignment is task-dependent. In some cases, a temporal shift has only little effect. If the label depends mostly on one channel, channel-wise magni-tudes, or slowly varying trends, then moderate shifts may not substantially change the relevant information. However, if the label is determined by the relative timing between the channels, shifting the timing of a sensor can remove the underlying structure that distinguishes the classes, making misalignment highly destructive. This raises a fundamental question: Before training a classifier, can we estimate how much a dataset depends on cross-channel temporal align-ment? We address this question by proposing an alignment sensitivity metric for multichannel time-series classification. Our approach is based on the minimum description length (MDL) principle (Rissanen 1978). The key intuition is that, in an alignment-sensitive dataset, each sensor group carries some information about the other sensors as well, and hence each group might be used to (crudely) reconstruct the other group’s sensor values. If an artificial sensor-shift hurts or improves the reconstruction, then the dataset is alignment-sensitive. If not, information does not seem to be shared across channels. We capture this effect by designing an MDL-based metric that compares an independent-channel representation with a shared-representation code. We study our resulting metric in both controlled and real-world settings. First, we introduce two synthetic datasets that allow for fine control over temporal misalignment: one dataset in which labels depend on cross-channel synchroniza-tion, and one dataset in which the label is robust to shifting a channel. These datasets show that misalignment can be harmless or severe depending on the task structure. Second, we evaluate our metric on nine real-world multivariate time-series datasets from MONSTER (Dempster et al. 2025). For each dataset, we compare the MDL alignment loss against the actual accuracy degradation of four classifiers: a CNN, a ResNet, a late-fusion model, and a magnitude-only CNN. arXiv:2609.14595v1 [cs.LG] 13 Sep 2026 These experiments show that our metric can effectively cap-ture temporal misalignment when it impacts classifier accu-racy during deployment and that it can be used to correct it. Moreover, we compare our metric against SyncNet (Chung and Zisserman 2016) which corrects misalignment against a stable baseline whereas our metric does not need such a base-line. Finally, we use our metric to audit nominal alignment, finding stable nonzero optima in four datasets suggesting potential misalignment during data gathering. 
+
+## Related Work 
+
+Temporal misalignment is a well-known problem for sensor fusion processes (Aeberhard and Kaempchen 2011), with clock drift, different sampling rates, and various communi-cation or processing delays being common sources of fusion errors. The literature contains extensive work on how to mit-igate temporal misalignment, either by ensuring proper sen-sor alignment through calibration and synchronization, or by using preprocessing to correct the data (Mair et al. 2011; Park et al. 2020; Qin and Shen 2018; Nilsson and Hän-del 2010; De Silva, Roche, and Kondoz 2018; Westenberger et al. 2011; Varela 2000; Damerau 2018; Moscardi et al. 2025). However, classical synchronization techniques such as cross-correlation and Dynamic Time Warping (DTW) (González-Martínez, Ferrer, and Westerhuis 2011; Sakoe and Chiba 1978; Berndt and Clifford 1994) operate directly at the signal level, and thus are difficult to apply to heterogeneous modalities, where signals originate from different physical domains. Originally proposed in the context of audio-video synchronization, SyncNet (Chung and Zisserman 2016) uses a two-stream CNN to extract modality-specific embeddings which are used to estimate synchronization offsets across heterogeneous modalities. Most importantly, this approach assumes a synchronized baseline against which signals can be compared. A recent parallel line of work focuses on quan-tifying the impact of temporal misalignment itself. Kuhse et al. investigate robustness against temporal misalignment providing a first formal description (Kuhse et al. 2024, 2025, 2026). This paper follows this more recent line of work and proposes a new method to detect temporal misalignment without the need for a synchronized baseline. 
+
+## Alignment Relevance via MDL 
+
+Temporal misalignment is crucial whenever sensor groups interact with each other and this interaction is relevant to the task. In an alignment-sensitive dataset, each sensor group may carry information about the other sensors and might therefore be used to reconstruct their values. If an artificial sensor shift hurts or improves reconstruction, then the data seems to contain some shared structure between sensors. If it does not change reconstruction, little structure appears to be shared across channels. We formalize this intuition through the minimum description length (MDL) principle (Rissanen 1978; Grünwald 2007). 
+
+Notation 
+
+Let x = ( x1, . . . , x C ) ∈ RC×T denote a multivariate time-series with C channels and T ∈ N discrete time points. Let 
+
+y ∈ Y be a target class and let (x, y ) ∼ D be a distribution over the pairs (x, y ). We are given a finite dataset D =
+
+{(x(i), y (i))}ni=1 of n observations sampled from D. Further, let G be a collection of non-empty channel groups G ⊆{1, . . . , C }. In the simplest case, G contains all singleton channels. If domain knowledge suggests that several channels should be treated as a synchronized sensor group, G can instead contain predefined groups. As an example, consider EEG data obtained from a headset combined with heartbeat and PPG sensors that naturally form two sensor groups. For a group G ∈ G , let xG denote the channels in G and let x ¯G
+
+denote all remaining channels. We write XG to denote the collection of all observations for the channels in G. Given a temporal lag τ ∈ N0, we shift only the channels in G relative to the remaining channels. To avoid padding artifacts, we restrict all channels to the overlapping time region after the shift. For a single observation x, we write 
+
+xτG(t) := xG(t + τ ), zτG(x) := ( x ¯G, x τG),
+
+where zτG(x) ∈ RC×(T −τ ). Thus, z0
+
+> G
+
+(x) denotes the nom-inally aligned multichannel window. When τ > 0, zτG(x)
+
+denotes the same window after shifting channel group G rel-ative to the remaining channels, and thus, the effective length of zτG(x) is reduced. For a finite dataset D, the correspond-ing shifted dataset is ZτG(D) = zτG(x(i)) ni=1 . We omit the labels as our method is label-free. We write Z when the specific group and lag are not important. 
+
+An MDL-based temporal alignment metric 
+
+Recall that the Minimum Description Length (MDL) prin-ciple casts model selection as a data compression problem. Each candidate model defines a way to encode both the model itself and the data not explained by it. By Occam’s razor, the preferred model is the one minimizing the resulting total code length. We leverage this idea to measure how much a dataset depends on the alignment of (groups of) sensors by fixing the model and introducing artificial lags between sen-sor groups. Formally, we apply the MDL principle to finite sets of windows such as ZτG,y (D). Our starting point is the standard two-part MDL view. We write DL (·) for a descrip-tion length, i.e., the number of bits required to encode an object under a fixed code. For a finite set of multichannel windows Z and a model M , this gives 
+
+DL (Z, M ) = DL (M ) + DL (Z | M ).
+
+Here, a model M is an encoding scheme or code , specifying how a window in Z can be encoded as bits. DL (M ) is the cost to describe the model, and DL (Z | M ) the cost to describe the remaining information Z once the model is known. While the data Z and its shifted variants are fixed once the lag and channel group are chosen, the choice of the model class is central to our metric. As mentioned before, we want to measure how much more difficult reconstructing one group becomes, if a shift occurs. Since a sufficiently capable model may be able to easily reconstruct a signal despite shifts, we have to sufficiently constrain the reconstruction power of the model. Therefore, we map the data into a lower-dimensional embedding space and use this embedding for reconstruction. This approach comes with some caveats: A naive choice would be to estimate the representation from the full shifted dataset ZτG(D) = ( X ¯G, X τG). This is problematic because the representation can adapt to the perturbation and con-tinue to describe the shifted group simply because that group helped define it. A short description would then show only that the representation can re-fit the data. We therefore use an anchored shared-representation code. The representation is estimated once from the fixed complement Xref ¯G , common to every lag, and is then used to reconstruct XτG. This makes the metric asymmetric by design: the remaining channels are the reference and the shifted group is the tested part. If G is correctly aligned with the complement, a compact represen-tation extracted from Xref ¯G should also explain XτG well. If 
+
+G is shifted away from an aligned lag, the same representa-tion should become less predictive, and the residual should become more expensive to encode. A sufficiently constrained model (a concrete choice fol-lows) consists of a representation estimator ϕ, a reconstruc-tion family f , reconstruction parameters Θ, and residuals E.For a channel group G, we write SG = ϕ(Xref ¯G ) and re-construct each shifted group from this same representation, 
+
+ˆXτG = fΘτG (SG), where the lag-specific parameters ΘτG are fitted and part of the codelength. Note that a “fixed model” here refers to a fixed code family and anchored representa-tion, not parameters shared across incompatible targets. The induced shared-representation description length is 
+
+ℓsh (ZτG(D)) = DL ¯G(X ¯G) + DL S (SG)+ DL Θ(Θ τG) + DL E
+
+ XτG − fΘτG (SG) ,
+
+where DL ¯G, DL S , DL Θ, and DL E are fixed codes for the complement, the anchored representation, the reconstruction parameters, and the residual, respectively. As mentioned, we compare this code to an independent-channel baseline that encodes the complement and shifted group separately: 
+
+ℓind (ZτG(D)) = DL ¯G(X ¯G) + DL G(XτG).
+
+The first term appears in both descriptions. Intuitively, the comparison asks whether it is shorter to encode XτG directly, or to encode an anchored representation from X ¯G, the re-construction parameters, and the residual. This approach is label-free and builds upon the natural patterns occurring in the data to measure alignment dependency. It is straightfor-ward to adopt these definitions to include class information as well, but we did not find substantial improvements do-ing so and hence focus on the label-free case here. We refer interested readers to the appendix for details. We measure compressibility over all windows jointly. A large gain RG(τ ) = ℓind (ZτG)−ℓsh (ZτG) indicates the shifted group can be efficiently described from the remaining chan-nels through a shared temporal embedding. To turn this into an alignment cost, we compare the gain for each lag against the best gain under a range of lags as summarized in Defini-tion 1. 
+
+Definition 1 (MDL Alignment Gain) Given a dataset X of 
+
+n multichannel windows, a collection of channel groups G,and a maximum lag ∆ ≥ 1, fix the independent and anchored shared-representation codes ℓind and ℓsh . Define the set of evaluated lags as T∆ ⊆ { τ ∈ N0 | τ ≤ ∆}. For a group 
+
+G ∈ G and lag τ ∈ T ∆, let ZτG(X) denote the windows obtained by shifting group G by lag τ . The gain is 
+
+RG(τ ) = ℓind (ZτG(X)) − ℓsh (ZτG(X)) .
+
+Given the maximum gain R⋆G(∆) = max τ ∈T ∆ RG(τ ), the pointwise alignment cost at lag τ is 
+
+QG(τ ; ∆) = R⋆G(∆) − RG(τ )
+
+measured in bits. The alignment loss of group G is the aver-age raw cost over the non-zero evaluated shifts, 
+
+AG(∆) = 1
+
+|T ∆| − 1
+
+X 
+
+> τ∈T ∆\{ 0}
+
+QG(τ ; ∆) .
+
+The dataset-level alignment loss is the worst group score 
+
+A(∆) = max  
+
+> G∈G
+
+AG(∆) ,
+
+with corresponding group G⋆ = arg max G∈G AG(∆) .
+
+Note that QG(τ ; ∆) ≥ 0 where smaller is better and QG = 0 
+
+corresponds to a best observed lag. The score AG(∆) measures how much shared-representation compressibility is typically lost when a group 
+
+G is shifted expressed in bits, with larger values denot-ing more information lost. As mentioned previously, labels can alternatively be supplied as side information by fitting and coding each class separately and summing the resulting gains. We give its definition and an empirical comparison in the appendix. All main-paper results use the label-free definition above. For consistency in the experiments, we use nonnegative lags. However, note this metric can easily be adopted to negative shifts as well. 
+
+Correcting Misalignment via the Alignment Gain 
+
+The scalar score A(∆) measures how sensitive the dataset is to temporal perturbations in the worst group. Plotting the pointwise QG(τ ; ∆) scores for different τ contains ad-ditional information. In particular, the best observed lag 
+
+τ ⋆G = arg min τ ∈T ∆ QG(τ ; ∆) indicates which relative shift gives the most compact shared-representation description of group G from the remaining channels. This makes the metric useful for diagnosing misalignment without training a classifier. If τ ⋆G = 0 , the nominal alignment is best within the evaluated range. If τ ⋆G > 0, a delayed version of G gives a shorter shared description and is a candidate correction. In practice, τ ⋆G should be interpreted together with the raw cost at nominal alignment QG(0; ∆) .If this cost is close to zero, then the nominal alignment is nearly as good as the best observed lag, even if the optimum is not unique. Similarly, if there is no clear trend in the data, then interpretation should be cautious. A non-zero τ ⋆G may reflect noise, periodicity, or a flat alignment curve rather than a meaningful synchronization error. Conversely, a large 
+
+QG(0; ∆) together with a stable non-zero τ ⋆G is evidence for a systematic delay already present in the data. In this case, closer inspection of data and its measuring process is in order. Code Instantiations 
+
+The above definition leaves open how the anchored represen-tation ϕ, reconstruction family fΘ, and component codes are instantiated. We state three requirements. First, the represen-tation must be anchored in Xref ¯G and not estimated from XτG.Second, the model must be sufficiently simple or it could re-construct each channel independently. Third, the code family and representation must be fixed before evaluating lags. For the remainder of the paper, we use deliberately simple choices that work well across our experiments. Details are in the appendix and supplementary code. We Z-normalize each channel and quantize it at 64 units per training stan-dard deviation. To exploit temporal smoothness, we apply a first-order delta transform to each window and treat its first value and subsequent differences as separate integer streams, coded with conditional empirical entropy (Cover and Thomas 2006). For ϕ, we compute rank-one PCA once on the fixed, unshifted complement. We stack samples and time points into 
+
+Xref ¯G ∈ RN ×C ¯G and compute SG = ϕPCA (Xref ¯G ) ∈ RN ×1.
+
+With one complement channel, this reduces to that chan-nel itself. For more channels, SG is its dominant one-dimensional component. The reconstruction family is linear: 
+
+ˆXτG = SGW ⊤ 
+
+> G
+
++ 1μ⊤
+
+> G
+
+, where ΘτG = ( WG, μ G) are fitted for the shifted group at lag τ , subject to WG ≥ 0, while the offset μG remains unrestricted. The non-negative weights prevent an anti-phase signal from being treated as aligned merely by negating the shared component. We fix the oth-erwise arbitrary sign of each PCA component by orienting its largest-magnitude loading positively. Note, that this PCA basis is deterministic given the decoded complement, and it has a deterministic sign. An explicit lag-invariant basis cost would cancel from QG, so it is not included in the codelength computation. Similar to before, we also encode the anchored representation SG with the delta entropy code. The recon-struction residual XτG − ˆXτG is rounded to integer symbols and encoded using empirical entropy without delta encoding. Each reconstruction slope and intercept is assigned 16 bits. 
+
+## Experimental Analysis 
+
+Recall that our main goal is to characterize temporal mis-alignment in data without a clean baseline. We therefore test whether our metric recovers known alignment structure in synthetic benchmarks and if it supports lag selection in real-world data. Our experiments address three questions: 1. On controlled synthetic data, does the metric expose known alignment structure and distinguish an alignment-sensitive task from a robust one? 2. On real data, can the label-free lag curve identify mis-alignment in the data? 3. On real data, can the label-free lag curve identify and correct an induced deployment lag? We evaluate these questions on two synthetic datasets and nine real-world multivariate time-series datasets from MON-STER (Dempster et al. 2025) depicted in Table 1. The real-world datasets cover applications from human activity recog-nition to physiological sensing and workload estimation. We Table 1: Datasets used in the experiments. The table reports the number of windows n, window length T , channels C,channel groups |G| , and classes |Y| . Real-world datasets (top group) are part of MONSTER (Dempster et al. 2025). Dataset n T C |G| |Y| 
+
+CrowdSourced 12,289 256 14 14 2DreamerA 170,246 256 14 14 2DreamerV 170,246 256 14 14 2STEW 28,512 256 14 14 2Opportunity 17,386 100 113 8 5PAMAP2 38,856 100 52 4 12 Skoda 14,117 100 60 20 11 UCIActivity 10,299 128 9 2 6FordChallenge 36,257 40 30 3 2SyncSine-Sensitive 3,000 100 2 2 2SyncSine-Robust 3,000 100 2 2 2use MONSTER’s precomputed five-fold splits and five strat-ified folds for the synthetic data. During pre-experiments, we selected dataset-specific maximum lags from ∆ = 8 for FordChallenge to ∆ = 80 for STEW, and ∆ = 1500 for the synthetic datasets. Please note, that while our metric also supports nonnegative lags, we focus on positive lags only here because SyncNet (Chung and Zisserman 2016) only supports positive lags. We train four classifiers: a CNN, a ResNet (He et al. 2015), a Late-Fusion CNN (Vaezi Joze et al. 2020) that uses independent convolutional branches for each sensor group and a magnitude CNN (Zhou et al. 2018) that is trained on the log-magnitude spectrum of the Fourier transform of each channel. Inputs are z-normalized per channel using statistics computed on the training split only. We reserve a stratified 15% of each training fold for validation and early stopping with at most 100 epochs with a batch size of 256. We optimize cross-entropy using Adam with a learning rate 10 −4, halve the rate after three epochs without validation-loss improvement, and stop after ten such epochs. Additional results can be found in the appendix. Our experiments required ≈29 GPU-hours on NVIDIA A100 GPUs (25 h for training training, 4 h for the evaluation). The code for these experiments is available under https: //github.com/sbuschjaeger/mdl-temporal-misalignment. 
+
+Synthetic Benchmarks 
+
+In this experiment we study the behavior of our metric on a synthetic benchmark. To do so, we introduce two syn-thetic datasets, one that is sensitive and one that is robust to misalignment. Both datasets contain two channels and binary labels. The first dataset is designed to be alignment-sensitive: the label depends on a shared temporal pattern that is present in both channels. The second dataset is designed to be alignment-robust: the label depends only on one channel, while the other channel is a nuisance signal. In both cases, we misalign only the second channel. For the alignment-sensitive dataset, both channels c ∈{0, 1} contain the same latent sine wave with independent channel offsets bc and sample noise ϵc(t):
+
+xc(t) = sin( t/r + φ) + bc + ϵc(t)
+
+The label depends on the sum of the two aligned channels over the observed window: 
+
+y = I
+
+ 1
+
+T
+
+> T
+
+X
+
+> j=1
+
+(x1(tj ) + x2(tj )) > 1
+
+ .
+
+where bc ∼ N (0 , 0.72) and ϵc(t) ∼ N (0 , 0.05 2) indepen-dently for each channel. The independent offsets make nei-ther channel alone sufficient for the sum-based label, while the shared oscillation preserves a well-defined cross-channel alignment. Shifting either channel changes the cross-channel relation that defines the label. For the alignment-robust dataset, the two channels are generated independently as noisy sinusoids: 
+
+xc(t) = ac sin(2 πf ct + φc) + bc + ϵc(t).
+
+The binary label selects the frequency band of the first chan-nel: f1 ∼ Unif(2 , 4.5) for class zero and f1 ∼ Unif(5 .5, 8) 
+
+for class one. The second-channel frequency is an indepen-dent nuisance variable sampled uniformly from [2 , 8] . Am-plitudes are sampled from [0 .8, 1.2] , phases from [0 , 2π],offsets from N (0 , 0.22), and sample noise from N (0 , 0.12).An example can be found in Figure 1. Each dataset con-sists of 3 000 windows. The observed window length is 
+
+T = 100 . To evaluate shifts without padding, we gener-ate a longer signal of length T + ∆ max and then restrict shifted windows to the overlapping region. Time points are given by tj = j · 0.01 . For the sensitive dataset, r = 1 and phases are sampled uniformly from [0 , 2π]. For both synthetic datasets, the candidate channel groups are the two singleton groups {1} and {2}. The class distribution is 50:50 for the alignment-robust dataset and ≈70:30 (class 0:class 1) for the alignment-sensitive dataset. We evaluate non-negative lags from 0 to 1500 samples in steps of 20. Figure 1 shows the result, with the sensitive datasets in the left column and the robust one on the right. The first row shows an example of each, with class labels depicted as shaded regions and noise omitted for visual clarity. Clearly, for the sensitive data, the label depends on the sum of both signals, whereas for the robust one, only on the frequency of Channel 1. The second row shows the alignment costs of our metric in bits. One can see a clear increase in the number of bits required for encoding when misalignment is introduced into the data. Since the sine wave data has a periodicity of 
+
+2π, temporal patterns recur at roughly τ = 618 samples, where the channels align again and the bit length decreases drastically. In stark contrast, the alignment costs of the robust dataset do not change with different lags and stay close to 0. The accuracy in the last row shows a similar pattern: CNN, ResNet and Late Fusion all achieve 100% accuracy on aligned data, but any lag introduced quickly destroys it to just above 70 %, the worst-case accuracy considering the class distribution of ≈ 70 : 30 . Magnitude CNN is more robust, but weaker performance between 60-70% accuracy. On the robust dataset, however, all methods achieve 100% accuracy. 0.0 0.5 1.0 1.5                                  
+
+> Time [s]
+> −1 01
+> Signal value
+> 0.0 0.5 1.0 1.5
+> Time [s]
+> Channel 1 Channel 2 Class y= 0 Class y= 1 0500 1000 1500
+> Sensor delay τ[samples]
+> 010 20 30 40 50 60
+> Alignment cost  QG [kbit]
+> 0500 1000 1500
+> Sensor delay τ[samples]
+> 010 20 30 40 50 60 0500 1000 1500
+> Sensor delay τ[samples]
+> 60 80 100
+> Test accuracy [%]
+> (a) SyncSine-Sensitive
+> 0500 1000 1500
+> Sensor delay τ[samples]
+> 60 80 100
+> (b) SyncSine-Robust
+> CNN ResNet Late fusion Magnitude CNN
+
+Figure 1: Results on the synthetic experiments. The left col-umn shows results for the sensitive datasets, and the right column shows results for the robust one. The first row depicts an example of both datasets, where class labels are depicted as shaded regions. The second row shows the alignment costs according to our metric, and the last row shows the accuracy for all four classifiers with the shaded region depicting the standard deviation over 5 cross-validation folds. 
+
+Post-Hoc Synchronization of Real-World Datasets 
+
+Data may already contain a systematic offset during training. A classifier trained under these circumstances can appear ro-bust because it may adapt to the offset or never exploit the disrupted cross-channel interactions which can lead to over-all worse performance. Our metric can question the original alignment without training a classifier and without requiring an already synchronized baseline. Hence, it can serve as a debugging method for the data-gathering process. We inves-tigate the datasets in Table 1 for potential misalignment by computing our MDL metric on the entire dataset and select-ing the group with the largest alignment-loss score AG(∆) 
+
+and reporting its optimal lag τ ∗
+
+> G
+
+. In addition, we compute the lag for each training fold to determine whether our metric is stable or not. Table 2 shows the results for alignment re-sults. The whole-dataset test identifies nonzero MDL optima for FordChallenge, Opportunity, PAMAP2, and UCIActiv-ity. The corresponding training-fold optima are consistently nonzero, with reasonably stable ranges, which suggest that Table 2: Sensor groups with the largest misalignment in each dataset. ∗Reached the maximum lag tested, so a larger lag misalignment might be present in the data.                                         
+
+> Dataset Group Global
+> τ⋆G
+> Training-fold
+> τ⋆G
+> QG(0)
+> [kbit] FordChallenge env 64–8 248.5 Opportunity r shoe 15 8–15 32.2 PAMAP2 ankle 20 8–20 807.4 UCIActivity gyro 56 56 389.4 Skoda s05 00–0 0.0 CrowdSourced O2 00–0 0.0 DREAMERA ch 12 00–0 0.0 DREAMERV ch 12 00–0 0.0 STEW ch 10 00–0 0.0
+
+these datasets are misaligned and they should be corrected. The remaining five datasets have global and fold-wise optima at zero. In a follow-up experiment, we trained different clas-sifiers after manual correction of the four candidate datasets. However, we found that this does not consistently improve accuracy (see appendix for details). Opportunity is the only dataset with a notable positive result: A ResNet improves by approximately 1.0 percentage point. We find this seemingly negative result is not necessarily contradictory: a systematic offset can be a reproducible property of the collected data without harming a classifier trained and evaluated under the same convention. Such a classifier may adapt to the offset, while retrospective shifting cannot recover discarded bound-ary samples, change the temporal semantics of labels, or reconstruct information lost during acquisition. The already processed, windowed data also makes proper realignment difficult in hindsight. Put differently, we cannot sufficiently correct these datasets now that they are already published, since an intervention during data gathering is required. We therefore view this experiment as supporting the idea that the MDL metric is a tool for auditing and debugging synchro-nization in the data pipeline while data is gathered, rather than as a procedure that is guaranteed to improve an already collected classification benchmark. 
+
+Accuracy Correction on Real-World Datasets 
+
+In this experiment we test how our metric predicts accuracy degradation of classifiers under lag during deployment. To do so, classifiers see only the nominal windows ( τ = 0 ) during training. At test time, we delay every sensor group while the complement remains fixed. Note the goal is not to maximize accuracy on any dataset, but to study how misalignment af-fects performance on different datasets and when correction via our metric is useful. Hence, we are mostly interested in the progression of accuracies as opposed to single values. Figure 2 shows the average accuracy of the four classi-fiers on 9 real-world datasets across 5 folds with and without correction via our alignment metric. For visual clarity, un-certainty bands are not displayed here, as on some datasets accuracies vary greatly between folds. See appendix for un-certainty bands. We identify three distinct behaviors. On FordChallenge, Opportunity, and PAMAP2, there seems to be only a minor dependence on cross-channel interactions, and hence most classifiers are inherently robust against mis-alignment. Only CNN and ResNet show some minor de-pendence on Opportunity and PAMAP2 with larger lags so that our alignment metric can recover some accuracy. UCI-Activity is the second group that shows erratic behavior. Here, Late Fusion and Magnitude CNN are stable to lags, whereas CNN and ResNet suffer a sharp performance drop already with smaller lags. Interestingly, these are recovered with larger lags again, but no stable behavior emerges. Con-sequently, our metric is not able to fully recover performance on this dataset. The last and by far largest group, composed of Skoda, CrowdSourced, DreamerA, DreamerV, and STEW, shows a clear trend towards large performance losses when lags are introduced. For example, on STEW, performance drops from close to 75 % to below 67 % for the CNN. On these datasets, our metric is clearly helpful as it recovers the original performance in many cases (e.g., on Skoda, Dream-erA, and STEW) or helps to stabilize it (e.g., DreamerV, CrowdSourced). As an additional comparison of test-time correction, we adopt SyncNet (Chung and Zisserman 2016) which is trained so that embedding distance corresponds to temporal mis-alignment. We use SyncNet as our state-of-the-art learned synchronizer and leave an exhaustive comparison of signal-level alignment methods for future work. Note, that SyncNet assumes already aligned training data and predicts drift from that reference, whereas our metric can prefer a nonzero train-ing alignment as shown in Table 2, so we measure (mean) absolute residual error relative to each method’s preferred training-fold baseline. Zero means that the test data were returned to that baseline. This setting favors the learned de-tector, which receives aligned training pairs and places our metric at a disadvantage. Table 3: Baseline-relative lag correction using the label-free MDL diagnostic and learned SyncNet baseline. Columns report mean absolute residual error normalized by maximum window length without lag. Higher is better.                                     
+
+> Dataset Our metric [%] SyncNet [%] Diff [pp] FordChallenge 93.66 94.41 -0.75 DREAMERV 98.95 100.0 -1.05 Opportunity 94.38 100.0 -5.62 UCIActivity 94.38 100.0 -5.62 PAMAP2 89.44 100.0 -10.56 CrowdSourced 55.11 78.07 -22.96 Skoda 100.0 100.0 0STEW 100.0 100.0 0DREAMERA 100.0 99.43 0.57 SyncSine-Robust 68.51 65.54 2.97 SyncSine-Sensitive 91.47 76.05 15.42
+
+Table 3 shows the results of the comparison against Sync-Net. For an easier comparison, we normalize the MAE by the length of each window minus the maximum lag. For ex-ample, a value of 95% means we found the correct lag within 5% of the window’s length. The last column shows the dif-0 2 4 6 8                                             
+
+> Imposed delay τ[samples]
+> 82 84 86 88 90
+> Test accuracy [%]
+> (a) FordChallenge
+> 0510 15 20
+> Imposed delay τ[samples]
+> 76 78 80 82 84 86
+> Test accuracy [%]
+> (b) Opportunity
+> 0510 15 20
+> Imposed delay τ[samples]
+> 55 60 65 70 75 80
+> Test accuracy [%]
+> (c) PAMAP2
+> 020 40 60
+> Imposed delay τ[samples]
+> 75 80 85 90 95
+> Test accuracy [%]
+> (d) UCIActivity
+> 0510 15 20
+> Imposed delay τ[samples]
+> 86 88 90 92 94
+> Test accuracy [%]
+> (e) Skoda
+> 020 40 60 80
+> Imposed delay τ[samples]
+> 62 64 66 68
+> Test accuracy [%]
+> (f) CrowdSourced
+> 020 40
+> Imposed delay τ[samples]
+> 47 48 49 50
+> Test accuracy [%]
+> (g) DREAMERA
+> 020 40
+> Imposed delay τ[samples]
+> 52 54 56 58 60
+> Test accuracy [%]
+> (h) DREAMERV
+> 020 40 60 80
+> Imposed delay τ[samples]
+> 62.5 65.0 67.5 70.0 72.5 75.0
+> Test accuracy [%]
+> (i) STEW
+> CNN delayed CNN corrected ResNet delayed ResNet corrected Late fusion delayed Late fusion corrected Magnitude CNN delayed Magnitude CNN corrected
+
+Figure 2: Accuracy of the four classifiers on 9 real-world datasets with imposed lags with and without correction. The solid lines show the average accuracy of the model across the five folds over imposed lags on the test data. The dashed line shows the accuracy after correcting the imposed lag via the alignment loss. For visual clarity, uncertainty bands are not displayed. See appendix for uncertainty bands. ference in percentage points between MDL and SyncNet, where a negative indicates a better performance by SyncNet and a positive value better performance by MDL. We see three distinct groups of datasets. In the top group, SyncNet wins over our metric on 6 datasets. The middle group shows a perfect match, where both methods have the same, per-fect, performance. In the last group, MDL wins over Sync-Net on 3 datasets. We summarize these results as follows: While SyncNet wins on 6 out of 11 datasets, MDL nearly matches SyncNet’s performance on four datasets (FordChal-lenge, DreamerV, Opportunity, UCIAcitivy) and is only sub-stantially outperformed on two datasets (PAMAP2, Crowd-Sourced). Conversely, on DreamerA and SyncSine-Robust, SyncNet also closely matches MDL’s performance and is only outperformed on SyncSine-Sensitive. We conclude that despite the favorable setting for SyncNet in this evaluation, our MDL metric closely follows its performance, showing competitive behavior. 
+
+## Conclusion 
+
+We introduced a classifier-, label-, and training-free MDL di-agnostic for shared temporal structure in multichannel time series. Its central intuition is that one group can be described through a compact representation of the remaining chan-nels when they share aligned temporal structure, and a shift that destroys this structure increases the residual description. The experiments show that the effect of misalignment de-pends strongly on the task and classifier, and that the lag curve can guide the correction of temporal misalignment. The synthetic examples distinguish alignment-sensitive and robust tasks and recover the expected sine periodicity. On real data, correction often restores or stabilizes performance after an imposed shift, whereas correcting candidate offsets in already processed benchmarks seldom improves accuracy. Unlike a detector tied to a trusted baseline, the metric can also audit that baseline itself. Its nonzero optima on four real datasets warrant further investigation of these datasets. The diagnostic is therefore useful for finding and debugging syn-chronization issues, while its interpretation remains condi-tional on the chosen code and representation. Further explo-ration of different codes and shared representations with an in-depth exploration of deployment-lag correction remains future work. 
+
+## References 
+
+Aeberhard, M.; and Kaempchen, N. 2011. High-level sensor data fusion architecture for vehicle surround environment perception. In Proc. 8th Int. Workshop Intell. Transp , volume 665. Berndt, D. J.; and Clifford, J. 1994. Using dynamic time warping to find patterns in time series. In Proceedings of the 3rd International Conference on Knowledge Discovery and Data Mining , AAAIWS’94, 359–370. AAAI Press. Chung, J. S.; and Zisserman, A. 2016. Out of Time: Auto-mated Lip Sync in the Wild. In Chen, C.; Lu, J.; and Ma, K., eds., Computer Vision - ACCV 2016 Workshops - ACCV 2016 International Workshops, Taipei, Taiwan, November 20-24, 2016, Revised Selected Papers, Part II , Lecture Notes in Computer Science, 251–263. Springer. Cover, T. M.; and Thomas, J. A. 2006. Elements of Informa-tion Theory . Hoboken, NJ: John Wiley & Sons, 2 edition. Damerau, H. 2018. Timing, Synchronization & Longitudinal Aspects. In Holzer, B., ed., CAS - CERN Accelerator School: Beam Injection, Extraction and Transfer, Erice, Italy, 10–19 Mar 2017 , volume 5/2018 of CERN Yellow Reports: School Proceedings , 163–228. Geneva: CERN. De Silva, V.; Roche, J.; and Kondoz, A. 2018. Robust fu-sion of LiDAR and wide-angle camera data for autonomous mobile robots. Sensors , 18(8): 2730. Dempster, A.; Foumani, N. M.; Tan, C. W.; Miller, L.; Mishra, A.; Salehi, M.; Pelletier, C.; Schmidt, D. F.; and Webb, G. I. 2025. MONSTER: Monash Scalable Time Se-ries Evaluation Repository. arXiv:2502.15122. González-Martínez, J.; Ferrer, A.; and Westerhuis, J. 2011. Real-time synchronization of batch trajectories for on-line multivariate statistical process control using Dynamic Time Warping. Chemometrics and Intelligent Laboratory Systems ,105(2): 195–206. Grünwald, P. D. 2007. The Minimum Description Length Principle . The MIT Press. ISBN 9780262256292. He, K.; Zhang, X.; Ren, S.; and Sun, J. 2015. Deep Residual Learning for Image Recognition. CoRR , abs/1512.03385. Kuhse, D.; Günzel, M.; Teper, H.; Willemsen, L.; von der Brüggen, G.; and Chen, J. 2026. Alignment Sets for Sen-sor Fusion Against Temporal Misalignment. In Kritikakou, A., ed., 38th European Conference on Real-Time Systems, ECRTS 2026, Lund, Sweden, July 7-10, 2026 , volume 375 of LIPIcs , 8:1–8:24. Schloss Dagstuhl - Leibniz-Zentrum für Informatik. Kuhse, D.; Hölscher, N.; Günzel, M.; Teper, H.; von der Brüggen, G.; Chen, J.; and Lin, C. 2024. Sync or Sink? The Robustness of Sensor Fusion Against Temporal Misalign-ment. In 30th IEEE Real-Time and Embedded Technology and Applications Symposium, RTAS 2024, Hong Kong, May 13-16, 2024 , 122–134. IEEE. Kuhse, D.; Teper, H.; Hakert, C.; and Chen, J. 2025. Timely ML. Real Time Syst. , 61(2): 311–319. Mair, E.; Fleps, M.; Suppa, M.; and Burschka, D. 2011. Spatio-temporal initialization for IMU to camera registration. In 2011 IEEE International Conference on Robotics and Biomimetics , 557–564. IEEE. Moscardi, G.; et al. 2025. White Rabbit Timing: The new CERN accelerator timing system. In Proc. ICALEPCS2025 ,number 20 in International Conference on Accelerator and Large Experimental Physics Control Systems, 848–855. JA-CoW Publishing, Geneva, Switzerland. ISBN 978-3-95450-255-4. Nilsson, J.-O.; and Händel, P. 2010. Time synchronization and temporal ordering of asynchronous sensor measurements of a multi-sensor navigation system. In IEEE/ION Position, Location and Navigation Symposium , 897–902. IEEE. Park, C.; Moghadam, P.; Kim, S.; Sridharan, S.; and Fookes, C. 2020. Spatiotemporal camera-LiDAR calibration: A tar-getless and structureless approach. IEEE Robotics and Au-tomation Letters , 5(2): 1556–1563. Qin, T.; and Shen, S. 2018. Online temporal calibration for monocular visual-inertial systems. In 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 3662–3669. IEEE. Rissanen, J. 1978. Modeling by shortest data description. 
+
+Automatica , 14(5): 465–471. Sakoe, H.; and Chiba, S. 1978. Dynamic programming al-gorithm optimization for spoken word recognition. IEEE Transactions on Acoustics, Speech, and Signal Processing ,26(1): 43–49. Shrivastava, A.; Derler, P.; Baboud, Y.-S. L.; Stanton, K.; Khayatian, M.; Andrade, H. A.; Weiss, M.; Eidson, J.; and Chandhoke, S. 2016. Time in cyber-physical systems. In Pro-ceedings of the Eleventh IEEE/ACM/IFIP International Con-ference on Hardware/Software Codesign and System Syn-thesis , CODES ’16. New York, NY, USA: Association for Computing Machinery. ISBN 9781450344838. Vaezi Joze, H. R.; Shaban, A.; Iuzzolino, M. L.; and Koishida, K. 2020. MMTM: Multimodal Transfer Mod-ule for CNN Fusion. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 13286– 13296. Varela, J. 2000. Timing and synchronization in the LHC experiments. Technical report, CERN, Geneva. Westenberger, A.; Huck, T.; Fritzsche, M.; Schwarz, T.; and Dietmayer, K. 2011. Temporal synchronization in multi-sensor fusion for future driver assistance systems. In 2011 IEEE International Symposium on Precision Clock Synchro-nization for Measurement, Control and Communication , 93– 98. IEEE. Zhang, Y. C.; Zhang, S.; Liu, M.; Daly, E.; Battalio, S.; Ku-mar, S.; Spring, B.; Rehg, J. M.; and Alshurafa, N. 2020. SyncWISE: Window Induced Shift Estimation for Synchro-nization of Video and Accelerometry from Wearable Sen-sors. Proc. ACM Interact. Mob. Wearable Ubiquitous Tech-nol. , 4(3). Zhou, M.; Tian, C.; Cao, R.; Wang, B.; Niu, Y.; Hu, T.; Guo, H.; and Xiang, J. 2018. Epileptic Seizure Detection Based on EEG Signals and CNN. Frontiers in Neuroinformatics ,Volume 12 - 2018. 
+
+## APPENDIX Class-Conditional Alignment Cost 
+
+The label-free metric in the main paper measures shared-representation compressibility over all windows jointly. When labels are available, the same construction can in-stead be applied within each class. Let ZτG,a (X, Y ) contain the windows of class a after delaying group G by τ . The class-conditional shared-representation gain is 
+
+Rcond  
+
+> G
+
+(τ ) = X
+
+> a∈Y
+
+ℓind 
+
+ ZτG,a (X, Y ) − ℓsh 
+
+ ZτG,a (X, Y ) .
+
+Thus, every class receives its own anchored PCA repre-sentation and reconstruction parameters, and the resulting codelength gains are summed. This can isolate class-specific temporal structure, but requires labels and encodes smaller subsets separately. We use the same raw-bit definition as in the main paper. For the configured non-negative lag grid 
+
+T∆ ⊆ { τ ∈ Z | 0 ≤ τ ≤ ∆},
+
+including zero, define 
+
+Rcond ,⋆ G (∆) = max  
+
+> τ∈T ∆
+
+Rcond  
+
+> G
+
+(τ ),Qcond  
+
+> G
+
+(τ ; ∆) = Rcond ,⋆ G (∆) − Rcond  
+
+> G
+
+(τ ).
+
+The cost Qcond  
+
+> G
+
+is measured in bits, is non-negative, and is zero at a best observed lag. As for the label-free version, 
+
+Acond  
+
+> G
+
+(∆) = 1
+
+|T ∆| − 1
+
+X 
+
+> τ∈T ∆\{ 0}
+
+Qcond  
+
+> G
+
+(τ ; ∆) ,Acond (∆) = max  
+
+> G∈G
+
+Acond  
+
+> G
+
+(∆) .
+
+The preferred lag is τ ⋆G = arg min τ Qcond  
+
+> G
+
+(τ ; ∆) . As before, raw codelengths should be compared across lags for the same dataset, group, and code. They are not normalized percent-ages and their magnitude is not directly comparable across datasets. For the code, we use exactly the PCA construc-tion specified in the main paper: rank-one PCA on the un-shifted complement, consistently oriented components, non-negative reconstruction slopes, delta-entropy coding for the quantized target and representation, raw entropy coding for residual symbols, and 16 bits per reconstruction parameter. 
+
+Code Instantiations 
+
+The above definition leaves open how the anchored represen-tation ϕ, the reconstruction family fΘ, and the component codes are instantiated, and specific choices must be tuned to the specific data and classification task at hand. We state three requirements on the code for a successful adoption. First, the representation must be anchored in X ¯G and must not be estimated from the shifted group XτG. Second, the representation and reconstruction model must be sufficiently simple; otherwise, the code could reconstruct each channel independently and would no longer measure shared temporal structure. Third, the model must be fixed before evaluating lags, so that changes in description length are caused by temporal shifts rather than by changes in the coding scheme. For the remainder of the paper, we use deliberately simple choices that work well across all of your experiments: In order to compute the bit length of the code, we use a fixed precision. For a given float representation, we therefore, for each channel, compute its mean μc and standard deviation σc over the supplied fold and quantize 
+
+eXi,c,t = round 
+
+
+
+64 Xi,c,t − μc
+
+σc
+
+
+
+.
+
+These channel statistics, and the quantization scale is fixed before evaluating any channel group or lag, where the scale of 64 corresponds to a quantization resolution of σc/64 . To exploit temporal smoothness, we apply a first-order delta transform to each quantized window. We treat the first value of every window and all subsequent within-window differ-ences as two separate integer-symbol streams. Combining with a plug-in empirical-entropy codelength (c.f. (Cover and Thomas 2006)), the resulting temporal codelength is         
+
+> DL diff (U) = Lemp ({Ui,c, 1}i,c ) + Lemp ({Ui,c,t −Ui,c,t −1}i,c,t> 1)
+
+For the representation estimator ϕ, we use rank-one PCA on the unshifted complement. The complement X ¯G is re-shaped by stacking samples and time points into a matrix 
+
+X ¯G ∈ RN ×C ¯G , where N combines the sample and time dimensions. We then compute the first principal component score 
+
+SG = ϕPCA (X ¯G) ∈ RN ×1.
+
+If the complement contains only one channel, this reduces to using that channel itself as the anchored representation. Otherwise, SG is the dominant one-dimensional temporal component of the complement. The reconstruction family is linear. For each lag τ , the shifted group is reconstructed as 
+
+ˆXτG = SGW ⊤ 
+
+> G
+
++ 1μ⊤
+
+> G
+
+,
+
+where ΘτG = ( WG, μ G) are fitted for the shifted group at lag τ , subject to WG ≥ 0, while the offset μG remains un-restricted. The non-negative source weights prevent an anti-phase signal from being treated as aligned merely by negating the shared component. We fix the otherwise arbitrary sign of each PCA component by orienting its largest-magnitude loading positively. This deliberately limited reconstruction model tests whether the shifted group is predictable from a consistently oriented temporal component extracted from the complement. We encode the anchored representation SG with the delta entropy code DL dif f : the first quantized symbol and the within-window temporal differences are encoded using em-pirical entropy. The target group is encoded directly with the same temporal code. The reconstruction residual XτG − ˆXτG
+
+is rounded to integer symbols and encoded using empirical entropy without delta encoding. Each reconstruction slope Table 4: Training and evaluation settings used for every dataset and fold.                      
+
+> Setting Value Random seed 42 + fold index Validation split stratified 15% of training fold Input normalization per-channel training mean/std. Training / evaluation batch 256 / 2048 Maximum epochs / early stopping 100 / patience 10 Classifier optimizer Adam, 10 −4
+> Classifier LR schedule factor 0.5, patience 3 SyncNet optimizer AdamW, 10 −4, wd. 5·10 −4
+> SyncNet contrastive margin 1Arithmetic precision 32 bit Metric quantization 64 levels per training std. PCA rank / parameter cost 1 / 16 bits per parameter
+
+and intercept is assigned 16 bits. The source cost, parameter cost, and residual cost are all included in ℓsh . These choices are held fixed across the complete lag sweep. 
+
+## Additional Real-World Results 
+
+For reference, we include a more detailed explanation of our experiments here: All results use five folds. The real-world folds are the predefined MONSTER_TS splits and the synthetic data use five stratified folds. Classifiers are trained only on nominal windows ( τ = 0 ). Table 4 summarizes the training protocol of the four classifiers and our MDL metric. At evaluation time, each sensor group is delayed in turn while the complement remains fixed, and windows are cropped to their common valid region rather than padded. For correction and the SyncNet comparison, we use the group with the largest worst-lag accuracy loss averaged over the four classifiers and five folds. The unconditional MDL correction is computed directly on the unlabeled test windows. For an imposed lag t, it searches feasible corrections that move the residual lag toward zero and selects the residual lag with minimum raw alignment cost. Table 5 shows the evaluated lags with the selected worst-case group. For the synthetic datasets we evaluate lags from 0 to 1500 in increments of twenty. Figure 3 supplements the correction figure in the main paper with one-standard-deviation bands over folds. The wide bands on several datasets reflect differences between folds rather than uncertainty about individual predictions; the mean curves are identical to those shown in the main paper. Figure 4 shows the complete real-world alignment-cost grid. FordChallenge, Opportunity, PAMAP2, and UCIActiv-ity attain a lower cost at a non-zero lag for the selected group, whereas Skoda, CrowdSourced, DREAMERA, DREAM-ERV, and STEW are minimized at or close to zero in the whole-dataset audit. The fold bands additionally show where the estimated curve is stable across data splits. 
+
+## Complete SyncNet Comparison 
+
+Tables 6 and 7 extend the lag-error comparison in the main paper with the resulting classifier accuracies. Both meth-Table 5: Configured non-negative lag grids and the sensor group used for correction and the SyncNet comparison. The notation a:s:b denotes values from a to b in steps of s.                    
+
+> Dataset Evaluated lags T∆[samples] Selected group FordChallenge 0, 1, 2, 3, 4, 5, 6, 8 vehicle Opportunity 0, 1, 2, 3, 5, 8, 10, 15, 20 l shoe PAMAP2 0, 1, 2, 3, 5, 8, 10, 15, 20 ankle UCIActivity 0, 1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 36, 42, 48, 56, 64 gyro Skoda 0, 1, 2, 3, 5, 8, 10, 15, 20 s06 CrowdSourced 0, 2, 5, 8, 12, 18, 25, 35, 50, 65, 80 F7 DREAMERA /DREAMERV 0, 2, 5, 8, 12, 18, 25, 35, 50 ch 12 / ch 13 STEW 0, 2, 5, 8, 12, 18, 25, 35, 50, 65, 80 ch 12 SyncSine-Sensitive / Robust
+> 0:20:1500 ch1 / ch0
+
+Table 6: Baseline-relative lag errors in samples (lower is better). Cases counts the jointly reachable fold–lag pairs.                                     
+
+> Dataset MDL SyncNet Cases FordChallenge 2.03 1.79 33 Opportunity 4.50 0.00 22 PAMAP2 8.44 0.00 9UCIActivity 3.60 0.00 10 Skoda 0.00 0.00 45 CrowdSourced 79.00 38.60 5DREAMERA 0.00 1.18 45 DREAMERV 2.16 0.00 45 STEW 0.00 0.00 55 SyncSine-Sensitive 128.00 359.18 220 SyncSine-Robust 472.29 516.86 70
+
+ods are evaluated on the same group, folds, and common lag grid. Following the main-paper protocol, only imposed lags for which both methods’ preferred training baselines are reachable are included. Lag error is measured relative to each method’s own preferred training baseline. Accuracy is obtained from the saved lag curves of the four classifiers: for every selected residual lag, we evaluate the correspond-ing already-computed classifier accuracy, then average over classifiers, folds, and included imposed lags. Thus, the tables add no model evaluations. SyncNet more accurately returns most real-world datasets to its learned baseline, which is reflected by the larger re-covery on PAMAP2 and UCIActivity. MDL is competitive on the zero-baseline datasets and substantially reduces the synthetic sensitive task’s accuracy loss despite its periodic ambiguity. CrowdSourced and the robust synthetic task have boundary or weakly identified MDL optima, so their lag er-rors should not be interpreted as localized estimates. Most importantly, the comparison concerns deployment drift rel-ative to a learned baseline; only the MDL criterion can also question that baseline without training. 0 2 4 6 8
+
+Imposed delay τ [samples] 
+
+> 82 84 86 88 90
+> Test accuracy [%]
+
+(a) FordChallenge     
+
+> 0510 15 20
+
+Imposed delay τ [samples] 
+
+> 72.5 75.0 77.5 80.0 82.5 85.0 87.5
+> Test accuracy [%]
+
+(b) Opportunity     
+
+> 0510 15 20
+
+Imposed delay τ [samples] 
+
+> 40 50 60 70 80 90
+> Test accuracy [%]
+
+(c) PAMAP2    
+
+> 020 40 60
+
+Imposed delay τ [samples] 
+
+> 75 80 85 90 95
+> Test accuracy [%]
+
+(d) UCIActivity     
+
+> 0510 15 20
+
+Imposed delay τ [samples] 
+
+> 86 88 90 92 94
+> Test accuracy [%]
+
+(e) Skoda     
+
+> 020 40 60 80
+
+Imposed delay τ [samples] 
+
+> 55 60 65 70 75 80
+> Test accuracy [%]
+
+(f) CrowdSourced   
+
+> 020 40
+
+Imposed delay τ [samples] 
+
+> 44 46 48 50 52 54
+> Test accuracy [%]
+
+(g) DREAMERA   
+
+> 020 40
+
+Imposed delay τ [samples] 
+
+> 50 55 60
+> Test accuracy [%]
+
+(h) DREAMERV     
+
+> 020 40 60 80
+
+Imposed delay τ [samples] 
+
+> 60 65 70 75 80
+> Test accuracy [%]
+
+(i) STEW 
+
+> CNN delayed CNN corrected ResNet delayed ResNet corrected Late fusion delayed Late fusion corrected Magnitude CNN delayed Magnitude CNN corrected
+
+Figure 3: Test accuracy under imposed sensor delays before and after label-free MDL correction. Lines show fold means and bands show one standard deviation over five folds. Solid lines are evaluated at the imposed lag. Dashed lines use the residual lag selected by the MDL alignment cost. 0 2 4 6 8−5000 05000 10000 15000 20000 25000 30000 
+
+> Alignment cost  QG [bits]
+
+(a) FordChallenge     
+
+> 0510 15 20 050000 100000 150000 200000 250000
+
+(b) Opportunity     
+
+> 0510 15 20 0200000 400000 600000 800000
+
+(c) PAMAP2    
+
+> 020 40 60 0100000 200000 300000 400000 500000
+> Alignment cost  QG [bits]
+
+(d) UCIActivity     
+
+> 0510 15 20 020000 40000 60000 80000
+
+(e) Skoda      
+
+> 020 40 60 80 01000 2000 3000 4000
+
+(f) CrowdSourced   
+
+> 020 40
+
+Sensor delay τ [samples]  
+
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> Alignment cost  QG [bits]
+> 1e7
+
+(g) DREAMERA   
+
+> 020 40
+
+Sensor delay τ [samples]  
+
+> 0.0 0.5 1.0 1.5 2.0 1e7
+
+(h) DREAMERV     
+
+> 020 40 60 80
+
+Sensor delay τ [samples]  
+
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1e6
+
+(i) STEW Figure 4: Label-free alignment cost over all evaluated real-world datasets. Lines show fold means and bands show one standard deviation. Each panel uses the classifier-selected group from Table 5. Raw bit scales are dataset-specific. Table 7: Classifier accuracy after lag correction [%]. Values average CNN, ResNet, late fusion, and Magnitude CNN over five folds and the jointly reachable imposed lags.                                                 
+
+> Dataset Nominal Lagged MDL SyncNet FordChallenge 86.5 86.5 86.5 86.5 Opportunity 81.6 81.1 81.2 81.6 PAMAP2 74.0 72.6 72.8 74.0 UCIActivity 92.4 89.9 89.9 92.4 Skoda 91.4 91.1 91.4 91.4 CrowdSourced 67.1 66.0 67.3 66.3 DREAMERA 48.3 47.7 48.3 48.3 DREAMERV 57.7 55.3 57.2 57.7 STEW 73.8 71.2 73.8 73.8 SyncSine-Sensitive 91.5 78.2 90.6 91.2 SyncSine-Robust 100.0 100.0 100.0 100.0
+
+Table 8: Preferred lags for the label-free (U) and class-conditional (C) metrics, reported as median [minimum– maximum] over five folds.                                     
+
+> Dataset Group U lag C lag FordChallenge vehicle 0 [0–8] 6 [0–8] Opportunity l shoe 5 [5–15] 15 [0–15] PAMAP2 ankle 20 [8–20] 3 [0–5] UCIActivity gyro 56 [56–56] 64 [64–64] Skoda s06 0 [0–0] 0 [0–0] CrowdSourced F7 80 [80–80] 65 [65–80] DREAMERA ch 12 0 [0–0] 0 [0–0] DREAMERV ch 13 0 [0–0] 0 [0–0] STEW ch 12 0 [0–0] 0 [0–0] SyncSine-Sensitive ch1 640 [640–640] 0 [0–640] SyncSine-Robust ch0 1300 [760–1480] 1480 [760–1500]
+
+## Class-Conditional versus Label-Free Metric 
+
+Tables 8 and 9 compare both variants on the same classifier-selected group and lag grid. The reported lag is the me-dian fold optimum with its fold range, and AG is the mean raw alignment cost over non-zero lags, averaged over folds. The bit values are descriptive within each row and variant; class-conditional coding changes the symbol populations and therefore need not preserve the unconditional scale. The variants agree on the clear zero-lag optima of Skoda, DREAMERA, DREAMERV, and STEW and identify simi-lar broad non-zero structure for UCIActivity. On the periodic sensitive task, zero and approximately one period are equiv-alent alignments, so the different discrete optimum does not constitute a contradiction. Neither variant localizes the ro-bust synthetic task: both costs are tiny and the fold optima span most of the grid. On the remaining real-world datasets, conditioning changes the preferred lag without producing a consistently more stable estimate. Since it offers no sys-tematic empirical advantage and requires labels, we use the unconditional metric throughout the main paper. Table 9: Mean raw alignment cost AG [kbit] for the label-free (U) and class-conditional (C) metrics.

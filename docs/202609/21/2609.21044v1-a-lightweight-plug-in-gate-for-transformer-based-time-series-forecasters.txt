@@ -1,0 +1,537 @@
+Title: A Lightweight Plug-in Gate for Transformer-Based Time-Series Forecasters
+
+URL Source: https://arxiv.org/pdf/2609.21044v1
+
+Published Time: Mon, 21 Sep 2026 00:11:47 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# A Lightweight Plug-in Gate for Transformer-Based Time-Series Forecasters 
+
+## Hongkai Zhuang 1, Tao Huang 1* , Chen Hou 1
+
+1* School of Computer and Big Data, Minjiang University, No. 200 Xiyuangong Road, Fuzhou, 350108, Fujian, China. *Corresponding author(s). E-mail(s): huang-tao@mju.edu.cn; 
+
+Abstract 
+
+Covariate-rich time-series forecasting requires deciding how external variables enter the target forecasting path. Existing Transformer-based forecasters usually build a covariate representation and pass it to the encoder without an explicit admission stage. This paper studies pre-encoder covariate admission as an input-side interface that regulates that representation immediately before encoder processing. We implement the interface with a lightweight representation-level pre-encoder gate that assigns sigmoid scores to representation units, and we also study a usage-regularized variant that penalizes average admission. The interface is evaluated as a plug-in module for TimeXer, Inverted Trans-former (iTransformer), and Patch Time Series Transformer (PatchTST) under a zero-extra-tuning protocol, where each gated model inherits the corresponding baseline configuration. Experiments on the Electricity Transformer Temperature minute-level (ETTm1 and ETTm2 ) datasets, Traffic , Energy , and influenza-like illness (ILI ) include paired forecasting comparisons, gate-placement ablation, initialization ablation, controlled covariate-admission analysis, and a variance inflation factor (VIF)-informed permutation feature importance (PFI) diagnostic case study. In the tested settings, the gate is competitive with the corresponding baselines, and the usage penalty reduces average admission scores while keeping forecasting errors close to the unpenalized TimeXer setting. 
+
+Keywords: Long-term time-series forecasting, Representation-level pre-encoder gate, Covariate-rich forecasting, Usage-regularized gating, Variance inflation factor 
+
+1arXiv:2609.21044v1 [cs.LG] 17 Sep 2026 1 Introduction 
+
+Long-term time-series forecasting is central to energy management, transportation planning, industrial monitoring, and public-health analysis. In these settings, the future value of a target variable is shaped by both the target history and external covariates. Load indicators, neighboring sensors, periodic markers, and public-health signals can each contribute information that is not recoverable from the target series alone. The modeling question is therefore not only how to model the target history, but also how to regulate the entry of covariate information into the forecasting path. Covariates are not uniformly useful. Some channels contribute independent infor-mation; others repeat information already present in the target history or in other channels. In multivariate benchmarks, this redundancy is common because variables are drawn from coupled sensors, correlated physical processes, or shared reporting sys-tems. The issue studied here is whether a Transformer-based forecaster should expose an explicit admission step at the boundary where the covariate representation enters the encoder. Pre-encoder admission is different from removing variables before training or explaining a trained model after prediction. Offline feature selection changes the input set, while post-hoc analysis only describes a trained model. The design question here is architectural: whether a Transformer-based forecasting model can include a lightweight input-side interface that learns how strongly its covariate representation should be admitted before encoder processing. Recent long-term forecasting models have improved sequence representation through efficient attention, decomposition, frequency-domain modeling, simple linear baselines, and temporal-variation modeling [1–5]. PatchTST segments each channel into temporal patches and preserves channel independence [6]. iTransformer inverts the conventional tokenization scheme and represents each variable history as one token [7]. TimeXer focuses on forecasting with covariates by using separate target and covariate embeddings with cross-attention [8]. These designs improve temporal modeling, variable representation, or covariate interaction, but they still leave admis-sion of the resulting covariate representation implicit at the encoder boundary. The narrower interface question is whether a shared representation-level gate can regulate the covariate representation immediately before encoder processing. We instantiate the interface as a lightweight representation-level pre-encoder gate that can be attached to Transformer-based backbones. After a baseline constructs its covariate representation and before that representation enters the encoder, the gate computes a score for each representation unit, converts the scores into weights, and reweights the representation through element-wise multiplication. The reweighted representation then follows the original encoder and forecasting pipeline. The same two-layer multilayer perceptron (MLP) scoring rule is used at this interface for each evaluated Transformer-based backbone, while the encoder and prediction head remain inherited from the baseline. We also study a usage-regularized variant that penalizes average admission under a controlled usage proxy. This extension tests whether the same interface can reduce admission while keeping forecasting errors close to the unpenalized setting. 2The empirical study is organized around five questions. First, under inherited baseline configurations, does a pre-encoder admission gate preserve or improve paired forecasting accuracy? Second, does the pre-encoder placement matter compared with a gate applied after encoder processing or fixed attenuation? Third, how sensitive is the gate to the initial admission probability? Fourth, can an explicit usage penalty control average admission? Fifth, in a representative redundant-covariate setting, how do learned gate weights relate to VIF and PFI diagnostics? These questions keep the scope aligned with the proposed interface: the paper evaluates a pre-encoder covariate-admission mechanism rather than a new forecasting backbone. The main contributions are as follows. • We formulate pre-encoder covariate admission as a plug-in interface that can be attached to Transformer-based backbones, where a baseline’s covariate representa-tion is regulated before encoder processing rather than removed by offline feature selection. • We introduce a lightweight pre-encoder gate and a usage-regularized variant that uses a controlled usage penalty to reduce average covariate admission without redesigning the forecasting backbone. • We evaluate the interface through paired forecasting comparisons, placement-and-learnability ablation, initialization ablation, controlled covariate-admission analysis, and a VIF-informed PFI diagnostic case study. 
+
+# 2 Related Work 
+
+## 2.1 Forecasting Backbones 
+
+Long-term forecasting backbones can be grouped by how they represent temporal and variable information. Earlier neural models such as Long- and Short-Term Time-series Network (LSTNet) combine convolutional and recurrent components to capture local and long-term temporal patterns in multivariate series [9]. Transformer-based mod-els then introduced several backbone designs for long-horizon forecasting: Informer reduces the cost of self-attention for long sequences [1], Autoformer combines decom-position with an auto-correlation mechanism [2], Frequency Enhanced Decomposed Transformer (FEDformer) moves part of the modeling into the frequency domain [3], and TimesNet represents temporal variation through two-dimensional transfor-mations [5]. At the same time, Decomposition-Linear (DLinear) showed that simple linear models remain strong baselines for long-term forecasting [4]. Another group of models changes how variables are represented. Crossformer explicitly models cross-dimension dependency in multivariate forecasting [10]. Patch-TST represents a series as patch tokens and keeps channel independence, so each variable is modeled as a univariate sequence with shared weights [6]. iTransformer represents each variable history as one token and applies attention over variables [7]. These methods mainly address temporal representation, variable representation, or cross-variable dependency inside the backbone. The present paper focuses on a dif-ferent design choice: regulating the covariate representation before the first encoder layer. 32.2 Covariate Fusion and Reweighting 
+
+A second line of work studies how the target variable should interact with external or auxiliary variables. Dual-stage attention-based recurrent neural network (DA-RNN) uses input attention to select relevant driving series and temporal attention to select relevant hidden states for prediction [11]. Temporal Fusion Transformer (TFT) uses variable selection networks and gating components to handle heterogeneous covariates in multi-horizon forecasting [12]. TimeXer is the closest recent Transformer repre-sentative for long-term forecasting with covariates. It separates target and covariate embeddings and uses cross-attention to transfer covariate information to the target representation [8]. More generally, attention mechanisms can reweight tokens inside a network [13], and stochastic gate methods have also been used for feature selection [14]. However, attention, variable selection, and feature selection address different place-ments in the forecasting pipeline. DA-RNN and TFT model feature relevance within recurrent or multi-horizon forecasting architectures. Stochastic gate feature selection targets feature selection before model prediction. TimeXer models covariate inter-action through cross-attention after constructing its covariate representation. These mechanisms show that covariate relevance can be modeled, while the placement stud-ied here is a shared admission point immediately before the encoder receives the baseline representation. The present paper focuses on a learnable admission score at that pre-encoder boundary, and the proposed gate is a lightweight implementation of that input-side interface. 
+
+## 2.3 Covariate Usage and Redundancy Diagnostics 
+
+Covariate admission is also related to cost-sensitive or budgeted feature use, where a model balances predictive utility against the number of variables admitted into a decision process. In this paper, we use a controlled usage penalty as a benchmark-level proxy for covariate usage. This setting is useful for testing whether the proposed interface can reduce average covariate admission while preserving forecasting accu-racy. It also separates the interface question from offline feature selection: instead of selecting a fixed subset before training, the model learns continuous admission scores jointly with the forecasting objective. Covariates in real-world forecasting datasets often arise from coupled sensors or related physical quantities. If one covariate can be largely explained by the others, it adds limited independent information and can increase redundant representation learning. VIF is a standard statistic for diagnosing linear redundancy among explana-tory variables [15]. In this paper, it is used to indicate whether the covariate space contains channels that are easy to reconstruct from other channels. VIF is a redundancy diagnostic for the covariate space, whereas the forecasting question is how a neural model should regulate covariate information during pre-diction. This motivates an interface-level comparison between statistical redundancy diagnostics and neural covariate usage. Existing forecasting backbones mainly improve temporal or variable representation, while covariate-aware models mainly improve how external variables are represented and interacted inside the backbone. This paper 4studies an explicit, backbone-preserving interface that regulates the covariate rep-resentation before the first encoder layer. The representation-level pre-encoder gate instantiated in this paper evaluates that interface with the same scoring mechanism across the tested backbones. 
+
+# 3 Proposed Method 
+
+The proposed method keeps the forecasting backbone unchanged and focuses on the pre-encoder regulation interface. We instantiate this interface with a small learnable gate placed at the pre-encoder boundary after the baseline constructs its covariate representation. The target branch, encoder, prediction objective, horizon setting, and downstream forecasting head are inherited from the corresponding backbone. The gate is therefore a minimal trainable mechanism for testing whether explicit pre-encoder covariate admission is useful. 
+
+## 3.1 Problem Formulation 
+
+Let Xtar ∈ RB×L×1 denote the historical target sequence for a batch of size B and look-back length L. Let Xcov ∈ RB×L×C denote the C raw covariates. The goal is to forecast Y ∈ RB×H×1 for horizon H.We treat the target variable and covariates as distinct inputs. The baseline first constructs its covariate representation. At the pre-encoder boundary, let Eg denote the representation supplied to the gate and let Nc denote the number of representation units in Eg . Thus, C counts the raw covariate channels in the input space, whereas 
+
+Nc counts the representation units exposed to the gate. The two quantities need not be equal, because the gate operates on the representation-level interface rather than on raw covariate identities. This keeps the formulation generic across Transformer-based backbones with different covariate layouts. The gate is applied to Eg before it is passed to the unchanged encoder. This formulation keeps the forecasting task unchanged. The target history, covari-ate history, and prediction horizon are the same as in the corresponding baseline setting. The added operation is the learned scaling of the covariate representation before it enters the encoder. A low gate score therefore means reduced admission of a learned representation in the tested model, rather than removal of an original variable from the forecasting dataset. 
+
+## 3.2 Representation-Level Pre-Encoder Gate 
+
+For a common interface, the representation exposed at the pre-encoder boundary is written as 
+
+Eg ∈ RB×Nc×D, (1) where Nc denotes the number of representation units and D is the model dimen-sion. The gate computes a scalar score for every representation unit. With Dh =
+
+5max( ⌊D/ 2⌋, 1) , which reduces to D/ 2 for the reported model dimensions, the gate is 
+
+Hg = ϕ(Eg W1 + b1),S = σ(Hg W2 + b2),
+
+eEg = S ⊙ Eg ,
+
+(2) where Hg is the hidden gate activation, S ∈ RB×Nc×1 is the sigmoid admission-score tensor, W1 ∈ RD×Dh and b1 ∈ RDh are the first-layer parameters, and W2 ∈ RDh×1
+
+and b2 ∈ R are the second-layer parameters. Here, ϕ(·) is the Gaussian error linear unit (GELU) [16], σ(·) is the sigmoid function, and ⊙ denotes element-wise multiplication. The biases are broadcast over the batch and representation dimensions, and S is broadcast over the feature dimension in the last expression. The multiplication by W1
+
+and W2 is along the last feature dimension, so the intermediate tensors have shapes 
+
+B × Nc × Dh and B × Nc × 1, respectively. The reweighted covariate representation is then passed to the original encoder in the layout required by the corresponding backbone. The gate is intentionally multiplicative and does not include a residual bypass inside the module. The learned score is therefore the explicit scaling factor applied to each representation unit before encoder processing. The backbone can still form residual representations in its own layers, but the input interface remains explicit. 
+
+## 3.3 Usage-Regularized Admission Objective 
+
+The same interface can be trained with a covariate-usage penalty. The forecasting loss is the standard MSE loss, 
+
+LMSE = 1
+
+BH 
+
+> B
+
+X
+
+> b=1
+> H
+
+X
+
+> t=1
+
+(ˆ yb,t − yb,t )2 . (3) Here, yb,t and ˆyb,t are the target and predicted values at forecast step t for batch item 
+
+b, and B and H are the batch size and prediction horizon defined above. Let uj denote the assigned usage weight of the jth representation unit. In the controlled admission analysis, we use a uniform usage setting, uj = 1 , to measure whether the gate can reduce average covariate admission. The usage-regularized training objective is 
+
+Luse = LMSE + λ 1
+
+BN cBX
+
+> b=1
+> Nc
+
+X
+
+> j=1
+
+Sb,j uj , (4) where λ controls the strength of the usage penalty and Sb,j is the admission score for the jth representation unit. When λ = 0 , the objective reduces to the standard forecasting loss used by the ungated and unpenalized gated variants. The reported usage-regularized experiments use this term to regulate average admission. 6Target Time Series External Covariates (e.g.Temp, Holiday) +Fusion / Concat Target Point Inverted Embedding Covariate Point Inverted Embedding Adaptive Covariate Gate Transformer Encoder Predictor Head Forecast Output Linear Layer Input GELU Linear Layer Sigmoid Importance Weights Re-weighted Covariates Re-weighted Covariates Fig. 1 Architecture of the pre-encoder covariate admission gate 
+
+## 3.4 Soft-Start Initialization 
+
+A naive sigmoid gate can make early training unstable if its initial values are too close to zero or too close to one. A gate initialized near zero removes covariate information before the model has learned its relevance, while a gate initialized near one approaches full covariate admission and weakens the purpose of input-side regulation. We therefore use a soft-start initialization that leaves the covariate path partially open at the beginning of training. The same initialization rule is used for all gated backbones unless otherwise stated. This setting keeps gradients available through the covariate representation while avoiding full initial reliance on all inputs. During training, the model can increase or decrease the scores assigned to representation units. 
+
+## 3.5 Backbone Integration 
+
+The same representation-level pre-encoder gate is used for all evaluated Transformer-based backbones. It can be attached as a plug-in interface to a Transformer-based backbone when the backbone exposes its covariate representation before encoder pro-cessing: the gate computes a sigmoid score used as an admission weight and reweights the representation. The reweighted representation then enters the original encoder and follows the baseline forecasting pipeline. The encoder and prediction head remain unchanged, and no backbone-specific scoring rule is introduced. Fig. 1 summarizes the general integration point. The design deliberately avoids backbone-specific scoring rules. The added computation consists of two linear layers and an element-wise multiplication over representation units. This keeps the tested change focused on the pre-encoder covariate interface. 74 Experimental Setup 
+
+## 4.1 Task and Datasets 
+
+We evaluate multivariate long-term forecasting. In each dataset, the last variable is treated as the target variable and the remaining variables are treated as covariates. The input construction, preprocessing, and forecasting task remain the same as in the corresponding baseline. The gate is inserted at the pre-encoder boundary of the covariate representation, following the exogenous-variable forecasting protocol used by TimeXer while retaining the common long-horizon benchmark setting [8]. Five datasets are used: Electricity Transformer Temperature minute-level (ETTm1 
+
+and ETTm2 ) datasets, Traffic , Energy , and influenza-like illness (ILI ). These datasets follow commonly used long-term forecasting benchmarks [1, 8, 9]. The ILI dataset corresponds to the national influenza-like illness records in national_illness.csv ,which are derived from U.S. influenza surveillance reports provided through Flu-View. These datasets cover different covariate structures, including physical sensor variables, traffic measurements, energy-related variables, and public-health indicators. For ETTm1 , ETTm2 , Traffic , and Energy , the prediction horizons are 96, 192, 336, and 720. For ILI , the horizons are 24, 36, 48, and 60. Mean squared error (MSE) and mean absolute error (MAE) are reported. MSE is more sensitive to larger fore-cast errors, whereas MAE reports the average absolute deviation, so the two metrics provide complementary views of forecasting behavior. 
+
+## 4.2 Baselines and Training Protocol 
+
+The evaluated backbones are TimeXer, iTransformer, and PatchTST. Each gated model inherits the corresponding baseline hyperparameters, including look-back length, model dimension, optimizer, learning rate, and batch size. The target vari-able, covariate set, preprocessing, and train-validation-test split are kept identical within each baseline–gate pair. No additional search is performed for the gate. The manuscript reports two implementation branches: the main implementation version for the paired baseline–gate comparison, and an auxiliary implementation version for the ablations, diagnostics, and contextual comparison. The comparison is organized around baseline–gate pairs, and the reported val-ues characterize the inserted interface under the existing backbone setting. This keeps the paper focused on whether a small representation-level pre-encoder gate can be attached to Transformer-based forecasting backbones without redesigning their training pipelines. For TimeXer, we additionally include a placement-and-learnability ablation to iso-late the design choice studied in this paper. Four TimeXer variants are compared: NoGate, which is the ungated TimeXer baseline; PreEncoderGate, which applies the learnable gate at the pre-encoder boundary; PostEncoderGate, which applies a gate after encoder processing; and FrozenGate, which uses the pre-encoder placement but freezes the gate parameters after initialization. This ablation is used to test whether 8the observed behavior is tied to the proposed pre-encoder location and to the learnabil-ity of the admission scores, rather than to adding an arbitrary multiplicative scaling layer. MSE and MAE are reported throughout. We also conduct an additional TimeXer analysis on ETTm1 , ETTm2 , and ILI .This analysis compares how physical covariates enter the TimeXer covariate branch under four regimes. FullCov admits all physical covariates, TargetOnly removes the physical covariates and keeps the target forecasting setting without them, RandomK admits a fixed random subset of k covariates, and VIFLowK admits the k covariates with the lowest VIF values. RandomK samples without replacement using a dataset-stable random seed, and VIFLowK computes VIF values from the training portion of the physical covariates before sorting them in ascending order. UsageGate uses the usage-regularized objective in Eq. 4. The evaluated grid is k ∈ { 1, 2, 3, 4, 5} for the fixed-subset variants and λ ∈ { 0, 10 −3, 10 −2, 10 −1} for UsageGate, with a uniform usage weight. Table 4 summarizes the comparison, and the appendix reports the full grids. This analysis compares the admission regimes under the same backbone and records the resulting tradeoff between average admission and forecasting error. 
+
+# 5 Results and Analysis 
+
+The results are organized around the covariate-admission interface. We first evalu-ate paired forecasting performance, then isolate placement and learnability, examine initialization sensitivity, test controlled covariate admission, and finally provide a redundancy diagnostic. A contextual comparison with forecasting baselines is reported after the main interface analyses. 
+
+## 5.1 Paired Forecasting Performance 
+
+Table 1 reports paired gate–baseline comparisons under the main implementation ver-sion, averaged over fixed seeds. Each gated model inherits the corresponding baseline configuration, and no additional search is used for the gated branch. Bold values mark the lower mean within each gate–baseline pair, so the table reports paired results within each backbone rather than a global ranking across all methods. Across the paired model–dataset–horizon settings, the gated variants are often at parity with, and in several cases better than, their paired baselines. On ETTm1 and 
+
+ETTm2 , the gated variants mostly track their baselines closely. On Traffic , TimeXer-Gate and PatchTST-Gate show the clearest gains, while iTransformer-Gate is mixed at longer horizons. On Energy , the paired comparisons are near parity. On ILI , the gate reduces MSE more consistently than MAE. 9Table 1 Long-term forecasting performance 
+
+Dataset Method Metric Horizon 
+
+H1 H2 H3 H4 AVG 
+
+ETTm1 
+
+TimeXer-Gate MSE 0.028 0.043 0.056 0.079 0.052 
+
+MAE 0.125 0.158 0.183 0.217 0.171 
+
+TimeXer MSE 0.028 0.043 0.057 0.079 0.052 MAE 0.125 0.158 0.185 0.217 0.171 iTransformer-Gate MSE 0.028 0.044 0.058 0.080 0.053 
+
+MAE 0.126 0.160 0.186 0.217 0.172 
+
+iTransformer MSE 0.029 0.044 0.059 0.080 0.053 MAE 0.127 0.161 0.187 0.217 0.173 PatchTST-Gate MSE 0.029 0.043 0.057 0.081 0.053 
+
+MAE 0.126 0.158 0.184 0.218 0.171 
+
+PatchTST MSE 0.029 0.043 0.057 0.081 0.053 MAE 0.126 0.159 0.184 0.219 0.172 
+
+ETTm2 
+
+TimeXer-Gate MSE 0.066 0.099 0.130 0.182 0.119 
+
+MAE 0.185 0.233 0.274 0.331 0.256 
+
+TimeXer MSE 0.067 0.102 0.131 0.182 0.121 MAE 0.187 0.238 0.275 0.332 0.258 iTransformer-Gate MSE 0.068 0.103 0.131 0.184 0.121 
+
+MAE 0.190 0.240 0.276 0.334 0.260 
+
+iTransformer MSE 0.075 0.110 0.131 0.184 0.125 MAE 0.200 0.250 0.277 0.335 0.265 PatchTST-Gate MSE 0.065 0.099 0.130 0.182 0.119 
+
+MAE 0.182 0.233 0.274 0.331 0.255 
+
+PatchTST MSE 0.065 0.101 0.130 0.182 0.119 MAE 0.183 0.236 0.274 0.331 0.256 
+
+Traffic 
+
+TimeXer-Gate MSE 0.149 0.150 0.149 0.169 0.154 
+
+MAE 0.224 0.227 0.232 0.252 0.234 
+
+TimeXer MSE 0.150 0.152 0.150 0.170 0.156 MAE 0.224 0.228 0.232 0.253 0.234 iTransformer-Gate MSE 0.147 0.146 0.145 0.167 0.151 
+
+MAE 0.225 0.224 0.229 0.253 0.233 iTransformer MSE 0.148 0.146 0.144 0.166 0.151 MAE 0.226 0.224 0.228 0.252 0.232 
+
+PatchTST-Gate MSE 0.174 0.169 0.167 0.196 0.177 
+
+MAE 0.252 0.247 0.248 0.271 0.254 
+
+PatchTST MSE 0.210 0.191 0.211 0.376 0.247 MAE 0.272 0.259 0.268 0.319 0.280 
+
+Energy 
+
+TimeXer-Gate MSE 0.214 0.244 0.274 0.298 0.258 
+
+MAE 0.323 0.347 0.368 0.405 0.361 
+
+TimeXer MSE 0.218 0.243 0.275 0.298 0.258 MAE 0.327 0.345 0.370 0.403 0.361 iTransformer-Gate MSE 0.221 0.250 0.284 0.313 0.267 
+
+MAE 0.327 0.349 0.376 0.415 0.367 
+
+iTransformer MSE 0.224 0.252 0.285 0.322 0.271 MAE 0.330 0.353 0.376 0.421 0.370 PatchTST-Gate MSE 0.210 0.244 0.282 0.304 0.260 MAE 0.321 0.345 0.374 0.406 0.361 PatchTST MSE 0.204 0.242 0.276 0.298 0.255 
+
+MAE 0.317 0.345 0.372 0.403 0.359 
+
+10 Table 1 Long-term forecasting performance (continued) 
+
+Dataset Method Metric Horizon 
+
+H1 H2 H3 H4 AVG 
+
+ILI 
+
+TimeXer-Gate MSE 0.674 0.689 0.718 0.748 0.707 
+
+MAE 0.613 0.654 0.688 0.716 0.668 TimeXer MSE 0.686 0.702 0.717 0.754 0.715 MAE 0.609 0.653 0.681 0.718 0.665 
+
+iTransformer-Gate MSE 0.673 0.710 0.700 0.729 0.703 
+
+MAE 0.598 0.653 0.660 0.698 0.652 
+
+iTransformer MSE 0.674 0.715 0.702 0.730 0.705 MAE 0.596 0.655 0.662 0.700 0.653 PatchTST-Gate MSE 0.678 0.679 0.704 0.738 0.700 
+
+MAE 0.599 0.633 0.668 0.707 0.652 
+
+PatchTST MSE 0.681 0.684 0.707 0.737 0.702 MAE 0.605 0.635 0.669 0.707 0.654        
+
+> Lower MSE and MAE indicate better forecasting performance. Values are averaged over the fixed seeds used for the main implementation version. Bold values mark the lower mean within each gate–baseline pair. The table reports paired baseline–gate behavior under inherited configurations. For ETTm1 ,ETTm2 ,Traffic ,and Energy ,H1–H4denote horizons 96, 192, 336, and 720; for ILI , they denote horizons 24, 36, 48, and 60.
+
+The zero-extra-tuning setting keeps the tuning budget aligned between each base-line and its gated counterpart. The seed-averaged results are reported as paired observations for the tested interface. 
+
+## 5.2 TimeXer Ablation on Gate Placement and Learnability 
+
+The paired results above evaluate the proposed gate against ungated backbones. To further examine whether the TimeXer improvement comes from the proposed pre-encoder interface, we compare four TimeXer variants in Table 2. NoGate is the original TimeXer baseline. PreEncoderGate is the proposed learnable pre-encoder gate. Pos-tEncoderGate applies a gate after encoder processing, and FrozenGate keeps the pre-encoder placement but freezes the gate parameters after initialization. Thus, Pos-tEncoderGate tests the effect of placement, while FrozenGate tests whether fixed covariate attenuation can explain the observed behavior. Across the reported averages, PreEncoderGate has the lowest MSE and tied low-est MAE among the four variants. PreEncoderGate improves over NoGate, while PostEncoderGate does not reproduce the same pattern. This comparison separates placement from learnability and identifies the pre-encoder learnable variant as the best-performing option in this ablation. 
+
+## 5.3 Ablation on Gate Initialization 
+
+The previous ablation examines where the gate should be placed and whether the gate should remain learnable. We further examine the soft-start initialization used by the proposed pre-encoder gate. This ablation keeps the TimeXer backbone, training protocol, datasets, horizons, and hyperparameters unchanged, and varies only the initial sigmoid admission setting. The original soft-start setting is compared with 11 Table 2 TimeXer ablation on gate placement and learnability 
+
+Dataset NoGate PreEncoderGate PostEncoderGate FrozenGate MSE MAE MSE MAE MSE MAE MSE MAE 
+
+ETTm1 0.052 0.171 0.052 0.171 0.052 0.172 0.052 0.171 
+
+ETTm2 0.120 0.258 0.119 0.255 0.120 0.258 0.119 0.256 
+
+Traffic 0.156 0.235 0.153 0.233 0.168 0.255 0.160 0.242 
+
+ILI 0.726 0.670 0.719 0.673 0.770 0.714 0.719 0.673 
+
+Energy 0.259 0.361 0.258 0.361 0.259 0.362 0.258 0.362 Overall 0.263 0.339 0.260 0.339 0.274 0.352 0.262 0.341 
+
+> Lower values indicate better forecasting performance. MSE and MAE are compared across all four variants.
+
+more open initial settings. These variants test whether the gain comes from simply admitting more covariate information at the beginning of training. 
+
+Table 3 TimeXer ablation on gate initialization 
+
+Dataset NoGate PreEncoderGate p0 = 0 .500 p0 = 0 .700 p0 = 0 .900 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE 
+
+ETTm1 0.052 0.171 0.052 0.171 0.052 0.171 0.052 0.171 0.052 0.171 
+
+ETTm2 0.120 0.258 0.119 0.255 0.119 0.256 0.120 0.257 0.120 0.257 
+
+Energy 0.259 0.361 0.258 0.361 0.259 0.361 0.257 0.361 0.258 0.363 
+
+ILI 0.726 0.670 0.719 0.673 0.722 0.672 0.725 0.672 0.727 0.672 Overall 0.289 0.365 0.287 0.365 0.288 0.365 0.288 0.365 0.289 0.366    
+
+> Lower MSE and MAE indicate better forecasting performance. The table reports averages over the tested horizons for each dataset. The initialization ablation is conducted on the four datasets available in this experiment, excluding Traffic .p0denotes the initial sigmoid admission probability of the covariate gate.
+
+Among the tested initializations, the original soft-start setting has the lowest over-all MSE and tied lowest overall MAE. The more open variants do not improve the overall averages, so the soft-start choice remains the preferred initialization in this ablation. 
+
+## 5.4 Controlled Covariate Admission Analysis 
+
+The preceding ablations examine where the gate is placed and how it is initialized. We next compare four admission regimes within TimeXer: admitting all covariates, removing covariates, selecting a fixed subset, or learning a controllable pre-encoder admission score. Table 4 reports horizon-averaged results for TimeXer on ETTm1 ,
+
+ETTm2 , and ILI . FullCov admits all physical covariates, TargetOnly removes the physical covariates and keeps the target forecasting setting without them, RandomK admits a fixed random subset of k covariates, VIFLowK admits the k covariates with the lowest VIF values, and UsageGate uses the usage-regularized objective in Eq. 4. 12 The average-admission-score column is one for FullCov, zero for TargetOnly, k/C for fixed subsets, and the average learned admission score for UsageGate. 
+
+Table 4 Controlled covariate admission analysis with TimeXer 
+
+Dataset Variant Admission setting Average admission score MSE MAE 
+
+ETTm1 
+
+FullCov all covariates 1.000 0.052 0.171 
+
+TargetOnly no physical covariates 0.000 0.053 0.172 RandomK random subset ( k = 5 ) 0.833 0.052 0.172 VIFLowK low-VIF subset ( k = 5 ) 0.833 0.052 0.172 UsageGate λ = 0 0.427 0.053 0.173 UsageGate penalty ( λ = 10 −1) 0.003 0.053 0.172 
+
+ETTm2 
+
+FullCov all covariates 1.000 0.120 0.257 TargetOnly no physical covariates 0.000 0.121 0.258 RandomK random subset ( k = 5 ) 0.833 0.120 0.258 VIFLowK low-VIF subset ( k = 5 ) 0.833 0.120 0.258 UsageGate λ = 0 0.284 0.122 0.259 UsageGate penalty ( λ = 10 −1) 0.008 0.119 0.256 
+
+ILI 
+
+FullCov all covariates 1.000 0.728 0.671 
+
+TargetOnly no physical covariates 0.000 0.716 0.673 RandomK random subset ( k = 1 ) 0.167 0.722 0.673 VIFLowK low-VIF subset ( k = 1 ) 0.167 0.717 0.673 UsageGate λ = 0 0.274 0.719 0.673 UsageGate penalty ( λ = 10 −1) 0.253 0.719 0.673 
+
+> Lower MSE and MAE indicate better forecasting performance. Values are averaged over the four prediction horizons of each dataset. The summary table reports the observed results for the evaluated settings; the appendix reports the full grids. Average admission score denotes full admission for FullCov, no covariate admission for TargetOnly, the selected subset fraction for RandomK and VIFLowK, and the average learned admission score for UsageGate.
+
+The table shows that admission regime matters. On ETTm1 and ETTm2 , FullCov is better than TargetOnly, so physical covariates carry useful information in these datasets. Fixed-subset results stay close to FullCov only when most covariates remain admitted, and neither RandomK nor VIFLowK is consistently superior in this table. UsageGate provides a controllability check for the admission score. As λ increases, the average learned admission score decreases, and the forecasting errors stay close to the full-covariate values in ETTm1 and ETTm2 . On ETTm2 , the penalized UsageGate setting has the lowest average MSE and MAE among the listed settings. The ILI result gives a different pattern. TargetOnly has the lowest MSE, while FullCov has the lowest MAE. The UsageGate variants do not beat TargetOnly on this dataset. Overall, the table shows that the same admission control can preserve accuracy in some settings while reducing average admission. 
+
+## 5.5 Diagnostic Case Study on Covariate Redundancy 
+
+Aggregate forecasting metrics indicate whether the gated variant changes predic-tion error. To inspect how the gate allocates admission weights across covariates, we 13 include a diagnostic case study on one ETTm2 setting. The goal is to report a setting-specific association between learned gate weights, linear redundancy, and perturbation sensitivity, while keeping the main forecasting evidence in Table 1. To inspect covariate behavior beyond aggregate forecasting error, we analyze one ETTm2 setting with look-back length seq_len=96 and prediction horizon 
+
+pred_len=192 . Oil temperature (OT) is the target variable, and the remaining physi-cal variables are treated as covariates. In the ETT notation, these covariates are high useful load (HUFL), high useless load (HULL), middle useful load (MUFL), mid-dle useless load (MULL), low useful load (LUFL), and low useless load (LULL). We compute VIF to describe linear redundancy within the covariate set and use it to organize the perturbation analysis. For the jth covariate xj , let R2 
+
+> j
+
+be the coefficient of determination obtained by regressing xj on all remaining covariates. The VIF is 
+
+VIF j = 11 − R2
+
+> j
+
+. (5) Larger VIF values indicate that the covariate is easier to reconstruct from the rest of the covariate set. In this study, VIF describes linear redundancy in the covariate space. The VIF calculation identifies HULL and MULL as the higher-VIF covariates in this setting. We therefore include both single-covariate perturbations and a grouped perturbation for this pair in the PFI analysis. PFI is related to permutation impor-tance in random forests and model-reliance analysis, and measures how much the prediction error changes when a covariate is perturbed [17, 18]. For covariate j, PFI is defined as 
+
+PFI j = L(f (Xperm( j)), Y ) − L (f (X), Y ), (6) where Xperm( j) denotes the input after randomly permuting the jth covariate. A positive value indicates that perturbing the covariate increases forecasting error, while a small or negative value indicates low sensitivity under this perturbation protocol. Because correlated covariates can substitute for each other, we also evaluate a grouped PFI perturbation for the high-VIF pair HULL and MULL. The PFI table reports responses measured by MSE, MAE, and Dynamic Time Warping (DTW) [19]. The diagnostic analysis provides an additional view of the trained gate in this representative setting, especially for covariates that are strongly related to other covariates in the same input window. Table 5 reports the PFI results together with the VIF values used to define the high-VIF group, and Fig. 2 visualizes the setting-specific relation between VIF and learned gate weight. In this setting, the mean learned gate weight for the high-VIF group is lower than the mean for the remaining covariates. The PFI values provide a complementary view of model sensitivity under covariate perturbation. Together, these results provide a setting-specific diagnostic of how learned admission weights and perturbation responses vary across covariates. 14 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 
+
+Variance Inflation Factor (VIF) 
+
+> 0.45 0.50 0.55 0.60 0.65
+> Learned Gate Weight (Test Set Avg)
+
+Adaptive Gate Weight vs. Covariate VIF (ETTm2) 
+
+> HUFL HULL MUFL MULL LUFL LULL
+
+Pearson r = 0.7797 Fig. 2 Learned gate weight versus VIF on ETTm2 . The plot summarizes the relation between linear covariate redundancy and average gate weight in the analyzed setting. 
+
+## 5.6 Contextual Comparison with Forecasting Baselines 
+
+Table 6 compares TimeXer-Gate with representative forecasting baselines from the result sheet, including TimeXer [8], iTransformer [7], RLinear [20], PatchTST [6], TiDE [21], TimesNet [5], and DLinear [4]. Table 6 reports a contextual comparison under the auxiliary implementation version and a fixed seed: all methods use the same data split, preprocessing, and evaluation protocol, while each baseline retains its documented model-specific configuration. The comparison is restricted to ETTm1 ,
+
+ETTm2 , and Traffic , which overlap with the main experimental setting of this paper. This table contextualizes absolute forecasting performance, while the paired baseline– gate comparisons remain the main evidence for the admission interface. On ETTm1 , TimeXer-Gate has the lowest average MSE and MAE in the table, with the largest differences appearing at the longer horizons. On ETTm2 , TimeXer-Gate also gives the lowest average result, although PatchTST is lower at horizon 336 and RLinear and TiDE are lower at horizon 720. On Traffic , TimeXer-Gate gives the lowest average MSE and MAE in the table, while TiDE has the lowest MAE at horizon 336. These results provide context for the paired analyses above. 15 Table 5 PFI perturbation analysis on ETTm2 
+
+Covariate/Group VIF Gate Weight Model PFI MSE MAE DTW HUFL 2.637 0.655 TimeXer-Gate 0.000 0.000 0.012 – TimeXer 0.001 0.001 0.023 HULL 16.956 0.448 TimeXer-Gate 0.000 0.000 0.004 – TimeXer 0.000 0.000 0.004 MUFL 2.038 0.665 TimeXer-Gate 0.001 0.001 0.026 – TimeXer 0.001 0.001 0.027 MULL 11.933 0.561 TimeXer-Gate 0.000 0.000 -0.008 – TimeXer 0.000 0.000 -0.009 LUFL 3.050 0.599 TimeXer-Gate 0.001 0.002 0.020 – TimeXer 0.001 0.001 0.022 LULL 2.182 0.535 TimeXer-Gate 0.000 0.001 0.012 – TimeXer 0.001 0.001 0.019 HULL+MULL High-VIF – TimeXer-Gate 0.000 0.000 -0.007 – TimeXer 0.000 0.000 -0.006   
+
+> The table reports PFI responses for TimeXer-Gate and TimeXer in the analyzed ETTm2 setting. The mean learned gate weight for the high-VIF group is lower than that for the remaining covariates in this case study. Gate Weight is reported for TimeXer-Gate; “–” marks the baseline rows without a learned gate. The grouped HULL+MULL perturbation reports the model response when the high-redundancy pair is perturbed together.
+
+16 Table 6 TimeXer-Gate comparison with forecasting baselines 
+
+Dataset Method Metric Horizon 
+
+H1 H2 H3 H4 AVG 
+
+ETTm1 
+
+TimeXer-Gate MSE 0.028 0.043 0.056 0.079 0.052 
+
+MAE 0.125 0.158 0.183 0.216 0.171 
+
+TimeXer MSE 0.028 0.043 0.058 0.079 0.052 MAE 0.125 0.158 0.185 0.217 0.171 iTransformer MSE 0.029 0.045 0.060 0.079 0.053 MAE 0.128 0.163 0.190 0.218 0.175 RLinear MSE 0.030 0.044 0.057 0.080 0.053 MAE 0.129 0.160 0.184 0.217 0.173 PatchTST MSE 0.029 0.045 0.058 0.082 0.054 MAE 0.126 0.160 0.184 0.221 0.173 TiDE MSE 0.030 0.044 0.057 0.080 0.053 MAE 0.129 0.160 0.184 0.217 0.173 TimesNet MSE 0.029 0.044 0.061 0.083 0.054 MAE 0.128 0.160 0.190 0.223 0.175 DLinear MSE 0.034 0.055 0.078 0.098 0.066 MAE 0.135 0.173 0.210 0.234 0.188 
+
+ETTm2 
+
+TimeXer-Gate MSE 0.066 0.098 0.130 0.181 0.119 
+
+MAE 0.185 0.232 0.274 0.331 0.255 
+
+TimeXer MSE 0.067 0.101 0.130 0.182 0.120 MAE 0.188 0.236 0.275 0.332 0.258 iTransformer MSE 0.071 0.108 0.140 0.188 0.127 MAE 0.194 0.247 0.288 0.340 0.267 RLinear MSE 0.074 0.104 0.131 0.180 0.122 MAE 0.199 0.241 0.276 0.329 0.261 PatchTST MSE 0.068 0.100 0.128 0.185 0.120 MAE 0.188 0.236 0.271 0.335 0.258 TiDE MSE 0.073 0.104 0.131 0.180 0.122 MAE 0.199 0.241 0.276 0.329 0.261 TimesNet MSE 0.073 0.106 0.150 0.186 0.129 MAE 0.200 0.247 0.296 0.338 0.270 DLinear MSE 0.072 0.105 0.136 0.191 0.126 MAE 0.195 0.240 0.280 0.335 0.263 
+
+17 Table 6 TimeXer-Gate comparison with forecasting baselines (continued) 
+
+Dataset Method Metric Horizon 
+
+H1 H2 H3 H4 AVG 
+
+Traffic 
+
+TimeXer-Gate MSE 0.149 0.150 0.148 0.165 0.153 
+
+MAE 0.224 0.229 0.230 0.247 0.232 
+
+TimeXer MSE 0.151 0.152 0.150 0.172 0.156 MAE 0.224 0.229 0.232 0.253 0.235 iTransformer MSE 0.156 0.156 0.154 0.177 0.161 MAE 0.236 0.237 0.243 0.268 0.246 RLinear MSE 0.350 0.314 0.305 0.328 0.324 MAE 0.431 0.404 0.399 0.415 0.412 PatchTST MSE 0.176 0.162 0.164 0.189 0.173 MAE 0.253 0.243 0.248 0.267 0.253 TiDE MSE 0.350 0.230 0.220 0.243 0.261 MAE 0.430 0.315 0.208 0.329 0.321 TimesNet MSE 0.154 0.164 0.167 0.197 0.171 MAE 0.249 0.255 0.259 0.292 0.264 DLinear MSE 0.268 0.302 0.298 0.340 0.302 MAE 0.351 0.387 0.384 0.416 0.385      
+
+> Lower MSE and MAE indicate better forecasting performance. Bold values mark the lowest entry for each metric in the same dataset and horizon. All methods use a fixed seed under the auxiliary implementation version and shared task configuration, data split, preprocessing, and evaluation protocol; each baseline retains its documented model-specific configuration. Values are transcribed from the result sheet and shown to three decimal places where needed. The table is a contextual comparison on overlapping datasets; the main paired comparison is reported in Table 1. For ETTm1 ,ETTm2 , and Traffic ,H1–H4denote horizons 96, 192, 336, and 720.
+
+## 5.7 Limitations 
+
+The proposed gate is a lightweight representation-level pre-encoder module, and its effect depends on the dataset and the backbone. The results on Energy and some evaluated backbone settings show that the same interface does not always reduce forecasting error. The zero-extra-tuning protocol keeps the comparison aligned between each baseline and its gated counterpart, but it also constrains the gated variants to the inherited learning rate, model dimension, and training schedule. The controlled usage penalty is a benchmark-level proxy, not a real acquisition-cost model. The VIF-informed PFI analysis is likewise a diagnostic view of one redundant-covariate setting. 
+
+# 6 Conclusion 
+
+This paper frames pre-encoder covariate admission as an interface problem in covariate-rich long-term forecasting. The proposed representation-level gate is placed after a baseline constructs its covariate representation and before the first encoder 18 layer, so the covariate path can be regulated without changing the encoder or predic-tion head. The method adds a lightweight admission module and supports a controlled covariate-usage penalty. Across the reported paired settings, the gate is competitive with the corresponding baselines and produces modest gains in several cases. The TimeXer ablations separate the effects of placement, learnability, and initialization. The controlled covariate-admission analysis shows that the learned admission score can be reduced under the usage penalty while keeping error close to the unpenalized setting in the tested TimeXer configurations. The VIF-informed PFI case study gives a setting-specific diagnostic of redundancy and perturbation sensitivity. Overall, the proposed gate is a compact plug-in interface for regulating covariate usage in Transformer-based backbones under the reported benchmarks. 19 Statements and Declarations 
+
+## Funding 
+
+Anonymous for peer review. 
+
+## Competing interests 
+
+The authors have no competing interests to declare that are relevant to the content of this article. 
+
+## Ethics approval 
+
+Not applicable. 
+
+## Data availability 
+
+The ETTm1, ETTm2, Traffic, and influenza-like illness (ILI) datasets analysed in this study are publicly available benchmark datasets. The ETTm1, ETTm2, Traffic, and ILI benchmark files are publicly available through the Time-Series-Library data distribution (https://github.com/thuml/Time-Series-Library). The ILI benchmark data are derived from the publicly available U.S. Centers for Disease Control and Prevention FluView surveillance data (https://www.cdc.gov/fluview/). The Energy dataset, including energy_dataset.csv , is publicly available in the “Energy Con-sumption, Generation, Prices and Weather” dataset on Kaggle (https://www.kaggle. com/datasets/nicholasjhana/energy-consumption-generation-prices-and-weather/ data?select=energy_dataset.csv). No new datasets were generated during the current study. 
+
+## Code availability 
+
+The code supporting the findings of this study will be made publicly available upon publication. 20 Appendix A Implementation Notes 
+
+The gate adds only two linear layers to the representation exposed at the pre-encoder boundary. For the reported even model dimensions, the first layer contains D(D/ 2) 
+
+weights and D/ 2 biases, while the output layer contains D/ 2 weights and one bias. The additional parameter count is therefore D2/2 + D + 1 . This overhead is small relative to Transformer backbones. During inference, the gate requires one additional MLP pass over representation units and an element-wise multiplication. 
+
+## A.1 Controlled-Admission Grid Results 
+
+The controlled-admission analysis evaluates the complete fixed-subset grid k ∈{1, 2, 3, 4, 5} and the formal UsageGate grid λ ∈ { 0, 10 −3, 10 −2, 10 −1}. Tables A1–A3 report every evaluated setting used for the controlled comparison from the auxiliary implementation version. Each cell is written as MSE/MAE. For ETTm1 and ETTm2 ,
+
+H1–H4 denote horizons 96, 192, 336, and 720; for ILI , they denote horizons 24, 36, 48, and 60. AVG is the arithmetic mean over the four horizons. The rows shown in Table 4 are the settings with the lowest AVG MSE within the corresponding grid for each dataset.  
+
+> Table A1 Random-subset grid results
+
+Dataset Setting H1 H2 H3 H4 AVG 
+
+ETTm1 
+
+k = 1 0.029/0.127 0.045/0.161 0.059/0.186 0.081/0.218 0.053/0.173 
+
+k = 2 0.029/0.126 0.044/0.161 0.058/0.186 0.080/0.217 0.053/0.173 
+
+k = 3 0.028/0.125 0.044/0.160 0.058/0.186 0.080/0.217 0.052/0.172 
+
+k = 4 0.028/0.125 0.044/0.159 0.058/0.185 0.080/0.217 0.052/0.172 
+
+k = 5 0.028/0.125 0.043/0.158 0.058/0.185 0.079/0.217 0.052/0.172 
+
+ETTm2 
+
+k = 1 0.069/0.189 0.107/0.242 0.135/0.278 0.183/0.333 0.123/0.260 
+
+k = 2 0.070/0.190 0.109/0.244 0.135/0.279 0.184/0.333 0.124/0.261 
+
+k = 3 0.068/0.188 0.106/0.241 0.132/0.277 0.182/0.331 0.122/0.259 
+
+k = 4 0.067/0.186 0.104/0.238 0.132/0.276 0.182/0.331 0.121/0.258 
+
+k = 5 0.067/0.187 0.103/0.237 0.131/0.275 0.181/0.331 0.120/0.258 
+
+ILI 
+
+k = 1 0.708/0.626 0.706/0.659 0.722/0.689 0.754/0.720 0.722/0.673 
+
+k = 2 0.715/0.625 0.713/0.659 0.724/0.688 0.757/0.721 0.727/0.673 
+
+k = 3 0.717/0.625 0.717/0.659 0.724/0.687 0.759/0.722 0.729/0.673 
+
+k = 4 0.717/0.623 0.718/0.659 0.725/0.686 0.759/0.722 0.730/0.673 
+
+k = 5 0.718/0.623 0.720/0.659 0.725/0.685 0.760/0.722 0.731/0.672 
+
+> Each cell reports MSE/MAE; values are rounded to three decimal places from the final log metrics. AVG is computed over the four prediction horizons of the corresponding dataset.
+
+21 Table A2 Low-VIF subset grid results 
+
+Dataset Setting H1 H2 H3 H4 AVG 
+
+ETTm1 
+
+k = 1 0.029/0.127 0.045/0.161 0.059/0.186 0.081/0.218 0.053/0.173 
+
+k = 2 0.029/0.127 0.044/0.160 0.059/0.187 0.081/0.218 0.053/0.173 
+
+k = 3 0.029/0.127 0.044/0.160 0.058/0.187 0.080/0.218 0.053/0.173 
+
+k = 4 0.029/0.127 0.044/0.160 0.058/0.186 0.080/0.218 0.053/0.173 
+
+k = 5 0.028/0.126 0.044/0.159 0.058/0.186 0.079/0.217 0.052/0.172 
+
+ETTm2 
+
+k = 1 0.067/0.186 0.105/0.239 0.134/0.278 0.182/0.331 0.122/0.259 
+
+k = 2 0.069/0.187 0.105/0.239 0.134/0.278 0.183/0.332 0.123/0.259 
+
+k = 3 0.068/0.189 0.102/0.236 0.131/0.275 0.181/0.331 0.121/0.258 
+
+k = 4 0.067/0.187 0.103/0.238 0.131/0.276 0.181/0.331 0.121/0.258 
+
+k = 5 0.068/0.189 0.101/0.235 0.131/0.276 0.181/0.331 0.120/0.258 
+
+ILI 
+
+k = 1 0.699/0.625 0.700/0.658 0.719/0.689 0.751/0.719 0.717/0.673 
+
+k = 2 0.705/0.623 0.705/0.657 0.721/0.687 0.754/0.719 0.721/0.672 
+
+k = 3 0.709/0.622 0.710/0.657 0.721/0.686 0.756/0.720 0.724/0.671 
+
+k = 4 0.711/0.622 0.713/0.658 0.723/0.685 0.759/0.721 0.726/0.671 
+
+k = 5 0.712/0.622 0.715/0.658 0.723/0.685 0.760/0.722 0.728/0.672 
+
+> Each cell reports MSE/MAE; values are rounded to three decimal places from the final log metrics. AVG is computed over the four prediction horizons of the corresponding dataset.
+
+Table A3 UsageGate penalty grid results 
+
+Dataset Setting H1 H2 H3 H4 AVG 
+
+ETTm1 
+
+λ = 0 0.029/0.126 0.045/0.161 0.058/0.187 0.080/0.218 0.053/0.173 
+
+λ = 10 −3 0.028/0.126 0.045/0.161 0.060/0.189 0.080/0.218 0.053/0.173 
+
+λ = 10 −2 0.028/0.125 0.044/0.160 0.059/0.186 0.080/0.217 0.053/0.172 
+
+λ = 10 −1 0.028/0.125 0.043/0.159 0.058/0.186 0.080/0.217 0.053/0.172 
+
+ETTm2 
+
+λ = 0 0.066/0.185 0.104/0.239 0.134/0.278 0.183/0.333 0.122/0.259 
+
+λ = 10 −3 0.067/0.186 0.104/0.238 0.133/0.276 0.181/0.331 0.121/0.258 
+
+λ = 10 −2 0.065/0.184 0.103/0.238 0.132/0.275 0.180/0.329 0.120/0.257 
+
+λ = 10 −1 0.065/0.183 0.104/0.239 0.131/0.275 0.178/0.327 0.119/0.256 
+
+ILI 
+
+λ = 0 0.701/0.625 0.701/0.658 0.721/0.690 0.753/0.720 0.719/0.673 
+
+λ = 10 −3 0.701/0.625 0.701/0.658 0.721/0.690 0.753/0.720 0.719/0.673 
+
+λ = 10 −2 0.701/0.625 0.701/0.658 0.721/0.690 0.753/0.720 0.719/0.673 
+
+λ = 10 −1 0.700/0.625 0.701/0.658 0.721/0.690 0.753/0.720 0.719/0.673   
+
+> Each cell reports MSE/MAE; values are rounded to three decimal places from the final log metrics. AVG is computed over the four prediction horizons of the corresponding dataset. The formal reported grid contains the four displayed λvalues.
+
+22 References 
+
+[1] Zhou, H., Zhang, S., Peng, J., Zhang, S., Li, J., Xiong, H., Zhang, W.: Informer: Beyond efficient transformer for long sequence time-series forecasting. In: Proceedings of the AAAI Conference on Artificial Intelligence, vol. 35, pp. 11106–11115 (2021) [2] Wu, H., Xu, J., Wang, J., Long, M.: Autoformer: Decomposition transform-ers with auto-correlation for long-term series forecasting. Advances in neural information processing systems 34 , 22419–22430 (2021) [3] Zhou, T., Ma, Z., Wen, Q., Wang, X., Sun, L., Jin, R.: Fedformer: Fre-quency enhanced decomposed transformer for long-term series forecasting. In: International Conference on Machine Learning, pp. 27268–27286 (2022). PMLR [4] Zeng, A., Chen, M., Zhang, L., Xu, Q.: Are transformers effective for time series forecasting? In: Proceedings of the AAAI Conference on Artificial Intelligence, vol. 37, pp. 11121–11128 (2023) [5] Wu, H., Hu, T., Liu, Y., Zhou, H., Wang, J., Long, M.: Timesnet: Tem-poral 2d-variation modeling for general time series analysis. arXiv preprint arXiv:2210.02186 (2022) [6] Nie, Y., Nguyen, N.H., Sinthong, P., Kalagnanam, J.: A time series is worth 64 words: Long-term forecasting with transformers. arXiv preprint arXiv:2211.14730 (2022) [7] Liu, Y., Hu, T., Zhang, H., Wu, H., Wang, S., Ma, L., Long, M.: itransformer: Inverted transformers are effective for time series forecasting. In: International Conference on Learning Representations, vol. 2024, pp. 11116–11140 (2024) [8] Wang, Y., Wu, H., Dong, J., Qin, G., Zhang, H., Liu, Y., Qiu, Y., Wang, J., Long, M.: Timexer: Empowering transformers for time series forecasting with exogenous variables. Advances in neural information processing systems 37 , 469–498 (2024) [9] Lai, G., Chang, W.-C., Yang, Y., Liu, H.: Modeling long-and short-term tempo-ral patterns with deep neural networks. In: The 41st International ACM SIGIR Conference on Research & Development in Information Retrieval, pp. 95–104 (2018) [10] Zhang, Y., Yan, J.: Crossformer: Transformer utilizing cross-dimension depen-dency for multivariate time series forecasting. In: The Eleventh International Conference on Learning Representations (2023) [11] Qin, Y., Song, D., Chen, H., Cheng, W., Jiang, G., Cottrell, G.: A dual-stage attention-based recurrent neural network for time series prediction. arXiv preprint arXiv:1704.02971 (2017) 23 [12] Lim, B., Arık, S.Ö., Loeff, N., Pfister, T.: Temporal fusion transformers for inter-pretable multi-horizon time series forecasting. International journal of forecasting 
+
+37 (4), 1748–1764 (2021) [13] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., Polosukhin, I.: Attention is all you need. Advances in neural information processing systems 30 (2017) [14] Yamada, Y., Lindenbaum, O., Negahban, S., Kluger, Y.: Feature selection using stochastic gates. In: International Conference on Machine Learning, pp. 10648– 10659 (2020). PMLR [15] O’brien, R.M.: A caution regarding rules of thumb for variance inflation factors. Quality & quantity 41 (5), 673–690 (2007) [16] Hendrycks, D., Gimpel, K.: Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415 (2016) [17] Breiman, L.: Random forests. Machine learning 45 (1), 5–32 (2001) [18] Fisher, A., Rudin, C., Dominici, F.: All models are wrong, but many are useful: Learning a variable’s importance by studying an entire class of prediction models simultaneously. Journal of machine learning research 20 (177), 1–81 (2019) [19] Sakoe, H., Chiba, S.: Dynamic programming algorithm optimization for spoken word recognition. IEEE transactions on acoustics, speech, and signal processing 
+
+26 (1), 43–49 (1978) [20] Li, Z., Qi, S., Li, Y., Xu, Z.: Revisiting long-term time series forecasting: an investigation on affine mapping. Academia AI and Applications 2(2) (2026) [21] Das, A., Kong, W., Leach, A., Mathur, S., Sen, R., Yu, R.: Long-term forecasting with tide: Time-series dense encoder. arXiv preprint arXiv:2304.08424 (2023) 24

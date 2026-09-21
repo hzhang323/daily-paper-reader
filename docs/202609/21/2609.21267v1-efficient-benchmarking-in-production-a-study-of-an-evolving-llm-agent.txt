@@ -1,0 +1,1089 @@
+Title: Efficient Benchmarking in Production: A Study of an Evolving LLM Agent
+
+URL Source: https://arxiv.org/pdf/2609.21267v1
+
+Published Time: Mon, 21 Sep 2026 00:26:31 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+## Efficient Benchmarking in Production: A Study of an Evolving LLM Agent 
+
+Yining She *
+
+Carnegie Mellon University 
+
+yiningsh@andrew.cmu.edu 
+
+Lei Lin 
+
+Meta 
+
+llin22@meta.com 
+
+Abstract 
+
+Production LLM agents are evaluated repeat-edly as they evolve, but full agent benchmarks are costly to rerun. We study efficient recur-ring evaluation for a production analytics agent serving tens of thousands of monthly active users and report first-hand deployment expe-rience. Using 574 historical runs of the pro-duction benchmark, split chronologically into calibration and held-out periods, we compare random sampling, historical caching, fixed rep-resentative subsets, and IRT-based adaptive test-ing. The results show that multidimensional 2PL adaptive testing achieves the best overall score fidelity: executing 200 questions, 38.5% of a full run, yields 1.03 pp of MAE. We never-theless deployed difficulty-stratified fixed sub-sets because of their operational simplicity, and show they transfer without recalibration to five other agent families and remain stable across calibration windows as short as one day. Drawing on this deployment experience, we report practical recommendations for recurring production-agent evaluation. 
+
+1 Introduction 
+
+Production LLM agents require repeated evaluation as their models, prompts, tools, and surrounding systems evolve. Each benchmark item may involve a multi-step trajectory with repeated model calls, tool use, stateful interaction, and task-specific grad-ing; stochasticity may also require repeated trials (Kapoor et al., 2026; Yao et al., 2024; Jimenez et al., 2024). Our work is motivated by this challenge in the development of a deployed analytics agent, which serves tens of thousands of monthly active users. Its development and monitoring generate tens of thousands of evaluation runs. Benchmark evaluation is a major component of this workload. Each run of a central 519-question benchmark takes approximately three hours. This makes cost- and 
+
+> *Work done while at Meta.
+
+time-efficient measurement important for continu-ous development. Prior work reduces LLM evaluation cost through subset selection, score reconstruction, and adaptive testing (Vivek et al., 2024; Polo et al., 2024; Perlitz et al., 2024; Kipnis et al., 2025; Yuan et al., 2025; Truong et al., 2025). These methods are primarily calibrated on responses of distinct models evalu-ated on public benchmarks. Less is known about re-curring evaluation of an evolving production agent, where temporally ordered outcomes from earlier runs can inform later evaluations. We therefore ask how faithfully partial evalu-ation can stand in for the complete benchmark throughout continuous agent development, along two axes: score fidelity , the tradeoff between the number of questions executed and error in the esti-mated full-benchmark score, and ranking fidelity ,how well rankings among evaluation runs are pre-served by each method. We compare random sampling with three uses of historical evaluation data: caching reuses sta-ble outcomes, fixed subsets execute representative questions, and adaptive testing selects each next question based on responses in the current run (Polo et al., 2024; Truong et al., 2025). We use real historical data from our production agent: 574 benchmark runs collected over 52 days, split into 287 calibration and 287 held-out test runs (Fig. 1). Our results show that partial evaluation can closely recover full-benchmark performance with substantially fewer executions. Multidimensional 2PL adaptive testing provides the strongest score fidelity: executing 200 of 519 questions (38.5% of a complete run) yields 1.03 percentage points (pp) of pass-rate MAE. Partial evaluation also preserves rankings: at 300 questions, the best adaptive con-figuration reaches 0.992 Spearman correlation with full-benchmark rankings. Difficulty-stratified fixed subsets give the strongest non-adaptive results, and we deployed them for their operational simplicity. arXiv:2609.21267v1 [cs.AI] 18 Sep 2026 (a) Evaluation data   
+
+> Production analytics agent
+> models, prompts and tools evolve
+> ▼evaluated repeatedly
+> Benchmark: 519 questions
+> Each run takes ≈ 3h
+> 574 runs × 519 questions
+> 52 days; pass / fail per cell
+> split by time ⟶
+> 287 calibration
+> Day 1 – Day 28
+> 287 held-out
+> Day 29 – Day 52
+> + 299 runs, 5 agent families
+
+(b) Partial-evaluation methods compared 
+
+Random 
+
+sampling  
+
+> baseline
+> ■ executed
+> □ not executed
+> k questions drawn at random
+> ŝ = avg(executed verdicts)
+
+Historical 
+
+caching       
+
+> reuse stable verdicts stable ⟶reuse,
+> else execute
+> skip questions with recent
+> pass rate ≤ ε or ≥ 1−ε
+> ŝ = avg(executed + cached)
+
+Fixed  subset     
+
+> chosen once from
+> history 3 runs, the same
+> k questions each
+> representative questions,
+> reused every run
+> ŝ = Σ w ᵢyᵢor gp-IRT
+
+Adaptive 
+
+testing  
+
+> run-specific selection
+> ability
+> θ
+> next
+> question
+> ▶
+> ▲
+> repeat to k
+> most informative question
+> next
+> ŝ = p-IRT reconstruction
+
+(c) Fidelity metrics 
+
+Execution 
+
+> executed fraction |S| / N
+
+Score fidelity 
+
+> estimate ŝ
+> ▼
+> reference s (full run)
+> MAE = mean | ŝ − s |
+> over the 287 held-out runs
+
+Ranking fidelity  
+
+> run order by ŝ by s
+> Spearman ρ and Kendall τ
+> between the two orderings
+> ▶▶
+
+Figure 1: Overview of the study. (a) Historical evaluation runs of a production analytics agent, split by time into calibration and held-out test runs. (b) The four partial-evaluation methods compared: each executes a subset S ⊆ Q 
+
+and reports an estimate ˆs of the pass rate s of a complete run. (c) Test on the 287 held-out runs: pass-rate MAE against the complete run (lower is better) and Spearman and Kendall rank correlation (higher is better). 
+
+We further validate this choice through cross-agent transfer and calibration-window sensitivity. Our contributions are as follows: • We study recurring evaluation of an evolving production agent using 574 historical bench-mark runs and a temporally held-out protocol. • We compare the score- and ranking-fidelity tradeoffs of random sampling, historical caching, fixed subsets, and adaptive testing. • We analyze method design choices and vali-date difficulty-stratified fixed subsets through transfer to five agent families and sensitivity to calibration history. • We derive practical recommendations from these results and our deployment experience in a production evaluation workflow. 
+
+2 Problem Setup 
+
+2.1 Recurring Production-Agent Evaluation 
+
+As a production agent’s models, prompts, tools, and surrounding systems change, developers need to repeatedly evaluate its configurations on a human-curated benchmark. Each question receives a bi-nary pass/fail verdict, which is aggregated into a run-level pass rate used to compare configurations. Let the complete benchmark contain N ques-tions, Q = {q1, . . . , q N }. For evaluation run r,let yri ∈ { 0, 1} denote the verdict on question qi,where one indicates a pass. The complete vector of question-level verdicts is 
+
+yr = ( yr1, . . . , y rN ), (1) and the complete-evaluation pass rate is 
+
+sr = 1
+
+N
+
+NX
+
+i=1 
+
+yri . (2) We treat sr as the reference score an efficient eval-uation should recover. 
+
+2.2 Partial Evaluation 
+
+To reduce computational cost and latency, an ef-ficient evaluation method m executes a subset 
+
+S(m)
+
+r ⊆ Q and estimates the complete pass rate as 
+
+ˆs(m)
+
+r . Let Hr denote question-level verdicts avail-able from earlier runs. The estimator is 
+
+ˆs(m)
+
+r = fm
+
+
+
+{yri : qi ∈ S(m)
+
+r }, Hr
+
+
+
+, (3) where fm may use current-run verdicts and history. Different methods may select different questions and compute their reported pass rates differently. Section 3 specifies each method’s selection rule and estimator. We measure efficiency by the fraction of bench-mark questions executed: 
+
+ExecutionFraction (m)
+
+r = |S(m)
+
+r | / N. (4) 
+
+2.3 Evaluation Objectives 
+
+Our first objective is score fidelity : an efficient evaluation should report a pass rate close to the complete evaluation. For a set R of evaluation runs, we summarize score error using 
+
+MAE (m) = 1
+
+|R| 
+
+X
+
+r∈R 
+
+ˆs(m)
+
+r − sr . (5) Our second objective is ranking fidelity . De-velopers use run rankings to compare candi-date changes and investigate regressions, so par-tial evaluation should preserve the complete-evaluation ordering. We measure agreement be-tween {ˆs(m) 
+
+> r
+
+}r∈R and {sr}r∈R using Spearman correlation and Kendall’s Tau. 
+
+3 Methods 
+
+We compare random sampling, historical caching, fixed subsets, and adaptive testing. Each defines an executed set S(m) 
+
+> r
+
+and an estimator of the complete pass rate. 
+
+3.1 Random Sampling 
+
+Random sampling draws k questions uniformly without replacement and reports their unweighted pass rate: 
+
+ˆsrand  
+
+> r
+
+= 1
+
+k
+
+X
+
+> qi∈Srand
+> r
+
+yri . (6) 
+
+3.2 Historical Outcome Caching 
+
+Questions that consistently pass or fail across re-cent runs are less likely to change their outcomes after a modest agent update. Historical caching leverages this stability by reusing expected verdicts for selected questions instead of executing them again. From the available history Hr, we select a look-back window Wr and compute the historical pass rate of each question qi:
+
+¯yri = 1
+
+|W r|
+
+X
+
+> u∈W r
+
+yui . (7) A question is cache eligible when 
+
+min(¯ yri , 1 − ¯yri ) ≤ ϵ, (8) where ϵ ∈ [0 , 0.5] controls the required stability. Eligible questions receive their recent majority ver-dict, ˜yri = 1[¯ yri ≥ 0.5] , while all others are exe-cuted. If Kr is the cached set, the method executes 
+
+Sr = Q \ Kr and reports 
+
+ˆscache  
+
+> r
+
+= 1
+
+N
+
+ X
+
+> qi∈Sr
+
+yri + X
+
+> qi∈Kr
+
+˜yri 
+
+ . (9) 
+
+3.3 Fixed-Subset Evaluation 
+
+Inspired by Polo et al. (2024), fixed-subset eval-uation uses historical outcomes to select a repre-sentative set that is reused across later runs. We compare three selection strategies and two score es-timators to separate subset construction from score reconstruction. 
+
+3.3.1 IRT Models 
+
+Several selectors and estimators use item response theory (IRT) models fitted to the historical response matrix. A multidimensional two-parameter logistic (2PL) model assigns each run an ability vector θr,each question a discrimination vector αi, and each question a scalar difficulty βi. The model predicts the probability of a pass as 
+
+pri = Pr( yri = 1 | θr, αi, β i) = σ(α⊤ 
+
+> i
+
+θr − βi),
+
+(10) where σ is the logistic sigmoid. We estimate pa-rameters from historical verdicts by maximum a posteriori estimation with Gaussian priors. The Rasch, or one-parameter logistic (1PL), model is the unidimensional special case with αi = 1 :
+
+pri = σ(θr − βi). (11) 
+
+3.3.2 Subset Selection 
+
+We use difficulty stratification as a direct, inter-pretable construction that selects questions across the estimated difficulty range. For comparison, we also evaluate historical-response and IRT-feature clustering, adapting the two clustering selectors of Polo et al. (2024). 
+
+Difficulty stratification. We fit the Rasch model (Eq.11) on the calibration runs, sort questions by difficulty βi, and divide them into k approximately equal strata. From each stratum, we select the question closest to its median difficulty, and weight it by the stratum’s fraction of the benchmark. 
+
+Historical-response clustering. We represent each question by a vector recording its pass/fail outcomes across historical runs and apply K-means clustering with k clusters. The question closest to each cluster centroid is selected, and its weight is the fraction of benchmark questions in that cluster. 
+
+IRT-feature clustering. We instead represent each question by its fitted 2PL item parameters, 
+
+[αi; βi], and apply the same K-means selection and weighting. 
+
+3.3.3 Score Estimation 
+
+Following Polo et al. (2024), we evaluate each se-lector with two score estimators. The weighted subset estimator uses only the selected questions, while generalized p-IRT estimator (gp-IRT) recon-structs the unobserved questions using the fitted IRT model. Weighted subset estimator. This estimator treats each selected question as the representative of its group. For fixed subset S, let wi be the cluster or stratum weight of question qi, with P 
+
+> qi∈S
+
+wi = 1 .The weighted estimate is 
+
+ˆsweighted  
+
+> r
+
+= X
+
+> qi∈S
+
+wiyri . (12) 
+
+Generalized p-IRT estimator. The gp-IRT esti-mator combines the weighted subset estimate with an IRT-based reconstruction of the entire bench-mark, balancing sampling variation against error from the fitted IRT model. The IRT-based recon-struction is p-IRT. It first estimates the current run’s ability ˆθr from its responses in S, holding fitted item parameters fixed, and then replaces each unob-served verdict with its predicted pass probability: 
+
+ˆspIRT  
+
+> r
+
+= 1
+
+N
+
+ X
+
+> qi∈S
+
+yri + X 
+
+> qi/∈S
+
+pi(ˆθr)
+
+ . (13) In our experiments, difficulty stratification uses Rasch parameters for selection and reconstruction, while the clustering variants use the fitted multidi-mensional 2PL model. The gp-IRT estimator blends the weighted and p-IRT estimates: 
+
+ˆsgpIRT  
+
+> r
+
+= λˆsweighted  
+
+> r
+
++ (1 − λ)ˆ spIRT  
+
+> r
+
+, (14) where the blending weight λ is: 
+
+λ = ˆb2
+
+ˆσ2/(4 |S|) + ˆb2 . (15) The weight favors the direct estimate when esti-mated IRT reconstruction bias ˆb2 is large relative to weighted-estimator variance ˆσ2/(4 |S|). We esti-mate ˆσ2 by averaging within-run question-outcome variance over historical runs and ˆb2 as squared IRT reconstruction MAE on held-out historical runs. Following the default anchor-estimator adjustment of Polo et al. (2024), we divide ˆσ2 by four, equiva-lently halving the estimated standard deviation. 
+
+3.4 IRT-Based Adaptive Testing 
+
+Adaptive testing selects each next question using responses observed in the current run. The intu-ition is to always pick the questions that are most informative for the current evaluation. We adapt the Rasch/Fisher-information procedure of Truong et al. (2025) and additionally evaluate a multidi-mensional 2PL extension with D-optimal selection. We first calibrate item difficulties {βi}Ni=1 from historical runs and initialize a new run’s ability at 
+
+ˆθ(0)  
+
+> r
+
+= 0 . At step t, the predicted pass probability for each unobserved question is 
+
+p(t) 
+
+> i
+
+= σ(ˆθ(t) 
+
+> r
+
+− βi). (16) Under the Rasch model, the Fisher information supplied by question qi is 
+
+Ii(ˆθ(t) 
+
+> r
+
+) = p(t) 
+
+> i
+
+(1 − p(t) 
+
+> i
+
+). (17) At each step, the method executes the unob-served question with maximum information and re-estimates ˆθr from all observed verdicts, stop-ping after k questions. The multidimensional 2PL variant estimates abil-ity vector ˆθr and uses D-optimality to reduce un-certainty across its coordinates. Given the accu-mulated Fisher information matrix It, it selects the question maximizing p(t) 
+
+> i
+
+(1 − p(t) 
+
+> i
+
+)α⊤ 
+
+> i
+
+I−1 
+
+> t
+
+αi, then updates the ability vector and information matrix from all observed verdicts. Because Fisher selection targets informative rather than representative questions, the raw pass rate of the selected questions need not approximate the complete-benchmark pass rate. We therefore estimate the complete pass rate using the p-IRT reconstruction defined above (Eq.13) 
+
+4 Experimental Setup 
+
+4.1 Production Evaluation Data 
+
+The evaluated system is a production analytics agent designed to answer natural-language ques-tions about data. It combines language-model rea-soning with tools for retrieving and analyzing infor-mation, and is evaluated repeatedly as its models, prompts, tools, and surrounding system change. The benchmark consists of human-curated ques-tions about data written by internal analysts; neither the questions nor the recorded evaluation outcomes contain user data or personal information. Each recorded outcome is a binary pass/fail verdict pro-duced by an automated grader. We retain evaluation runs with valid outcomes for at least 80% of the benchmark and compute each run’s reference pass rate over its valid outcomes. This yields 287 cali-bration runs from Day 1 through Day 28, and 287 test runs from Day 29 through Day 52 (Figure 1). 4.2 Temporal Protocol and Method Configurations Random sampling. We evaluate k ∈ { 10 , 20 ,
+
+30 , 50 , 75 , 100 , 150 , 200 , 250 , 300 , 350 , 400 }, av-eraging results over 20 random seeds. 
+
+Historical caching. Caching uses a rolling seven-day window of prior routine runs, requires at least five historical trials per eligible question, and is rebuilt daily for reuse on that day’s evaluations. We sweep ϵ from 0.00 to 0.30 in increments of 0.01, caching a question when Eq.8 is satisfied. 
+
+Fixed-subset evaluation. We construct each sub-set once from all calibration runs at the same com-putational budgets k used for random sampling and apply it unchanged to every test run. IRT models for selection and p-IRT reconstruction are also fit-ted on all calibration runs. To estimate the gp-IRT bias term ˆb2, we split calibration runs in half, fit an auxiliary IRT model on the first half, and measure reconstruction error on the second by revealing half of each run’s available outcomes. For every multidi-mensional 2PL fit, we select d ∈ { 2, 5, 10 , 15 } by log likelihood on a fixed 15% sample of observed calibration cells. 
+
+Adaptive testing. We evaluate adaptive testing at the same k. Item parameters are fitted on all calibra-tion runs and held fixed during question selection for each test run. We compare Rasch adaptive test-ing with the multidimensional 2PL variant to assess whether modeling multiple latent abilities improves the accuracy–execution tradeoff. 
+
+5 Results 
+
+5.1 Score Fidelity 
+
+Figure 2 compares historical caching, difficulty-stratified fixed subsets with weighted and gp-IRT estimation, and Rasch adaptive testing on 287 held-out runs 1. We examine the remaining design choices within each method family in Section 5.3. Among the methods evaluated at fixed compu-tational budgets k, difficulty-stratified subsets lead at small budgets: at k=100 (19.3% of the bench-mark), gp-IRT obtains 2.65pp MAE, compared with 2.94 for random sampling and 2.92 for adap-tive testing. Adaptive testing leads from k=200 
+
+(38.5%), where its MAE is 1.37 pp versus 1.40 for fixed-subset gp-IRT and 1.79 for random sampling. At k=300 (57.8%), the respective errors are 0.79,  
+
+> 1Appendix report complete values in tables.
+> Figure 2: Pass-rate MAE v.s. execution fraction. Fixed-budget methods use k/ 519 . Caching points report mean execution fractions across cache thresholds.
+
+0.99, and 1.18 pp. Weighted and gp-IRT subset estimates are similar across these budgets. Caching determines execution through its eligi-bility threshold, yielding mean execution fractions from 20.3% to 81.6% and MAE from 7.36 to 0.81 pp. More aggressive caching reduces execution but increases error, and its curve lies above the other methods over their shared range. For example, caching obtains 1.54 pp MAE at 69.1% execution, while adaptive testing, fixed-subset gp-IRT, and random sampling obtain 0.60, 0.73, and 0.93 pp at 
+
+k=350 (67.4%). 
+
+Takeaway. Difficulty-stratified fixed subsets per-form best at small budgets, while adaptive test-ing achieves the lowest MAE from k=200 onward. Historical caching is less accurate than the other methods at comparable execution levels. 
+
+5.2 Ranking Fidelity 
+
+Fig. 3 reports ranking fidelity for the same con-figurations. Both correlations increase with the computational budget, but the differences among methods are more pronounced for Kendall’s Tau. At k=100 (19.3%), fixed-subset gp-IRT obtains 0.930 Spearman and 0.770 Kendall, compared with 0.923&0.760 for adaptive testing and 0.911&0.751 for random sampling. Adaptive testing becomes stronger as the compu-tational budget increases. At k=200 (38.5%), adap-tive testing and fixed-subset gp-IRT tie in Spearman (0.972), while adaptive testing has higher Kendall (0.873 v.s. 0.859). At k=300 (57.8%), adaptive testing reaches 0.986 Spearman and 0.920 Kendall, compared with 0.981&0.887 for fixed-subset gp-IRT and 0.975&0.875 for random sampling across budgets. Caching preserves rankings much better than its (a) Spearman correlation (b) Kendall’s Tau 
+
+Figure 3: Ranking fidelity v.s. execution fraction on 287 held-out runs. Higher is better. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.00 0.02 0.04 0.06 0.08 0.10 Pass-rate MAE 
+
+> Difficulty stratification Historical-response K-means IRT-feature K-means Random sampling Weighted gp-IRT
+
+Figure 4: Fixed-subset MAE on 287 held-out runs. 
+
+score MAE suggests. At 20.3% execution it obtains 0.905 Spearman and 0.733 Kendall. At 79.0%, it reaches 0.996 and 0.967, compared with 0.995 and 0.962 for adaptive testing at k=400 (77.1%). 
+
+Takeaway. Difficulty-stratified subsets give the strongest ranking fidelity at small budgets, while adaptive testing leads at larger budgets. Historical caching preserves run rankings substantially better than its score-estimation error alone would suggest. 
+
+5.3 Design Choices within Method Families 
+
+The score and ranking fidelity comparisons in Sec-tions 5.1 and 5.2 yield similar method orderings. We therefore focus on MAE in the remaining anal-yses and report rank correlations in the appendix. 
+
+5.3.1 Fixed-Subset Selection and Estimation 
+
+Figure 4 separates the effect of subset selection from score estimation. Difficulty stratification has the lowest MAE across most budgets and leads un-der both estimators from k=150 (28.9%). With gp-IRT, historical-response K-means leads from 
+
+k=30 (5.8%) through k=100 (19.3%) and gen-erally outperforms IRT-feature K-means. From 
+
+k=200 (38.5%), both clustering selectors perform worse than random sampling under either estimator, while difficulty stratification remains better. gp-IRT benefits the clustering selectors more than difficulty stratification, whose weighted and gp-IRT estimates are consistently similar. Ranking correlation results largely mirror MAE (Fig. 8&9). The weak performance of IRT-feature K-means contrasts with Polo et al. (2024), which found IRT-based selection consistently effective. Two differ-ences between the experimental settings may ex-plain the conflicts. First, our calibration data of recurring configurations of one production agent may contain fewer distinct response patterns than diverse LLM populations used by Polo et al. (2024), making multidimensional item parameters less reli-able and therefore clusters less representative. Dif-ficulty stratification requires only a scalar difficulty ordering and directly preserves coverage across that range. Second, our subsets are much larger fractions of the benchmark: k=100 (19.3%) versus 100 of roughly 14,000 MMLU questions in Polo et al. (2024). Random sampling becomes more accurate at these larger sampling fractions, leaving less scope for clustering to improve upon it. 
+
+Takeaway. Difficulty stratification performs best overall, while the more complex selectors provide no consistent gain and fall below random sampling at moderate computational budgets. 
+
+5.3.2 Adaptive IRT Model 
+
+Figure 5 compares Rasch and multidimensional 2PL adaptive testing. Multidimensional 2PL adap-tive testing has lower MAE than Rasch and random sampling at every k, with its largest advantage at 
+
+k=100 (19.3%): 1.97 pp versus 2.92 and 2.94 pp, respectively. Its advantage narrows as execution increases. Spearman and Kendall show the same ordering (Figure 10). Rasch represents each run on one ability axis, whereas multidimensional 2PL allows question out-comes to depend on different ability coordinates 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.00 0.02 0.04 0.06 0.08 0.10 Pass-rate MAE 
+
+> Rasch adaptive Multidimensional 2PL adaptive Random sampling
+
+Figure 5: Adaptive Testing MAE on the held-out runs. 
+
+through their discrimination vectors. D-optimal selection can therefore choose questions that in-form ability coordinates not well covered by the questions already executed. This benefit is largest at small computational budgets. As execution in-creases, p-IRT replaces more predictions with ob-servations, reducing the models’ difference. 
+
+Takeaway. A more expressive IRT model can substantially improve adaptive testing. 
+
+6 Practical Validation of Fixed-Subset 
+
+The preceding comparisons show that difficulty-stratified fixed subsets provide strong score and ranking fidelity. Although multidimensional adap-tive testing achieves lower error, difficulty stratifi-cation is operationally simpler: the subset is con-structed once and requires neither sequential selec-tion nor run-specific ability updates. Executing the same questions in every run also supports direct question-level comparisons and diagnosis as the production agent evolves. These properties moti-vated its use in our production workflow. We therefore validate two properties important for recurring evaluation on difficulty-stratified fixed subset only: whether a subset calibrated on one agent transfers to other agent families, and how its fidelity changes with the calibration window. 
+
+6.1 Cross-Agent Transfer 
+
+We apply the difficulty-stratified subsets and Rasch and gp-IRT parameters calibrated on the original agent, without recalibration, to 299 runs from five additional agent families. These distinct systems differ in their agent frameworks, execution har-nesses, tool sets, and model configurations. No outcomes from these families are used to select questions or fit the estimators. We compare against uniform random sampling over the same computa-tional budgets, averaged over 20 seeds. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.00 0.02 0.04 0.06 0.08 0.10 Pass-rate MAE 
+
+> Calibration-agent test runs Five transferred families (pooled) Weighted gp-IRT Random sampling
+
+Figure 6: MAE on 287 original-agent and 299 trans-ferred runs from five families. The subset and estimators use only original-agent calibration data. 
+
+On the pooled transferred runs, gp-IRT has lower MAE than random sampling at 11 of 12 budgets (Figure 6). At k=200 (38.5%), random sampling, weighted estimation, and gp-IRT obtain 1.86, 1.49, and 1.47 pp MAE, respectively; gp-IRT also re-mains close to its 1.40 pp MAE on the original 287 held-out runs. Both fixed-subset estimators also exceed random sampling in Spearman and Kendall correlation at every budget (Figure 11). The advantage is not uniform across every family and computational budget. Nevertheless, gp-IRT has lower MAE than random sampling for a ma-jority of budgets within each family. The appendix reports complete pooled and family-level results. This transfer indicates that the IRT model cap-tures intrinsic aspects of question difficulty that generalize across agent systems, even when cali-brated on a single agent. 
+
+Takeaway. Without recalibration, the difficulty-stratified subset outperforms random sampling on the pooled transferred runs at 11 of 12 budgets and remains close to its original-agent fidelity, although gains vary across families. 
+
+6.2 Calibration-Window Sensitivity 
+
+We next examine how the amount and time span of calibration data affect the fixed subset. We fix the calibration end day at Day 28 and advance its start day in three-day increments from Day 1 to Day 28, yielding ten nested windows containing 287 to 14 runs (Table 12). For each window, we refit Rasch and gp-IRT, reconstruct the difficulty-stratified subsets for k ∈ { 100 , 200 , 300 , 400 }, and evaluate them on the same 287 held-out runs. MAE does not increase monotonically as the calibration window shortens (Fig. 7). Variation is greatest at k=100 . At k=200 , gp-IRT MAE ranges from 1.35-1.59 pp: the one-day window (14 runs) Day 1 Day 4 Day 7 Day 10 Day 13 Day 16 Day 19 Day 22 Day 25 Day 28 Calibration-window start day 0.5 1.0 1.5 2.0 2.5 3.0 Pass-rate MAE (percentage points) 
+
+> k=100 k=200 k=300 k=400 Weighted gp-IRT
+
+Figure 7: MAE across different calibration windows on 287 held-out runs. 
+
+obtains 1.41 pp, compared with 1.40 pp for the full four-week window. Weighted and gp-IRT estimates remain similar, while Spearman and Kendall show the same non-monotonic pattern (Fig. 15a&15b). This stability may reflect the relatively mature development stage of the agent and limited day-to-day change during the study. Recent runs may therefore suffice to estimate the difficulty ordering used for stratification and may better match the immediately following test period, while older runs add limited new information. 
+
+Takeaway. Fixed-subset fidelity is stable across the studied calibration windows, with no consistent benefit from retaining the full 4-week history. 
+
+7 Practical Recommendations 
+
+Production deployment requires considering opera-tional properties alongside statistical fidelity. His-torical caching retains the full question set, but requires recent outcomes and monitoring for stale verdicts. Fixed subsets provide predictable execu-tion and common questions across runs. Adaptive testing can tailor selection to each run, but requires sequential orchestration, run-specific state, and re-peated ability updates. These operational differ-ences make the appropriate method dependent on the surrounding evaluation workflow. For our production workflow, we deployed difficulty-stratified fixed subsets with k ∈{100 , 200 , 300 , 400 }, allowing users to choose an execution–fidelity tradeoff. Fixed subsets re-veal the workload before execution and preserve question-level comparisons for diagnosing behav-ioral changes. They also avoid additional sequen-tial serving logic in an evaluation system designed to execute questions in parallel. The subset trans-ferred without recalibration to five additional agent families and showed no monotonic loss of fidelity across the calibration windows. These results sup-port reuse across the systems and period studied. As the agent evolves, we recommend recalibrat-ing after material changes to its models, prompts, tools, or execution system, or after sustained shifts in question-level outcomes. Developers should also periodically run the full benchmark and compare its pass rate with the fixed-subset estimate to measure the error introduced during ongoing monitoring. 
+
+8 Related Work 
+
+Efficient Evaluation. Prior work reduces evalua-tion cost by estimating complete-benchmark results from item subsets. Fixed-form methods use cross-model correlations, IRT, clustering, or benchmark-level optimization (Vivek et al., 2024; Polo et al., 2024; Perlitz et al., 2024; Kipnis et al., 2025; Fogliato et al., 2024). Other methods tailor subsets to the target model, optimize ranking preservation, or jointly select observed items and predict unob-served outcomes (Yuan et al., 2025; Saranathan et al., 2025; Li et al., 2025). Adaptive evaluation, building on computerized adaptive testing (Lord, 1980), selects questions by their expected informa-tion about the current system (Truong et al., 2025). These methods are typically calibrated on response matrices of distinct language models. We instead compare historical caching, reusable fixed subsets, and adaptive testing on temporally ordered evalua-tions of one evolving production agent. 
+
+Evaluating LLM Agents Agent evaluation is especially expensive because each item may re-quire a full trajectory involving repository interac-tion, browsing, tool calls, or multi-turn interaction (Jimenez et al., 2024; Mialon et al., 2024; Yao et al., 2024). Such work develops benchmarks and infras-tructure for comparing agents, while our setting concerns recurring evaluations generated as one agent evolves. 
+
+Continuous Evaluation of Evolving Systems 
+
+Our setting also relates to regression-test minimiza-tion, selection, and prioritization for evolving soft-ware (Rothermel and Harrold, 1997; Yoo and Har-man, 2012). Continuous-integration methods use code changes and historical executions to allocate testing resources (Kim and Porter, 2002; Elbaum et al., 2014; Machalica et al., 2019), while non-deterministic agent outcomes resemble flaky tests (Luo et al., 2014). Conventional regression test-ing seeks faults using signals such as coverage or change impact, but changes to an LLM agent do not directly identify affected benchmark questions. We therefore use historical question-level outcomes and a partial current run to estimate the complete benchmark score and run ranking. 
+
+Limitations 
+
+Our data come from one organization and one production benchmark. Although the difficulty-stratified subset transferred to five additional agent families, this evidence covers only fixed subsets and does not establish generalization to other benchmarks, historical caching, or adaptive test-ing. Future work should extend the analysis using data from a more diverse range of agents. We evaluate pass-rate MAE and aggregate rank-ing fidelity using Spearman and Kendall correla-tions, which do not directly measure regression detection or release-gate decisions at operational thresholds. Future work should add threshold-based analyses that measure missed regressions, false alarms, and agreement with decisions based on the full benchmark. We do not release the benchmark questions, the question-level outcome matrix, or the implementa-tion. The methods we compare are fully specified in Section 3 and are reproducible on any bench-mark with recorded per-item outcomes. 
+
+References 
+
+Sebastian Elbaum, Gregg Rothermel, and John Penix. 2014. Techniques for improving regression testing in continuous integration development environments. In Proceedings of the 22nd ACM SIGSOFT interna-tional symposium on foundations of software engi-neering , pages 235–245. Riccardo Fogliato, Pratik Patil, Nil-Jana Akpinar, and Mathew Monfort. 2024. Precise model benchmark-ing with only a few observations. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 9563–9575, Mi-ami, Florida, USA. Association for Computational Linguistics. Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. 2024. Swe-bench: Can language mod-els resolve real-world github issues? In International Conference on Learning Representations , volume 2024, pages 54107–54157. Sayash Kapoor, Benedikt Stroebl, Peter Kirgis, Nitya Nadgir, Zachary Siegel, Boyi Wei, Tianci Xue, Ziru Chen, Felix Chen, Saiteja Utpala, et al. 2026. Holis-tic agent leaderboard: The missing infrastructure for ai agent evaluation. In International Conference on Learning Representations , volume 2026, pages 98778–98849. Jung-Min Kim and Adam Porter. 2002. A history-based test prioritization technique for regression testing in resource constrained environments. In Proceedings of the 24th international conference on software en-gineering , pages 119–129. Alex Kipnis, Konstantinos Voudouris, Luca Schulze Buschoff, and Eric Schulz. 2025. metabench-a sparse benchmark of reasoning and knowledge in large language models. In Inter-national Conference on Learning Representations ,volume 2025, pages 31734–31770. Yang Li, Jie Ma, Miguel Ballesteros, Yassine Bena-jiba, and Graham Horwood. 2025. Active evaluation acquisition for efficient LLM benchmarking. In Pro-ceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 35581–35602. PMLR. Frederic M Lord. 1980. Applications of item response theory to practical testing problems . Routledge. Qingzhou Luo, Farah Hariri, Lamyaa Eloussi, and Darko Marinov. 2014. An empirical analysis of flaky tests. In Proceedings of the 22nd ACM SIGSOFT international symposium on foundations of software engineering , pages 643–653. Mateusz Machalica, Alex Samylkin, Meredith Porth, and Satish Chandra. 2019. Predictive test selection. In 2019 IEEE/ACM 41st International Conference on Software Engineering: Software Engineering in Practice (ICSE-SEIP) , pages 91–100. IEEE. Grégoire Mialon, Clémentine Fourrier, Thomas Wolf, Yann LeCun, and Thomas Scialom. 2024. Gaia: a benchmark for general ai assistants. In International Conference on Learning Representations , volume 2024, pages 9025–9049. Yotam Perlitz, Elron Bandel, Ariel Gera, Ofir Arviv, Liat Ein Dor, Eyal Shnarch, Noam Slonim, Michal Shmueli-Scheuer, and Leshem Choshen. 2024. Ef-ficient benchmarking (of language models). In Pro-ceedings of the 2024 Conference of the North Amer-ican Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pages 2519–2536. Felipe Maia Polo, Lucas Weber, Leshem Choshen, Yuekai Sun, Gongjun Xu, and Mikhail Yurochkin. 2024. tinybenchmarks: evaluating llms with fewer examples. In Proceedings of the 41st Interna-tional Conference on Machine Learning , ICML’24. JMLR.org. Gregg Rothermel and Mary Jean Harrold. 1997. A safe, efficient regression test selection technique. ACM Transactions on Software Engineering and Method-ology (TOSEM) , 6(2):173–210. Gayathri Saranathan, Cong Xu, Mahammad Parwez Alam, Tarun Kumar, Martin Foltin, Soon Yee Wong, and Suparna Bhattacharya. 2025. Sublime: Sub-set selection via rank correlation prediction for data-efficient llm evaluation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 30572– 30593. Sang T. Truong, Yuheng Tu, Percy Liang, Bo Li, and Sanmi Koyejo. 2025. Reliable and efficient amor-tized model-based evaluation. In Proceedings of the 42nd International Conference on Machine Learn-ing , volume 267 of Proceedings of Machine Learning Research , pages 60238–60265. PMLR. Rajan Vivek, Kawin Ethayarajh, Diyi Yang, and Douwe Kiela. 2024. Anchor points: Benchmarking models with much fewer examples. In Proceedings of the 18th Conference of the European Chapter of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 1576–1601. Shunyu Yao, Noah Shinn, Pedram Razavi, and Karthik Narasimhan. 2024. τ -bench: A benchmark for tool-agent-user interaction in real-world domains.    
+
+> Preprint , arXiv:2406.12045. Shin Yoo and Mark Harman. 2012. Regression test-ing minimization, selection and prioritization: a sur-vey. Software testing, verification and reliability ,22(2):67–120. Peiwen Yuan, Yueqi Zhang, Shaoxiong Feng, Yiwei Li, Xinglin Wang, Jiayi Shi, Chuyi Tan, Boyuan Pan, Yao Hu, and Kan Li. 2025. Beyond one-size-fits-all: Tailored benchmarks for efficient evaluation. In
+> Proceedings of the 63rd Annual Meeting of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 15591–15615.
+
+A Additional Results 
+
+This appendix reports the complete numerical re-sults underlying the paper’s plots. The guide be-low follows the order of the corresponding main-text analyses and points to the relevant figures and tables. In matched-budget method comparisons, boldface marks the best displayed value and under-lining marks the second-best; table panel headings state the metric direction. 
+
+A.1 Guide to the Complete Results Headline method comparison. The exact values behind the principal accuracy–efficiency compar-ison is in Table 1; it reports executed questions, execution fraction, pass-rate MAE, Spearman cor-relation, and Kendall’s τ for every method and operating point in Figures 2 and 3. Table 2 gives the corresponding threshold-level results for his-torical caching. Together, these tables provide the complete numerical record for the two headline plots. 
+
+Fixed-subset design results. Figures 8 and 9 give the full ranking-fidelity curves for the selection-by-estimation comparison whose MAE results appear in Figure 4. Table 3 then collects all three metrics for every selector, estimator, and budget. 
+
+Adaptive-model design results. Figure 10 sup-plies the Spearman and Kendall views correspond-ing to the MAE comparison in Figure 5. Table 4 reports the exact MAE and rank correlations for Rasch adaptive testing, multidimensional 2PL adap-tive testing, and random sampling at every evalu-ated budget. 
+
+Cross-agent transfer results. Table 5 first de-fines the five held-out families and their run counts. For the aggregate transfer result, Figure 11 and Table 6 provide the pooled ranking curves and all exact pooled metrics. Figures 12– 14 and Tables 7– 11 report the same results separately for each agent family. 
+
+Calibration-window sensitivity. Figure 15 gives the Spearman and Kendall sensitivity curves that complement the MAE results in Figure 7. Table 12 reports every window’s start day, number of cali-bration runs, subset size, and three fidelity metrics. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Difficulty weighted Difficulty gp-IRT Rasch adaptive 10 1.9 10.48 8.10 7.57 10.94 20 3.9 7.22 6.37 5.51 9.79 30 5.8 5.86 4.63 4.35 6.50 50 9.6 4.41 3.37 3.28 6.46 75 14.5 3.49 3.04 3.05 3.51 100 19.3 2.94 2.71 2.65 2.92 150 28.9 2.25 2.01 2.00 2.07 200 38.5 1.79 1.43 1.40 1.37 
+
+250 48.2 1.46 1.17 1.15 1.03 
+
+300 57.8 1.18 1.06 0.99 0.79 
+
+350 67.4 0.93 0.77 0.73 0.60 
+
+400 77.1 0.69 0.51 0.47 0.42 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Difficulty weighted Difficulty gp-IRT Rasch adaptive 10 1.9 0.559 0.586 0.598 0.446 20 3.9 0.692 0.804 0.803 0.510 30 5.8 0.757 0.803 0.796 0.667 50 9.6 0.835 0.876 0.883 0.697 75 14.5 0.884 0.924 0.924 0.883 100 19.3 0.911 0.930 0.930 0.923 150 28.9 0.941 0.960 0.961 0.948 200 38.5 0.957 0.972 0.972 0.972 
+
+250 48.2 0.967 0.977 0.978 0.979 
+
+300 57.8 0.975 0.980 0.981 0.986 
+
+350 67.4 0.983 0.987 0.988 0.992 
+
+400 77.1 0.989 0.993 0.994 0.995 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Difficulty weighted Difficulty gp-IRT Rasch adaptive 10 1.9 0.426 0.434 0.431 0.323 20 3.9 0.531 0.632 0.619 0.383 30 5.8 0.585 0.617 0.607 0.517 50 9.6 0.661 0.692 0.700 0.570 75 14.5 0.715 0.764 0.764 0.719 100 19.3 0.751 0.771 0.770 0.760 150 28.9 0.798 0.832 0.834 0.813 200 38.5 0.829 0.857 0.859 0.873 
+
+250 48.2 0.853 0.874 0.874 0.900 
+
+300 57.8 0.875 0.884 0.887 0.920 
+
+350 67.4 0.898 0.912 0.915 0.944 
+
+400 77.1 0.923 0.937 0.941 0.962 
+
+Table 1: Complete fixed-budget headline results on 287 held-out runs. Within each budget and metric, bold marks the best displayed value and underlining marks the second-best; emphasis is descriptive and does not denote statistical significance. Threshold q Exec. (%) MAE (pp) Spearman Kendall 0.30 20.3 7.36 0.904 0.732 0.29 21.4 7.19 0.913 0.747 0.28 22.4 7.06 0.918 0.755 0.27 23.7 6.86 0.922 0.760 0.26 25.0 6.67 0.925 0.766 0.25 26.2 6.47 0.932 0.780 0.24 27.5 6.22 0.933 0.781 0.23 29.1 5.97 0.938 0.790 0.22 30.5 5.78 0.942 0.798 0.21 32.2 5.54 0.948 0.809 0.20 33.6 5.32 0.953 0.820 0.19 35.5 5.05 0.957 0.831 0.18 37.0 4.84 0.961 0.840 0.17 38.7 4.62 0.963 0.846 0.16 40.1 4.44 0.967 0.855 0.15 41.9 4.20 0.969 0.862 0.14 43.7 4.01 0.972 0.869 0.13 45.6 3.77 0.974 0.876 0.12 47.2 3.61 0.977 0.884 0.11 48.9 3.42 0.979 0.890 0.10 50.7 3.22 0.981 0.899 0.09 52.9 2.97 0.982 0.905 0.08 55.1 2.74 0.983 0.911 0.07 57.6 2.48 0.984 0.915 0.06 59.7 2.27 0.985 0.920 0.05 62.4 2.04 0.986 0.923 0.04 65.4 1.80 0.989 0.935 0.03 69.1 1.54 0.992 0.943 0.02 73.5 1.23 0.995 0.957 0.01 79.0 0.91 0.996 0.967 0.00 81.6 0.81 0.997 0.974 
+
+Table 2: Complete historical-caching threshold sweep on 287 held-out runs. Rows are ordered by mean execu-tion fraction. MAE is in percentage points. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.4 0.5 0.6 0.7 0.8 0.9 1.0 Spearman correlation 
+
+> Difficulty stratification Historical-response K-means IRT-feature K-means Random sampling Weighted gp-IRT
+
+Figure 8: Spearman ranking fidelity for the fixed-subset selection-by-estimation comparison. Higher values are better. All methods use the same 287 held-out evaluation runs and the same question budgets; random sampling is averaged over 20 seeds. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.4 0.6 0.8 Kendall's Tau 
+
+> Difficulty stratification Historical-response K-means IRT-feature K-means Random sampling Weighted gp-IRT
+
+Figure 9: Kendall’s τ ranking fidelity for the fixed-subset selection-by-estimation comparison. Higher values are better. The test population, budgets, and random-sampling seeds match Figure 8. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Difficulty weighted Difficulty gp-IRT Hist. K-means weighted Hist. K-means gp-IRT IRT K-means weighted IRT K-means gp-IRT 10 1.9 10.48 8.10 7.57 6.24 10.11 10.44 6.53 20 3.9 7.22 6.37 5.51 4.51 5.82 8.00 5.00 30 5.8 5.86 4.63 4.35 4.37 3.88 9.10 5.27 50 9.6 4.41 3.37 3.28 3.44 2.77 7.95 5.47 75 14.5 3.49 3.04 3.05 4.12 2.96 4.76 3.29 100 19.3 2.94 2.71 2.65 2.93 2.46 4.21 2.88 150 28.9 2.25 2.01 2.00 2.61 2.13 3.36 2.71 200 38.5 1.79 1.43 1.40 2.51 2.12 2.47 2.07 250 48.2 1.46 1.17 1.15 1.75 1.56 2.06 1.70 300 57.8 1.18 1.06 0.99 1.38 1.27 1.63 1.50 350 67.4 0.93 0.77 0.73 1.18 1.05 1.52 1.42 400 77.1 0.69 0.51 0.47 1.07 0.93 0.94 0.88 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Difficulty weighted Difficulty gp-IRT Hist. K-means weighted Hist. K-means gp-IRT IRT K-means weighted IRT K-means gp-IRT 10 1.9 0.559 0.586 0.598 0.823 0.765 0.394 0.555 20 3.9 0.692 0.804 0.803 0.862 0.796 0.641 0.752 30 5.8 0.757 0.803 0.796 0.852 0.863 0.559 0.722 50 9.6 0.835 0.876 0.883 0.906 0.930 0.769 0.861 75 14.5 0.884 0.924 0.924 0.921 0.929 0.873 0.903 100 19.3 0.911 0.930 0.930 0.924 0.934 0.872 0.907 150 28.9 0.941 0.960 0.961 0.944 0.953 0.908 0.932 200 38.5 0.957 0.972 0.972 0.948 0.958 0.925 0.940 250 48.2 0.967 0.977 0.978 0.969 0.974 0.949 0.957 300 57.8 0.975 0.980 0.981 0.979 0.982 0.966 0.971 350 67.4 0.983 0.987 0.988 0.987 0.989 0.968 0.973 400 77.1 0.989 0.993 0.994 0.993 0.994 0.984 0.986 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Difficulty weighted Difficulty gp-IRT Hist. K-means weighted Hist. K-means gp-IRT IRT K-means weighted IRT K-means gp-IRT 10 1.9 0.426 0.434 0.431 0.611 0.566 0.282 0.399 20 3.9 0.531 0.632 0.619 0.668 0.598 0.457 0.557 30 5.8 0.585 0.617 0.607 0.656 0.668 0.397 0.528 50 9.6 0.661 0.692 0.700 0.728 0.766 0.580 0.676 75 14.5 0.715 0.764 0.764 0.749 0.764 0.682 0.724 100 19.3 0.751 0.771 0.770 0.762 0.775 0.693 0.737 150 28.9 0.798 0.832 0.834 0.804 0.820 0.733 0.772 200 38.5 0.829 0.857 0.859 0.811 0.830 0.760 0.790 250 48.2 0.853 0.874 0.874 0.867 0.874 0.806 0.825 300 57.8 0.875 0.884 0.887 0.893 0.897 0.846 0.859 350 67.4 0.898 0.912 0.915 0.913 0.920 0.851 0.865 400 77.1 0.923 0.937 0.941 0.940 0.944 0.896 0.902 
+
+Table 3: Complete fixed-subset selection and estimation results on 287 held-out runs. Bold and underlining mark the best and second-best displayed values at each budget, respectively. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.5 0.6 0.7 0.8 0.9 1.0 Spearman correlation 
+
+> Rasch adaptive Multidimensional 2PL adaptive Random sampling
+
+(a) Spearman correlation. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.4 0.6 0.8 1.0 Kendall's Tau  
+
+> Rasch adaptive Multidimensional 2PL adaptive Random sampling
+
+(b) Kendall’s τ .
+
+Figure 10: Ranking fidelity for the adaptive-model comparison. Higher values are better. Both panels use the same 287 held-out evaluation runs and question budgets as Figure 5; random sampling is averaged over 20 seeds. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Rasch adaptive Multidimensional 2PL adaptive 10 1.9 10.48 10.94 5.07 
+
+20 3.9 7.22 9.79 3.90 
+
+30 5.8 5.86 6.50 3.27 
+
+50 9.6 4.41 6.46 2.81 
+
+75 14.5 3.49 3.51 2.39 
+
+100 19.3 2.94 2.92 1.97 
+
+150 28.9 2.25 2.07 1.44 
+
+200 38.5 1.79 1.37 1.03 
+
+250 48.2 1.46 1.03 0.73 
+
+300 57.8 1.18 0.79 0.58 
+
+350 67.4 0.93 0.60 0.46 
+
+400 77.1 0.69 0.42 0.29 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Rasch adaptive Multidimensional 2PL adaptive 10 1.9 0.559 0.446 0.762 
+
+20 3.9 0.692 0.510 0.832 
+
+30 5.8 0.757 0.667 0.884 
+
+50 9.6 0.835 0.697 0.908 
+
+75 14.5 0.884 0.883 0.929 
+
+100 19.3 0.911 0.923 0.954 
+
+150 28.9 0.941 0.948 0.972 
+
+200 38.5 0.957 0.972 0.982 
+
+250 48.2 0.967 0.979 0.989 
+
+300 57.8 0.975 0.986 0.992 
+
+350 67.4 0.983 0.992 0.995 
+
+400 77.1 0.989 0.995 0.998 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Rasch adaptive Multidimensional 2PL adaptive 10 1.9 0.426 0.323 0.575 
+
+20 3.9 0.531 0.383 0.640 
+
+30 5.8 0.585 0.517 0.702 
+
+50 9.6 0.661 0.570 0.738 
+
+75 14.5 0.715 0.719 0.774 
+
+100 19.3 0.751 0.760 0.819 
+
+150 28.9 0.798 0.813 0.864 
+
+200 38.5 0.829 0.873 0.894 
+
+250 48.2 0.853 0.900 0.918 
+
+300 57.8 0.875 0.920 0.933 
+
+350 67.4 0.898 0.944 0.948 
+
+400 77.1 0.923 0.962 0.970 
+
+Table 4: Complete adaptive-model comparison on 287 held-out runs. Bold and underlining mark the best and second-best displayed values at each budget, respectively. Agent family Evaluation runs Family A 51 Family B 146 Family C 56 Family D 34 Family E 12 Total 299 
+
+Table 5: Breakdown of transferred evaluation runs by anonymized agent family. The labels match the family-level figures and tables. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.6 0.7 0.8 0.9 1.0 Spearman correlation 
+
+> Calibration-agent test runs Five transferred families (pooled) Weighted gp-IRT Random sampling
+
+(a) Spearman correlation. 0.0 0.2 0.4 0.6 0.8 Fraction of questions executed 0.5 0.6 0.7 0.8 0.9 Kendall's Tau  
+
+> Calibration-agent test runs Five transferred families (pooled) Weighted gp-IRT Random sampling
+
+(b) Kendall’s τ .
+
+Figure 11: Pooled cross-agent ranking fidelity for a difficulty-stratified gp-IRT subset calibrated on the focal family and transferred unchanged to 299 runs from five held-out families. Higher values are better. Random sampling is averaged over 20 seeds. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Original weighted Original gp-IRT Transfer random Transfer weighted Transfer gp-IRT 10 1.9 8.10 7.57 10.96 9.83 8.40 
+
+20 3.9 6.37 5.51 7.69 6.88 6.15 
+
+30 5.8 4.63 4.35 6.19 6.26 5.85 
+
+50 9.6 3.37 3.28 4.67 4.18 4.07 
+
+75 14.5 3.04 3.05 3.68 3.37 3.32 
+
+100 19.3 2.71 2.65 3.08 2.52 2.50 
+
+150 28.9 2.01 2.00 2.29 2.25 2.17 
+
+200 38.5 1.43 1.40 1.86 1.49 1.47 
+
+250 48.2 1.17 1.15 1.53 1.30 1.28 
+
+300 57.8 1.06 0.99 1.24 1.21 1.19 
+
+350 67.4 0.77 0.73 0.99 1.05 1.02 400 77.1 0.51 0.47 0.75 0.66 0.62 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Original weighted Original gp-IRT Transfer random Transfer weighted Transfer gp-IRT 10 1.9 0.586 0.598 0.600 0.648 0.683 
+
+20 3.9 0.804 0.803 0.702 0.817 0.817 
+
+30 5.8 0.803 0.796 0.756 0.844 0.847 
+
+50 9.6 0.876 0.883 0.821 0.853 0.846 75 14.5 0.924 0.924 0.869 0.937 0.936 100 19.3 0.930 0.930 0.900 0.947 0.948 
+
+150 28.9 0.960 0.961 0.935 0.938 0.941 
+
+200 38.5 0.972 0.972 0.955 0.965 0.965 
+
+250 48.2 0.977 0.978 0.968 0.974 0.974 
+
+300 57.8 0.980 0.981 0.979 0.981 0.981 
+
+350 67.4 0.987 0.988 0.986 0.987 0.988 
+
+400 77.1 0.993 0.994 0.992 0.995 0.995 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Original weighted Original gp-IRT Transfer random Transfer weighted Transfer gp-IRT 10 1.9 0.434 0.431 0.465 0.497 0.522 
+
+20 3.9 0.632 0.619 0.549 0.655 0.652 30 5.8 0.617 0.607 0.597 0.672 0.673 
+
+50 9.6 0.692 0.700 0.661 0.680 0.675 75 14.5 0.764 0.764 0.713 0.799 0.797 100 19.3 0.771 0.770 0.752 0.816 0.818 
+
+150 28.9 0.832 0.834 0.804 0.808 0.812 
+
+200 38.5 0.857 0.859 0.838 0.858 0.856 250 48.2 0.874 0.874 0.865 0.879 0.878 300 57.8 0.884 0.887 0.891 0.891 0.892 
+
+350 67.4 0.912 0.915 0.911 0.912 0.917 
+
+400 77.1 0.937 0.941 0.934 0.946 0.949 
+
+Table 6: Complete pooled cross-agent transfer results. Original denotes the 287 calibration-agent test runs; Transfer denotes 299 pooled runs from five additional families. Emphasis is computed separately within the original and transferred populations. 0.00 0.05 0.10   
+
+> Family A Family B Family C
+
+0.00 0.25 0.50 0.75 0.00 0.05 0.10 
+
+> Family D
+
+0.00 0.25 0.50 0.75 
+
+> Family E
+
+Fraction of questions executed Pass-rate MAE 
+
+> Weighted gp-IRT Random sampling
+
+Figure 12: Cross-agent pass-rate MAE by anonymized family for the transferred difficulty-stratified gp-IRT subset and 20-seed random sampling. Lower is better. Each panel compares methods on the same held-out runs within that family. 0.2 0.4 0.6 0.8 1.0   
+
+> Family A Family B Family C
+
+0.00 0.25 0.50 0.75 0.2 0.4 0.6 0.8 1.0 
+
+> Family D
+
+0.00 0.25 0.50 0.75 
+
+> Family E
+
+Fraction of questions executed Spearman correlation 
+
+> Weighted gp-IRT Random sampling
+
+Figure 13: Cross-agent Spearman ranking fidelity by anonymized family. Higher is better. Correlations are computed within family, and random sampling is averaged over 20 seeds. 0.2 0.4 0.6 0.8 1.0 Family A Family B Family C 
+
+0.00 0.25 0.50 0.75 0.2 0.4 0.6 0.8 1.0 Family D 
+
+0.00 0.25 0.50 0.75 
+
+> Family E
+
+Fraction of questions executed Kendall's Tau 
+
+> Weighted gp-IRT Random sampling
+
+Figure 14: Cross-agent Kendall’s τ ranking fidelity by anonymized family. Higher is better. Correlations are computed within family, and random sampling is averaged over 20 seeds. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 11.93 9.83 8.66 
+
+20 3.9 8.37 6.42 5.74 
+
+30 5.8 6.90 6.95 6.95 50 9.6 4.92 4.08 4.02 
+
+75 14.5 3.86 3.17 3.23 100 19.3 3.26 2.92 2.84 
+
+150 28.9 2.45 1.82 1.82 
+
+200 38.5 1.97 1.74 1.67 
+
+250 48.2 1.58 1.47 1.44 
+
+300 57.8 1.21 1.47 1.34 350 67.4 0.97 1.26 1.03 400 77.1 0.68 0.69 0.61 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.128 0.191 0.213 
+
+20 3.9 0.223 0.330 0.360 
+
+30 5.8 0.250 0.317 0.323 
+
+50 9.6 0.314 0.151 0.136 75 14.5 0.419 0.575 0.573 100 19.3 0.480 0.471 0.460 150 28.9 0.539 0.706 0.689 200 38.5 0.622 0.498 0.506 250 48.2 0.703 0.679 0.687 300 57.8 0.784 0.823 0.829 
+
+350 67.4 0.848 0.879 0.893 
+
+400 77.1 0.919 0.925 0.935 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.092 0.140 0.157 
+
+20 3.9 0.161 0.241 0.267 
+
+30 5.8 0.174 0.222 0.234 
+
+50 9.6 0.223 0.115 0.100 75 14.5 0.298 0.415 0.405 100 19.3 0.343 0.334 0.330 150 28.9 0.389 0.494 0.480 200 38.5 0.451 0.355 0.359 250 48.2 0.524 0.496 0.501 300 57.8 0.603 0.622 0.636 
+
+350 67.4 0.672 0.690 0.716 
+
+400 77.1 0.769 0.766 0.780 
+
+Table 7: Complete transfer results for anonymized Family A. Bold and underlining mark the best and second-best displayed values at each budget, respectively. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 10.56 9.32 7.94 
+
+20 3.9 7.46 7.46 6.45 
+
+30 5.8 5.93 6.34 5.64 
+
+50 9.6 4.56 3.66 3.53 
+
+75 14.5 3.57 3.56 3.47 
+
+100 19.3 3.01 2.37 2.30 
+
+150 28.9 2.24 2.47 2.35 200 38.5 1.81 1.43 1.46 250 48.2 1.49 1.35 1.34 
+
+300 57.8 1.23 1.19 1.20 350 67.4 0.97 0.96 0.97 400 77.1 0.74 0.57 0.56 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.503 0.416 0.524 
+
+20 3.9 0.629 0.725 0.726 
+
+30 5.8 0.710 0.810 0.810 
+
+50 9.6 0.785 0.832 0.835 
+
+75 14.5 0.845 0.929 0.930 
+
+100 19.3 0.884 0.952 0.954 
+
+150 28.9 0.927 0.950 0.953 
+
+200 38.5 0.951 0.959 0.960 
+
+250 48.2 0.965 0.974 0.974 
+
+300 57.8 0.975 0.977 0.978 
+
+350 67.4 0.983 0.987 0.989 
+
+400 77.1 0.990 0.994 0.995 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.383 0.308 0.382 20 3.9 0.480 0.565 0.565 
+
+30 5.8 0.546 0.631 0.630 50 9.6 0.615 0.652 0.657 
+
+75 14.5 0.680 0.780 0.781 
+
+100 19.3 0.726 0.817 0.820 
+
+150 28.9 0.786 0.821 0.827 
+
+200 38.5 0.827 0.844 0.844 
+
+250 48.2 0.855 0.877 0.876 300 57.8 0.879 0.884 0.884 
+
+350 67.4 0.903 0.915 0.921 
+
+400 77.1 0.926 0.945 0.948 
+
+Table 8: Complete transfer results for anonymized Family B. Bold and underlining mark the best and second-best displayed values at each budget, respectively. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 10.66 10.14 8.57 
+
+20 3.9 7.54 6.03 5.68 
+
+30 5.8 6.04 5.31 5.01 
+
+50 9.6 4.55 4.16 4.26 75 14.5 3.65 3.16 3.11 
+
+100 19.3 3.01 2.25 2.25 
+
+150 28.9 2.21 2.04 1.96 
+
+200 38.5 1.80 1.09 1.15 250 48.2 1.50 0.96 0.97 300 57.8 1.21 0.97 0.99 350 67.4 0.98 1.00 1.03 400 77.1 0.77 0.45 0.45 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.393 0.441 0.441 
+
+20 3.9 0.491 0.645 0.641 30 5.8 0.572 0.579 0.579 
+
+50 9.6 0.642 0.614 0.614 75 14.5 0.711 0.893 0.893 
+
+100 19.3 0.768 0.888 0.889 
+
+150 28.9 0.841 0.929 0.927 200 38.5 0.881 0.926 0.928 
+
+250 48.2 0.910 0.953 0.952 300 57.8 0.936 0.958 0.959 
+
+350 67.4 0.953 0.973 0.974 
+
+400 77.1 0.969 0.990 0.990 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.303 0.333 0.333 
+
+20 3.9 0.373 0.523 0.513 30 5.8 0.435 0.441 0.441 
+
+50 9.6 0.491 0.467 0.467 75 14.5 0.548 0.727 0.727 
+
+100 19.3 0.605 0.754 0.754 
+
+150 28.9 0.686 0.786 0.781 200 38.5 0.734 0.794 0.795 
+
+250 48.2 0.773 0.843 0.839 300 57.8 0.815 0.846 0.847 
+
+350 67.4 0.843 0.884 0.885 
+
+400 77.1 0.879 0.936 0.933 
+
+Table 9: Complete transfer results for anonymized Family C. Bold and underlining mark the best and second-best displayed values at each budget, respectively. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 12.09 11.20 9.69 
+
+20 3.9 8.21 7.20 7.01 
+
+30 5.8 6.58 6.79 6.96 50 9.6 5.16 5.89 5.65 75 14.5 4.03 3.27 3.21 
+
+100 19.3 3.32 3.35 3.55 150 28.9 2.47 2.54 2.43 
+
+200 38.5 2.05 1.88 1.67 
+
+250 48.2 1.72 1.24 1.18 
+
+300 57.8 1.42 1.38 1.34 
+
+350 67.4 1.16 1.25 1.15 
+
+400 77.1 0.94 1.34 1.13 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.539 0.634 0.638 
+
+20 3.9 0.664 0.639 0.636 30 5.8 0.744 0.625 0.620 50 9.6 0.809 0.758 0.762 75 14.5 0.853 0.861 0.861 
+
+100 19.3 0.886 0.812 0.811 150 28.9 0.924 0.933 0.933 
+
+200 38.5 0.940 0.976 0.977 
+
+250 48.2 0.956 0.975 0.976 
+
+300 57.8 0.964 0.961 0.962 350 67.4 0.973 0.969 0.967 400 77.1 0.980 0.967 0.970 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.414 0.499 0.502 
+
+20 3.9 0.510 0.486 0.481 30 5.8 0.580 0.469 0.464 50 9.6 0.649 0.581 0.583 75 14.5 0.697 0.735 0.735 
+
+100 19.3 0.736 0.668 0.667 150 28.9 0.786 0.811 0.809 200 38.5 0.820 0.894 0.893 250 48.2 0.848 0.883 0.884 
+
+300 57.8 0.865 0.862 0.866 
+
+350 67.4 0.889 0.884 0.876 400 77.1 0.909 0.868 0.876 
+
+Table 10: Complete transfer results for anonymized Family D. Bold and underlining mark the best and second-best displayed values at each budget, respectively. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 9.88 10.61 8.38 
+
+20 3.9 6.72 4.79 4.09 
+
+30 5.8 5.80 5.33 4.40 
+
+50 9.6 4.20 6.09 5.54 75 14.5 3.30 3.32 3.05 
+
+100 19.3 2.70 1.55 1.61 150 28.9 2.01 1.69 1.60 
+
+200 38.5 1.71 1.89 1.74 250 48.2 1.40 1.60 1.59 300 57.8 1.02 0.84 0.94 350 67.4 0.81 0.94 1.03 400 77.1 0.62 0.66 0.65 
+
+(b) Spearman correlation (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.464 0.810 0.837 
+
+20 3.9 0.646 0.624 0.629 30 5.8 0.684 0.765 0.797 
+
+50 9.6 0.740 0.846 0.888 
+
+75 14.5 0.806 0.823 0.823 
+
+100 19.3 0.847 0.951 0.986 
+
+150 28.9 0.873 0.837 0.881 
+
+200 38.5 0.894 0.881 0.881 250 48.2 0.898 0.923 0.923 
+
+300 57.8 0.914 0.958 0.958 
+
+350 67.4 0.933 0.972 0.972 
+
+400 77.1 0.960 0.993 0.993 
+
+(c) Kendall’s Tau (higher is better) 
+
+k Exec. (%) Random Weighted gp-IRT 10 1.9 0.364 0.647 0.657 
+
+20 3.9 0.522 0.465 0.455 30 5.8 0.551 0.646 0.667 
+
+50 9.6 0.600 0.697 0.727 
+
+75 14.5 0.669 0.657 0.657 100 19.3 0.716 0.879 0.939 
+
+150 28.9 0.749 0.718 0.758 
+
+200 38.5 0.785 0.758 0.758 250 48.2 0.792 0.788 0.788 300 57.8 0.822 0.848 0.848 
+
+350 67.4 0.852 0.909 0.909 
+
+400 77.1 0.893 0.970 0.970 
+
+Table 11: Complete transfer results for anonymized Family E. Bold and underlining mark the best and second-best displayed values at each budget, respectively. Day 1 Day 4 Day 7 Day 10 Day 13 Day 16 Day 19 Day 22 Day 25 Day 28 Calibration-window start day 0.90 0.92 0.94 0.96 0.98 1.00 Spearman correlation 
+
+> k=100 k=200 k=300 k=400 Weighted gp-IRT
+
+(a) Spearman correlation. Day 1 Day 4 Day 7 Day 10 Day 13 Day 16 Day 19 Day 22 Day 25 Day 28 Calibration-window start day 0.75 0.80 0.85 0.90 0.95 Kendall's Tau  
+
+> k=100 k=200 k=300 k=400 Weighted gp-IRT
+
+(b) Kendall’s τ .
+
+Figure 15: Ranking-fidelity sensitivity of difficulty-stratified fixed subsets to nested calibration windows ending Day 28. Higher values are better. Windows vary jointly in historical range and calibration-run count; all curves use the same 287 held-out evaluation runs. (a) Pass-rate MAE (percentage points; lower is better) 
+
+k = 100 k = 200 k = 300 k = 400 
+
+Start Runs Weighted gp-IRT Weighted gp-IRT Weighted gp-IRT Weighted gp-IRT Day 1 287 2.71 2.65 1.43 1.40 1.06 0.99 0.51 0.47 Day 4 258 2.86 2.97 1.42 1.35 1.14 1.06 0.53 0.52 Day 7 222 2.71 2.69 1.50 1.49 1.29 1.35 0.50 0.45 Day 10 192 2.39 2.36 1.66 1.59 0.97 0.98 0.52 0.52 Day 13 157 2.12 2.04 1.43 1.35 1.16 1.05 0.55 0.52 Day 16 128 2.33 2.30 1.49 1.45 0.95 0.93 0.51 0.50 Day 19 101 2.14 2.15 1.59 1.59 0.97 0.94 0.49 0.43 Day 22 74 2.06 2.04 1.46 1.49 1.12 1.14 0.58 0.56 Day 25 43 2.54 2.46 1.60 1.58 1.22 1.14 0.58 0.52 Day 28 14 2.20 2.19 1.45 1.41 1.04 1.03 0.51 0.51 
+
+(b) Spearman correlation (higher is better) 
+
+k = 100 k = 200 k = 300 k = 400 
+
+Start Runs Weighted gp-IRT Weighted gp-IRT Weighted gp-IRT Weighted gp-IRT Day 1 287 0.930 0.930 0.972 0.972 0.980 0.981 0.993 0.994 Day 4 258 0.903 0.903 0.980 0.980 0.981 0.982 0.994 0.995 Day 7 222 0.920 0.923 0.967 0.968 0.978 0.978 0.994 0.995 Day 10 192 0.934 0.934 0.968 0.969 0.984 0.984 0.995 0.995 Day 13 157 0.948 0.951 0.974 0.975 0.981 0.983 0.994 0.994 Day 16 128 0.947 0.947 0.973 0.973 0.983 0.984 0.994 0.994 Day 19 101 0.952 0.953 0.972 0.972 0.981 0.982 0.995 0.996 Day 22 74 0.952 0.955 0.969 0.969 0.981 0.981 0.994 0.994 Day 25 43 0.925 0.925 0.967 0.968 0.984 0.985 0.995 0.995 Day 28 14 0.947 0.948 0.977 0.977 0.980 0.980 0.995 0.995 
+
+(c) Kendall’s Tau (higher is better) 
+
+k = 100 k = 200 k = 300 k = 400 
+
+Start Runs Weighted gp-IRT Weighted gp-IRT Weighted gp-IRT Weighted gp-IRT Day 1 287 0.771 0.770 0.857 0.859 0.884 0.887 0.937 0.941 Day 4 258 0.740 0.739 0.883 0.883 0.889 0.894 0.942 0.945 Day 7 222 0.760 0.762 0.854 0.854 0.879 0.877 0.944 0.948 Day 10 192 0.779 0.777 0.851 0.854 0.899 0.898 0.945 0.947 Day 13 157 0.803 0.809 0.865 0.868 0.888 0.893 0.939 0.944 Day 16 128 0.798 0.799 0.860 0.861 0.895 0.897 0.943 0.947 Day 19 101 0.812 0.814 0.858 0.858 0.889 0.892 0.948 0.952 Day 22 74 0.811 0.814 0.851 0.852 0.883 0.885 0.941 0.943 Day 25 43 0.756 0.757 0.847 0.849 0.897 0.901 0.945 0.949 Day 28 14 0.799 0.801 0.871 0.872 0.887 0.890 0.945 0.947 
+
+Table 12: Complete calibration-window sensitivity results. All windows end Day 28 and use the same 287 held-out runs. MAE is in percentage points. Values are not emphasized because the windows form a sensitivity sweep rather than prespecified competing methods.

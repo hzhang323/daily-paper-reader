@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-21</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-22</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 9 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-21 22:58:11 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-22 22:11:30 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 9 篇推荐（精读 6 篇，速读 3 篇）</p>
-<p>精读：《OpenMAS-GCom. A Diagnostic Benchmark for Graph-enhanced Multi-Agent Systems》（9.0/10）, 《LLM-Generated Feature Pools for Time Series Anomaly Detection》（9.0/10）</p>
-<p>速读：《Rollback the World, Keep the Reflection: Rollback-Induced Reflection for Long-Horizon LLM Agents》（7.0/10）, 《Probabilistic Forecasting of Business Process Executions with Neural Temporal Point Processes》（7.0/10）, 《Diagnosing Temporal Misalignment in Multichannel Time-Series Classification with Minimum Description Length》（6.0/10）</p>
+<p>今日共生成 21 篇推荐（精读 12 篇，速读 9 篇）</p>
+<p>精读：《$t_0$: A Time-Series Foundation Model for Forecasting with Context》（10.0/10）, 《Beyond Average Error through Oracle-Informed Stress Tests for Time-Series Forecasting》（9.0/10）</p>
+<p>速读：《TEMPER: Temporal Encoder-Masked Probabilistic Ensemble Regressor for Time-Series Forecasting》（8.0/10）, 《Q-DEQ: Discrete Solving and Quantization for Deep Equilibrium Models in Time Series Forecasting under Edge Deployment Coding Constraints》（8.0/10）, 《TAC-Time: Texts as Channels For Multimodal Time Series Forecasting》（8.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -74,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="OpenMAS-GCom. A Diagnostic Benchmark for Graph-enhanced Multi-Agent Systems">OpenMAS-GCom. A Diagnostic Benchmark for Graph-enhanced Multi-Agent Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="LLM-Generated Feature Pools for Time Series Anomaly Detection">LLM-Generated Feature Pools for Time Series Anomaly Detection</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Lightweight Plug-in Gate for Transformer-Based Time-Series Forecasters">A Lightweight Plug-in Gate for Transformer-Based Time-Series Forecasters</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="$t_0$: A Time-Series Foundation Model for Forecasting with Context">$t_0$: A Time-Series Foundation Model for Forecasting with Context</span></li><li><span class="dpr-home-dashboard-paper-title" title="Beyond Average Error through Oracle-Informed Stress Tests for Time-Series Forecasting">Beyond Average Error through Oracle-Informed Stress Tests for Time-Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Hybrid Attention Model Learning Unified Time-aware Patch Representation for Irregular Multivariate Time Series Forecasting">A Hybrid Attention Model Learning Unified Time-aware Patch Representation for Irregular Multivariate Time Series Forecasting</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>8</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,12 +87,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">3 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rollback the World, Keep the Reflection: Rollback-Induced Reflection for Long-Horizon LLM Agents">Rollback the World, Keep the Reflection: Rollback-Induced Reflection for Long-Horizon LLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Probabilistic Forecasting of Business Process Executions with Neural Temporal Point Processes">Probabilistic Forecasting of Business Process Executions with Neural Temporal Point Processes</span></li><li><span class="dpr-home-dashboard-paper-title" title="Diagnosing Temporal Misalignment in Multichannel Time-Series Classification with Minimum Description Length">Diagnosing Temporal Misalignment in Multichannel Time-Series Classification with Minimum Description Length</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TEMPER: Temporal Encoder-Masked Probabilistic Ensemble Regressor for Time-Series Forecasting">TEMPER: Temporal Encoder-Masked Probabilistic Ensemble Regressor for Time-Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="Q-DEQ: Discrete Solving and Quantization for Deep Equilibrium Models in Time Series Forecasting under Edge Deployment Coding Constraints">Q-DEQ: Discrete Solving and Quantization for Deep Equilibrium Models in Time Series Forecasting under Edge Deployment Coding Constraints</span></li><li><span class="dpr-home-dashboard-paper-title" title="TAC-Time: Texts as Channels For Multimodal Time Series Forecasting">TAC-Time: Texts as Channels For Multimodal Time Series Forecasting</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 </div>
 

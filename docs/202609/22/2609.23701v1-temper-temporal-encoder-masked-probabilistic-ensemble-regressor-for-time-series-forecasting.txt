@@ -1,0 +1,227 @@
+Title: TEMPER: Temporal Encoder-Masked Probabilistic Ensemble Regressor for Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2609.23701v1
+
+Published Time: Tue, 22 Sep 2026 01:39:17 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# TEMPER: Temporal Encoder-Masked Probabilistic Ensemble Regressor for Time-Series Forecasting 
+
+Giancarlo Vercellino Independent researcher 
+
+giancarlo.vercellino@gmail.com 
+
+September 1, 2026 
+
+Abstract 
+
+Probabilistic forecasting requires accurate central predictions and calibrated uncertainty estimates. This paper presents TEMPER, the Temporal Encoder-Masked Probabilistic Ensemble Regressor, a uni-variate time-series forecasting algorithm that combines a temporal autoencoder, a differentiable masked neural decision forest, continu-ous ranked probability score (CRPS) training, and Gaussian-mixture post-processing. The R implementation is built on torch for R and returns horizon-wise density, distribution, quantile, and sampler func-tions. We evaluate TEMPER on three deterministic synthetic level series with trend, periodic, regime-switching, nonlinear-threshold, and heteroskedastic components. Across 96 rolling-origin forecasts at hori-zons t + 1, t + 5, t + 20, and t + 60, TEMPER obtains 2.824% mean CRPS normalized by origin level, 3.635% median absolute error, and 68.8% empirical 90% interval coverage after training with a 300-epoch cap and early-stopping patience of 100. A naive persistence bootstrap has the best aggregate CRPS, 2.763%, while TEMPER has the best median absolute error and the best CRPS at t + 1 and t + 5. The abla-tion study uses matched series-origin-horizon cells, horizon-wise CRPS deltas, endpoint sensitivity summaries, and a calibration-specific inter-val study. Relaxing the learned mask improves average CRPS by 0.472 percentage points on the ablation subset, mainly through long-horizon gains. A twofold interval inflation improves held-out coverage from 54.2% to 91.7% and gives the best 90% interval score among tested calibration rules. The results identify calibration, horizon-specific tun-ing, and component selection as the central research priorities. 
+
+Keywords: probabilistic forecasting, CRPS, neural forests. 1arXiv:2609.23701v1 [stat.ML] 20 Sep 2026 1 Introduction 
+
+Many forecasting workflows still report a single path even when downstream decisions depend on tail risk, scenario dispersion, and the probability of crossing operational thresholds. Predictive distributions address this prob-lem by representing uncertainty directly. They also require different mod-eling and evaluation tools: a probabilistic forecaster should be calibrated, sharp, and robust under distribution shift rather than merely accurate in point error. TEMPER, the Temporal Encoder-Masked Probabilistic Ensemble Regres-sor, is a hybrid architecture for univariate probabilistic forecasting. It re-frames a level series into lagged relative changes, encodes each input win-dow into a latent vector, feeds the latent state to a neural decision forest with differentiable stochastic feature masks, trains the model with an en-semble CRPS objective plus reconstruction regularization, and smooths the resulting forecast samples with horizon-specific Gaussian mixtures. The R package implementation is written around torch tensors and nn_module 
+
+components. The torch package provides PyTorch-like neural-network pro-gramming in R through the LibTorch backend [21, 20]; TEMPER uses this stack for automatic differentiation, tensor operations, and optimizers. This paper makes four contributions. • It gives a formal presentation of the TEMPER algorithm and its train-ing objective. • It documents the reference R/ torch implementation’s data transfor-mation, neural forest, mixture smoothing, and fan-chart outputs. • It evaluates the method in a rolling-origin probabilistic forecast study on synthetic series with known temporal structure, using naive persis-tence, random-walk, and AR(1) bootstrap baselines. • It presents a paired ablation design with horizon-wise deltas, endpoint sensitivity summaries, and a calibration-specific interval study. The paper is framed for statistical machine learning rather than as an application-specific forecasting claim. The focus is estimation with a proper scoring rule, differentiable ensemble structure, stochastic feature masking, representation learning, distributional evaluation, and ablation-based model analysis. The synthetic design gives a controlled setting in which the data 2contain learnable temporal structure, while still making it possible for simple baselines to remain competitive. 
+
+# 2 Related Work 
+
+TEMPER combines ideas from probabilistic forecast evaluation, represen-tation learning, differentiable tree ensembles, stochastic relaxations, and conformal calibration. Proper scoring rules provide the evaluation and es-timation foundation for distributional forecasts; the CRPS is especially at-tractive for real-valued outcomes because it generalizes absolute error to predictive distributions [1, 2, 3]. CRPS-based learning has also been used for adaptive aggregation of probabilistic forecasts [4]. TEMPER uses CRPS directly as the ensemble training objective. Deep probabilistic forecasting has developed several influential architectures. DeepAR uses autoregressive recurrent networks to estimate predictive dis-tributions across related time series [5]. Deep state-space models combine recurrent parameterization with classical state-space structure [6]. Tem-poral Fusion Transformers add attention, gating, and feature selection for interpretable multi-horizon forecasting [7]. N-BEATS and N-HiTS show that deep residual and hierarchical interpolation structures can be effective for univariate and long-horizon forecasting [8, 9]. Toolkits such as Glu-onTS have helped standardize probabilistic neural forecasting workflows and benchmarks [10]. TEMPER is closest in spirit to this neural forecasting literature but uses a different inductive bias. Rather than a recurrent, attention, or residual-block decoder, it forecasts through a differentiable decision-forest ensemble in a learned latent return space. Its distributional output is produced by a horizon-wise Gaussian-mixture smoother over ensemble paths, so the neural forecasting references are used as architectural context rather than as direct empirical baselines. Neural autoencoders have long been used to learn compact representations of high-dimensional observations [11]. TEMPER uses the autoencoder as a temporal bottleneck: it compresses a window of lagged returns and regular-izes the latent representation through reconstruction. Decision forests are attractive because they aggregate multiple partitioning rules, while neural decision forests make tree routing differentiable and trainable end to end [18, 12]. TEMPER follows this differentiable-forest spirit but uses the trees as an ensemble of forecast generators rather than as a classifier. Its feature 3mask uses a Gumbel-Softmax-style continuous relaxation [13, 14], allowing stochastic feature selection to participate in gradient-based training. The calibration analysis is related to conformal prediction, which wraps pre-dictive algorithms with finite-sample coverage guarantees under exchange-ability assumptions [16, 17]. The small split-conformal exercise in this pa-per is not presented as a final solution for time-dependent coverage, but it provides a diagnostic contrast between raw sharp intervals, fixed-width inflation, and residual-based calibration. 
+
+# 3 The TEMPER Algorithm 
+
+Let {st}Tt=1 be a univariate positive level series. TEMPER first converts levels to relative changes, 
+
+rt = st
+
+st−1
+
+− 1, t = 2 , . . . , T, (1) after imputing missing values when needed. For a lookback length P and forecast horizon H, sliding windows form supervised pairs 
+
+xi = ( ri, . . . , r i+P −1) ∈ RP , yi = ( ri+P , . . . , r i+P +H−1) ∈ RH . (2) 
+
+3.1 Temporal Encoding 
+
+An autoencoder maps each input window to a latent vector: 
+
+zi = fθ(xi), ˆxi = gϕ(zi), (3) where zi ∈ Rd and d is the user-selected latent dimension. In the reference implementation, both encoder and decoder are feed-forward networks with one hidden layer and ReLU activation. The reconstruction term encourages the latent state to retain information about the input window: 
+
+Lrec = 1
+
+N
+
+> N∑
+> i=1
+
+∥xi − ˆxi∥22. (4) 
+
+3.2 Masked Neural Decision Forest 
+
+The latent vector is passed to an ensemble of M soft decision trees. Each tree starts with a learnable mask. During training, latent feature j is multiplied 4by 
+
+mj = σ
+
+( log αj + gj
+
+τ
+
+)
+
+, (5) where gj is Gumbel noise, τ is the temperature, and αj is parameterized by the initial keep probability. At evaluation time the implementation uses the deterministic sign of log αj .For a tree of depth D, there are 2 D − 1 internal nodes and 2 D leaves. Each internal node computes a soft routing probability 
+
+pk(z) = σ(w⊤ 
+
+> k
+
+(m ⊙ z) + bk). (6) Leaf path probabilities are the products of the corresponding left and right routing probabilities. If πℓ(z) is the probability of reaching leaf ℓ and vℓ ∈
+
+RH is the leaf forecast vector, tree m emits ˆy(m)(z) = 
+
+> 2D
+
+∑
+
+> ℓ=1
+
+πℓ(z)vℓ. (7) Stacking all trees yields an ensemble {ˆy(m)}Mm=1 of multi-step return fore-casts. 
+
+3.3 CRPS Ensemble Loss 
+
+For each horizon, TEMPER minimizes an empirical CRPS for ensemble samples. For an observed target y and ensemble values ˆ y(1) , . . . , ˆy(M ), the sample CRPS is 
+
+\CRPS = 1
+
+M
+
+> M
+
+∑
+
+> m=1
+
+∣∣∣ˆy(m) − y
+
+∣∣∣ − 12M 2
+
+> M
+
+∑
+
+> m=1
+> M
+
+∑
+
+> m′=1
+
+∣∣∣ˆy(m) − ˆy(m′)∣∣∣ . (8) The training objective averages this score over batches and horizons and adds reconstruction regularization: 
+
+L = LCRPS + λrec Lrec . (9) The experiments use Adam [15]. 53.4 Level-Space Predictive Distributions 
+
+The neural forest forecasts relative changes. For a forecast origin T , each ensemble path is converted back to level space by ˆs(m)  
+
+> T+h
+
+= sTh∏
+
+> j=1
+> (
+
+1 + ˆ y(m)
+
+> j
+> )
+
+, h = 1 , . . . , H. (10) For each horizon, the resulting finite sample is smoothed by a Gaussian mix-ture. The implementation fits candidate k-means partitions, chooses a com-ponent count by an elbow-style curvature heuristic, estimates component means, standard deviations, and weights, and returns density, distribution, quantile, and random-generation functions. 
+
+3.5 Computation and Implementation 
+
+For a batch of size B, latent dimension d, forecast horizon H, forest size M ,and tree depth D, the main forest pass evaluates M (2 D − 1) internal rout-ing nodes and aggregates M 2D leaf predictions. The ensemble CRPS term adds a pairwise sample distance cost of order O(BHM 2). This quadratic dependence on ensemble size is one reason that the ablation study includes a reduced-ensemble variant. The implementation is written in R using torch tensors, modules, auto-matic differentiation, and the Adam optimizer. The experiments use single-threaded torch execution to reduce run-to-run timing variability on CPU. The package interface returns fitted forecast functions rather than only ar-rays, so downstream users can evaluate densities, probabilities, quantiles, or random samples at each horizon. 
+
+# 4 Experiments 
+
+4.1 Synthetic Data 
+
+The benchmark uses three deterministic synthetic positive level series of length 900. Each series is generated through clipped log returns 
+
+ut = μj (t, u t−1) + ϕj ut−1 + ϵt, ϵt ∼ N (0 , σ j (t)2), (11) followed by st = st−1 exp( ut). The clipping range is [ −0.08 , 0.08] to avoid unrealistic explosive paths. The three series are: 6• CycleTrend: a low-noise trending process with 20-day and 60-day sinusoidal components. • RegimeCycle: a cyclic process with alternating drift regimes and alternating volatility regimes. • ThresholdWave: a nonlinear process with thresholded sinusoidal drift and mean reversion. The synthetic date index runs from January 1, 2020 through June 18, 2022. The exact generator and random seeds are contained in the ancillary exper-iment script. 
+
+4.2 Protocol 
+
+We use a rolling-origin design with eight forecast origins: August 17, 2021; September 21, 2021; October 26, 2021; November 30, 2021; January 4, 2022; February 8, 2022; March 15, 2022; and April 19, 2022. At each origin and for each series, models produce 60-step forecasts. Metrics are reported at four selected horizons, t+1, t+5, t+20, and t+60. This gives 3 ×8×4 = 96 evaluated forecast-horizon pairs per benchmark model. TEMPER is trained with lookback P = 60, forecast horizon H = 60, latent dimension 10, 80 trees, depth 5, initial mask keep probability 0.8, mask temperature 0.5, maximum mixture components 8, training rate 0.75, batch size 16, Adam learning rate 0.003, reconstruction weight 0.3, 300 maximum epochs, and early-stopping patience 100. Each predictive distribution is evaluated with 300 samples. We compare against three simple probabilistic baselines [19]: a naive per-sistence bootstrap, a random-walk bootstrap, and an AR(1) residual boot-strap. Metrics are normalized by the level at the forecast origin. We report mean CRPS, median absolute error (MdAE), empirical 90% interval cov-erage, mean 90% interval width, average wall-clock training or simulation time per series-origin fit, and the number of evaluated horizons. 74.3 Benchmark Results 
+
+Table 1: Rolling-origin probabilistic forecast results across three synthetic series, eight origins, and four selected horizons. CRPS, MdAE, and interval width are percentages of the level at the forecast origin. Epochs is the mean actual number of training epochs after early stopping. Model CRPS (%) MdAE (%) 90% cov. 90% width (%) Time (s) Epochs N                            
+
+> Naive persistence bootstrap 2.763 4.183 77.1 10.93 0.00 –96 TEMPER 2.824 3.635 68.8 6.74 135.10 264.1 96 AR(1) bootstrap 2.922 4.004 79.2 11.45 0.15 –96 Random-walk bootstrap 3.408 4.306 59.4 7.44 0.00 –96
+
+Table 1 shows a close aggregate comparison between TEMPER and the naive persistence bootstrap. The naive bootstrap has the best mean CRPS, 2.763%, while TEMPER is second at 2.824%, a relative gap of about 2.2%. TEMPER has the best MdAE, 3.635%, indicating stronger median forecasts, but its 90% intervals cover only 68.8% of realized outcomes. The shorter interval width, 6.74% of the origin level, confirms that TEMPER is too sharp in this configuration. The average benchmark TEMPER fit ran for 264.1 epochs under the 300-epoch cap and patience 100. Figure 1 decomposes the results by horizon. TEMPER has the best CRPS at t + 1 and t + 5, with 0.353% and 0.867%, respectively. AR(1) is best at t + 20, and the naive persistence bootstrap is best at t + 60. This pat-tern suggests that TEMPER learns useful short-horizon nonlinear structure in the synthetic panel, while simple horizon-wise persistence errors remain highly competitive at the longest horizon. Figures 2 and 3 illustrate the package outputs rather than the benchmark protocol. The fan chart emphasizes TEMPER’s distributional interface, while the loss curve is a practical diagnostic for undertraining or overfitting. 802468t+1 t+5 t+20 t+60 Forecast horizon Mean CRPS (% of origin level) AR(1) bootstrap Naive persistence bootstrap Random-walk bootstrap TEMPER Figure 1: Mean normalized CRPS by forecast horizon. TEMPER is best at 
+
+t + 1 and t + 5, while AR(1) and naive persistence are strongest at t + 20 and t + 60, respectively. 90 110 130 150 170 2020-06 2020-12 2021-06 2021-12 2022-06 Synthetic date CycleTrend level 
+
+Figure 2: Illustrative 60-step TEMPER fan chart for the synthetic Cycle-Trend series using the full available series. The chart shows the historical level path, median forecast, and central predictive interval returned by the package. 90.00 0.01 0.02 0.03 0.04 0 100 200 300 Epoch CRPS (ensemble) train validation Figure 3: Training and validation CRPS curves for the illustrative Cycle-Trend fit. The package exposes this diagnostic as part of the returned model object. 10 5 Paired Ablation Study 
+
+The ablation study follows a paired design. It uses the same three synthetic series, the same four selected horizons, and the same last four rolling origins for every TEMPER variant, giving 3 × 4 × 4 = 48 matched forecast-horizon cells per variant. Each reported CRPS delta is computed cell by cell against the full TEMPER configuration and then averaged. This avoids comparing variants on slightly different forecast tasks and makes the horizon-specific pattern visible. Table 2: Paired component ablation on identical series-origin-horizon cells. The paired ∆ CRPS column is in percentage points of origin-level-normalized CRPS relative to Full TEMPER; negative values improve on the full model. Wins is the percentage of matched cells in which the variant has lower CRPS than Full TEMPER. Variant CRPS (%) paired ∆ CRPS wins (%) 90% cov. 90% width (%) Epochs No learned mask (near keep-all:                                             
+
+> p0= 0 .999, τ= 0 .1) 2.551 -0.472 39.6 66.7 7.00 276.6 No latent bottleneck (set d=P=60) 2.653 -0.369 39.6 62.5 7.26 263.4 No reconstruction (set λrec = 0) 2.674 -0.348 37.5 64.6 6.89 270.0 Reduced forest head ( M= 30, depth 4, bases 6) 2.886 -0.137 43.8 83.3 8.06 300.0 Full TEMPER (reference: λrec =0.3, d= 10, mask p0= 0 .8, M= 80, depth 5) 3.022 +0.000 –64.6 7.04 270.5
+
+Table 2 shows that the default full configuration is not optimal for this syn-thetic setting. Relaxing the learned mask gives the best average CRPS, 2.551%, a paired improvement of 0.472 percentage points relative to the full model. Removing the latent bottleneck improves average CRPS by 0.369 points, and removing reconstruction regularization improves it by 0.348 points. The reduced forest head improves CRPS more modestly, by 0.137 points, while raising empirical coverage from 64.6% to 83.3%. The win rates add a useful warning. None of the variants beats the full model on a majority of the 48 matched cells; the best win rates are 43.8% for the reduced forest and 39.6% for the no-mask and no-bottleneck variants. The mean improvements therefore come from large gains on some horizons rather than uniform dominance. This is exactly the kind of behavior that an aggregate-only ablation table would hide. 11 -1.5 -1.0 -0.5 0.0 0.5 t+1 t+5 t+20 t+60 Forecast horizon Paired CRPS delta vs full (percentage points) No bottleneck No learned mask No reconstruction Reduced forest Figure 4: Horizon-wise paired CRPS deltas for component variants relative to Full TEMPER. Several variants are worse at t + 1 and t + 5 but better at longer horizons. Table 3: Horizon-wise paired CRPS deltas versus Full TEMPER. Entries are percentage-point changes in origin-level-normalized CRPS; negative values favor the variant. Variant t + 1 t + 5 t + 20 t + 60 Mean No learned mask +0.051 +0.229 -0.594 -1.572 -0.472 No bottleneck +0.048 +0.358 -0.401 -1.482 -0.369 No reconstruction +0.077 +0.449 -0.341 -1.577 -0.348 Reduced forest +0.006 +0.083 -0.858 +0.223 -0.137 Table 3 and Figure 4 explain the aggregate ablation result. The variants generally degrade short-horizon CRPS but improve long-horizon CRPS. The no-mask, no-bottleneck, and no-reconstruction variants all lose at t + 1 and 
+
+t + 5, then gain at t + 20 and t + 60. The reduced forest is close to neutral at 
+
+t + 1 and t + 5, strongly better at t + 20, but worse at t + 60. This suggests that the full TEMPER inductive bias is useful for short horizons, whereas the mask, bottleneck, and reconstruction term may become too restrictive when the synthetic signal accumulates over longer horizons. 12 6 Calibration Study 
+
+The benchmark and paired ablation both show under-coverage. We therefore add a calibration-specific study for the full TEMPER benchmark forecasts. The first six rolling origins are used as a calibration block, and the last two origins are used as an evaluation block. All calibration rules are evaluated on the same 3 × 2 × 4 = 24 held-out forecast-horizon cells. Let [ ℓi, u i] be the raw 90% TEMPER interval and ˆ mi its median. We com-pare the raw interval, symmetric fixed inflation around the median by factors 1.5 and 2.0, a split-conformal residual interval using horizon-wise absolute median errors from the calibration block, and a split-conformal scale interval using horizon-wise absolute-error-to-half-width ratios. Because the calibra-tion block is small, the split-conformal quantile is deliberately conservative. We report empirical 90% coverage, normalized interval width, and the 90% interval score, for which lower is better. Table 4: Calibration ablation on the last two rolling origins, after using the first six origins as a calibration block. IS90 is the normalized 90% interval score; lower is better. Calibration rule 90% cov. 90% width (%) IS90 (%) N                    
+
+> Raw TEMPER intervals 54.2 6.25 29.47 24 Fixed inflation (1.5x) 79.2 9.37 19.50 24 Fixed inflation (2.0x) 91.7 12.49 15.07 24 Split conformal residual 83.3 21.85 22.24 24 Split conformal scale 95.8 17.68 18.41 24
+
+Table 4 confirms that raw TEMPER intervals are too narrow in the final evaluation block: coverage is 54.2% with mean width 6.25%. Fixed infla-tion is surprisingly effective. A 1.5-fold inflation raises coverage to 79.2%, and a 2.0-fold inflation reaches 91.7% coverage with the best interval score, 15.07%. The split-conformal scale rule is more conservative, reaching 95.8% coverage with width 17.68% and interval score 18.41%. The residual con-formal rule reaches 83.3% coverage but produces the widest intervals and a weaker interval score. The calibration result is not a claim that twofold inflation is universally op-timal. It shows that the current TEMPER distributional output has useful central forecasts but needs explicit calibration control. For a production or benchmark-grade version, calibration should be estimated with larger 13 calibration windows, horizon-specific validation, and time-series-aware con-formal variants. 
+
+# 7 Endpoint Sensitivity 
+
+The paired component ablation also gives a compact endpoint sensitivity analysis. It does not replace a full hyperparameter grid, but it separates the parameter axes from the component interpretation. Table 5 summarizes the endpoint changes corresponding to mask relaxation, latent dimension, reconstruction weight, and forest capacity. Table 5: Endpoint sensitivity summary derived from the paired ablation runs. The table separates parameter axes from the component interpretation in Table 2. Axis Endpoint setting paired ∆ CRPS wins (%) ∆ cov. ∆ width Mask relaxation p0 = 0 .8, τ = 0 .5 → p0 =0.999 , τ = 0 .1-0.472 39.6 +2.1 -0.04 Latent dimension d = 10 → d = 60 -0.369 39.6 -2.1 +0.21 Reconstruction weight                   
+
+> λrec = 0 .3→0-0.348 37.5 +0.0 -0.15 Forest capacity M= 80 , D = 5 , K = 8 →
+> M= 30 , D = 4 , K = 6 -0.137 43.8 +18.8 +1.02
+
+The sensitivity table supports three practical conclusions. First, the mask is the main tuning priority in this synthetic setting: moving from a stochastic learned mask toward a near keep-all mask gives the largest mean CRPS improvement. Second, the latent dimension should not be treated as a fixed compression default; the no-bottleneck endpoint performs better at longer horizons. Third, reducing forest capacity improves coverage and runtime, although the CRPS gains are smaller and horizon-dependent. 
+
+# 8 Limitations 
+
+The experiment has several limitations. First, it is synthetic, so it tests whether TEMPER can exploit controlled temporal structure rather than whether it generalizes to real operational forecasting domains. Second, the synthetic panel contains only three series and one data-generating design family. Third, the endpoint sensitivity table is not an interior hyperparam-eter grid. Fourth, the split-conformal calibration exercise uses few rolling 14 origins and assumes the calibration block is informative for later origins. Fifth, the benchmark does not yet compare against standard neural fore-casting systems such as DeepAR, TFT, N-BEATS, or N-HiTS on common datasets. These limitations point to natural extensions. Better calibration-sharpness control could be obtained by horizon-wise temperature tuning, mixture reg-ularization, conformal calibration with larger calibration blocks, or post-hoc variance scaling. The paired ablation results suggest that the learned mask, bottleneck dimension, reconstruction weight, and ensemble size should be tuned jointly and perhaps differently by horizon. Larger studies across pub-lic synthetic and real-world benchmark suites would clarify whether TEM-PER’s short-horizon gains persist beyond the controlled setting used here. 
+
+# 9 Reproducibility 
+
+The main experiments were run on August 31, 2026 using R 4.5.1 [22], torch 
+
+0.16.0 [21], and ggplot2 4.0.0 [23]. The paired, sensitivity, and calibration summaries were produced from the saved raw forecast metrics on Septem-ber 1, 2026. The arXiv source bundle includes the manuscript, tables, and figures needed for PDFLaTeX compilation. The ancillary directory contains the experiment script, the derived-analysis script, raw forecast metrics, sum-mary tables, metadata, a CSV export of the generated synthetic data, and the implementation file used by the run. The exact benchmark origins, hy-perparameters, generator seeds, package versions, and baseline definitions are recorded in the ancillary metadata and experiment scripts. 
+
+# 10 Conclusion 
+
+TEMPER is a compact probabilistic forecasting architecture that joins tem-poral encoding, differentiable masked forests, ensemble CRPS training, and mixture-based distribution reconstruction. In the synthetic rolling-origin benchmark reported here, TEMPER is competitive with the best naive base-line in aggregate CRPS, achieves the best MdAE, and has the best CRPS at t + 1 and t + 5. The paired ablation study gives a sharper statistical mes-sage: component effects are horizon-dependent, aggregate improvements can be driven by long-horizon gains, and calibration is a first-order issue. The paper therefore frames TEMPER as a promising and inspectable statistical 15 machine-learning forecasting engine, with paired ablation, horizon-specific tuning, and calibrated predictive intervals as the next research priorities. 
+
+# Acknowledgments 
+
+The author thanks the R, torch , and PyTorch communities for the software stack used in the implementation and experiments. 
+
+# References 
+
+[1] J. E. Matheson and R. L. Winkler. Scoring rules for continuous prob-ability distributions. Management Science , 22(10):1087–1096, 1976. doi:10.1287/mnsc.22.10.1087. [2] T. Gneiting and A. E. Raftery. Strictly proper scoring rules, predic-tion, and estimation. Journal of the American Statistical Association ,102(477):359–378, 2007. doi:10.1198/016214506000001437. [3] T. Gneiting, F. Balabdaoui, and A. E. Raftery. Probabilistic forecasts, calibration and sharpness. Journal of the Royal Statistical Society: Se-ries B , 69(2):243–268, 2007. doi:10.1111/j.1467-9868.2007.00587.x. [4] J. Berrisch and F. Ziel. CRPS learning. Journal of Econometrics ,237(2):105495, 2023. doi:10.1016/j.jeconom.2021.11.008. [5] D. Salinas, V. Flunkert, and J. Gasthaus. DeepAR: Prob-abilistic forecasting with autoregressive recurrent networks. 
+
+International Journal of Forecasting , 36(3):1181–1191, 2020. doi:10.1016/j.ijforecast.2019.07.001. arXiv:1704.04110. [6] S. S. Rangapuram, M. W. Seeger, J. Gasthaus, L. Stella, Y. Wang, and T. Januschowski. Deep state space models for time series forecasting. In Advances in Neural Information Processing Systems , 2018. [7] B. Lim, S. O. Arik, N. Loeff, and T. Pfister. Temporal Fu-sion Transformers for interpretable multi-horizon time series forecast-ing. International Journal of Forecasting , 37(4):1748–1764, 2021. doi:10.1016/j.ijforecast.2021.03.012. arXiv:1912.09363. 16 [8] B. N. Oreshkin, D. Carpov, N. Chapados, and Y. Bengio. N-BEATS: Neural basis expansion analysis for interpretable time series forecast-ing. In International Conference on Learning Representations , 2020. arXiv:1905.10437. [9] C. Challu, K. G. Olivares, B. N. Oreshkin, F. Garza, M. Mergenthaler-Canseco, and A. Dubrawski. N-HiTS: Neural hierarchical interpolation for time series forecasting. Proceedings of the AAAI Conference on Arti-ficial Intelligence , 37(6):6989–6997, 2023. doi:10.1609/aaai.v37i6.25854. arXiv:2201.12886. [10] A. Alexandrov, K. Benidis, M. Bohlke-Schneider, V. Flunkert, J. Gasthaus, T. Januschowski, D. C. Maddix, S. Rangapuram, D. Sali-nas, J. Schulz, L. Stella, A. C. Turkmen, and Y. Wang. GluonTS: Probabilistic and neural time series modeling in Python. Journal of Machine Learning Research , 21(116):1–6, 2020. https://www.jmlr. org/papers/v21/19-820.html .[11] G. E. Hinton and R. R. Salakhutdinov. Reducing the dimensional-ity of data with neural networks. Science , 313(5786):504–507, 2006. doi:10.1126/science.1127647. [12] P. Kontschieder, M. Fiterau, A. Criminisi, and S. R. Bulo. Deep neural decision forests. In Proceedings of the IEEE International Conference on Computer Vision (ICCV) , pages 1467–1475, 2015. doi:10.1109/ICCV.2015.172. [13] E. Jang, S. Gu, and B. Poole. Categorical reparameterization with Gumbel-Softmax. In International Conference on Learning Represen-tations , 2017. arXiv:1611.01144. [14] C. J. Maddison, A. Mnih, and Y. W. Teh. The Concrete distribution: A continuous relaxation of discrete random variables. In International Conference on Learning Representations , 2017. arXiv:1611.00712. [15] D. P. Kingma and J. Ba. Adam: A method for stochastic optimiza-tion. In International Conference on Learning Representations , 2015. arXiv:1412.6980. [16] V. Vovk, A. Gammerman, and G. Shafer. Algorithmic Learning in a Random World . Springer, 2005. doi:10.1007/b106715. 17 [17] A. N. Angelopoulos and S. Bates. A gentle introduction to con-formal prediction and distribution-free uncertainty quantification. arXiv:2107.07511, 2021. doi:10.48550/arXiv.2107.07511. [18] L. Breiman. Random forests. Machine Learning , 45:5–32, 2001. doi:10.1023/A:1010933404324. [19] R. J. Hyndman and G. Athanasopoulos. Forecasting: Principles and Practice . OTexts, 3rd edition, 2021. https://otexts.com/fpp3/ .[20] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, and S. Chintala. PyTorch: An imperative style, high-performance deep learning library. In Advances in Neural Information Processing Systems , 2019. [21] D. Falbel and J. Luraschi. torch: Tensors and Neural Net-works with ’GPU’ Acceleration . R package version 0.16.0, 2025. doi:10.32614/CRAN.package.torch. https://CRAN.R-project.org/ package=torch .[22] R Core Team. R: A Language and Environment for Statistical Comput-ing . R Foundation for Statistical Computing, Vienna, Austria, 2025. 
+
+https://www.R-project.org/ .[23] H. Wickham. ggplot2: Elegant Graphics for Data Analysis . Springer-Verlag New York, 2016. ISBN 978-3-319-24277-4. https://ggplot2. tidyverse.org .
+
+# A Experiment Configuration 
+
+The main benchmark uses the following TEMPER configuration: lookback 60, training forecast horizon 60, evaluated horizons t + 1, t + 5, t + 20, and 
+
+t + 60, latent dimension 10, 80 soft trees, tree depth 5, initial mask keep probability 0.8, Gumbel-Softmax temperature 0.5, maximum of 8 Gaussian-mixture bases, 75% training split, 300 maximum epochs, Adam learning rate 0.003, batch size 16, reconstruction weight 0.3, and early-stopping patience 100. The benchmark TEMPER fits ran for 264.1 epochs on average after early stopping. The evaluated rolling origins are: 18 Index Date 1 2021-08-17 2 2021-09-21 3 2021-10-26 4 2021-11-30 5 2022-01-04 6 2022-02-08 7 2022-03-15 8 2022-04-19 The paired component ablation uses origins 5–8. The calibration study uses origins 1–6 as a calibration block and origins 7–8 as an evaluation block. 
+
+# B Synthetic Generator Details 
+
+The exact synthetic data generator is included in the ancillary experiment script. CycleTrend starts at 100 and uses ϕ = 0 .20 with sinusoidal drift terms at periods 20 and 60. RegimeCycle starts at 80 and uses ϕ = 0 .15 with alternating drift regimes every 150 observations, a 45-observation cycle, and alternating volatility regimes every 120 observations. ThresholdWave starts at 120 and uses ϕ = −0.10 with a thresholded 36-observation sinusoid, a 90-observation cosine term, and a lagged-return correction. All series use fixed random seeds and positive level reconstruction through exponentiated clipped log returns. 
+
+# C Implementation Notes 
+
+The reference implementation exposes temper() as an R function. Its re-turned list contains a loss plot, a list of horizon-wise predictive functions, a fan chart, and a wall-clock training log. The predictive function list con-tains dfun , pfun , qfun , and rfun entries for density evaluation, cumulative probabilities, quantiles, and simulation. 19

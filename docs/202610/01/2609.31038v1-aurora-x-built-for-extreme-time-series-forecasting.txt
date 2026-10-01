@@ -1,0 +1,1818 @@
+Title: Aurora-X: Built for Extreme Time Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2609.31038v1
+
+Published Time: Mon, 28 Sep 2026 00:50:29 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# AURORA -X: BUILT FOR EXTREME TIME SERIES FORECASTING 
+
+Xingjian Wu, Chenjuan Guo B, Xiangfei Qiu, Zhigang Hu, Hanyin Cheng, Peng Chen, Yang Shu , Jilin Hu , Bin Yang 
+
+East China Normal University 
+
+{xjwu,xfqiu,zghu,hycheng,pchen}@stu.ecnu.edu.cn ,
+
+{cjguo,yshu,jlhu,byang}@dase.ecnu.edu.cn 
+
+## ABSTRACT 
+
+Time series foundation models (TSFMs) enable cross-domain forecasting, but their development as general-purpose forecasters remains constrained by under-explored training potential and limited architectural versatility. To address these challenges, we introduce Aurora-X, a billion-scale TSFM with a progressive cur-riculum and a unified architecture. We first use channel-independent pretraining to learn temporal patterns, then introduce cross-variable dependencies, varied con-text and horizon lengths, and future covariates if available during midtraining. Variable-resolution post-training further enables an adjustable temporal span per token at inference. With fixed model weights, this supports longer histories under a fixed token budget or fewer tokens for the same history, enabling test-time scal-ing. With a versatile architecture, Aurora-X supports cross-variable modeling, covariate conditioning, and parallel decoding of future patches for probabilistic forecasting. These are supported by a novel pattern-guided mixture-of-experts that expands model capacity through sparse activation and uses shallow patch similar-ities to constrain deep-layer routing, guiding expert specialization across hetero-geneous time series. Furthermore, we propose an implicit quantile network head that predicts arbitrary quantiles to characterize predictive distributions, enhancing probabilistic forecasting flexibility. Comprehensive experiments on GIFT-Eval, TIME, FEV-Bench, TFB, and DAG-Bench demonstrate state-of-the-art forecast-ing performance against pretrained TSFMs and task-specific supervised models. Extreme Performance Test Time Scaling Flexible Architecture Curriculum Training 
+
+PRETRAIN Warm-up core forecasting   
+
+> Input 2,880 Output 720 CI
+
+MIDTRAIN 3 stages 
+
+M1 Longer context   
+
+> Input 8,160 Output 960 CD
+
+M2 Arbitrary input and output   
+
+> Input ≤ 8,160 Output ≤ 960 CD
+
+M3 Future-covariate support   
+
+> Input ≤ 8,160 Output ≤ 960 CX
+
+POST TRAINING Variable-resolution forecasting   
+
+> Up/down sampling Context > 8,160 CX
+> 12345
+
+Capability growth lower MASE is better       
+
+> GIFT 0.6588 TIME 0.6401 FEV 0.6170
+> Pre M1 M2 M3 Post
+> Performance Growth on Common TSFM Benchmarks
+
+01 Pattern-guided MoE 
+
+> shallow similarities guide routing
+> trend periodic shift 123
+> Router
+> F1 F2 F3
+> balanced load
+
+02 Implicit quantile head   
+
+> shared f(h, τ) for any τ
+> hτ
+> f
+> past forecast τ = 0.9 τ = 0.5 ττ = 0.1
+
+03 Covariate-aware parallel decoding 
+
+> future covariates, arbitrary output length target history future covariates
+> Aurora-X backbone
+> all tokens
+> outputs 1 ... H
+> any horizon
+> one forward pass
+
+Results across five benchmarks         
+
+> GIFT FEV TIME
+> Aurora-X
+> Chronos-2 TimesFM-2.5 TiRex
+> Pairwise gains
+> lower relative MASE GIFT-Eval 8.0% ↓vs TiRex
+> TIME 4.3% ↓vs TimesFM-2.5
+> FEV-Bench 4.4% ↓vs Chronos-2
+
+Zero-shot vs full-shot 
+
+> TFB
+
+9.0% MSE↓ 
+
+> vs DUET full-shot
+> DAG-Bench
+
+11.5% MSE↓ 
+
+> vs DAG full-shot 0.80 0.75 0.70 0.65 0.60
+
+Patch resolution controls context 
+
+> same model and N context tokens
+> native: P
+> up to 8,160 P samples per patch
+> effective context T
+> scaled: k×P
+> beyond 8,160
+> k×P samples per patch
+> effective context kT
+> Aurora-X
+> patch span P2P 4P N context tokens weights fixed
+> Fixed weights, k× longer effective context
+
+Figure 1: Overview of Aurora-X. CI, CD, and CX denote channel-independent, joint multivariate, and future-covariate training, respectively. 1arXiv:2609.31038v1 [cs.LG] 25 Sep 2026 1 INTRODUCTION 
+
+Time series foundation models (TSFMs) (Liu et al., 2024c; Google Research, 2025; Ansari et al., 2024; Wu et al., 2026a) learn transferable temporal representations through large-scale pretraining on heterogeneous corpora, enabling zero-shot forecasting across datasets. Beyond zero-shot transfer, practical forecasting requires a model to integrate related variables and future covariates, character-ize uncertainty flexibly, and adapt to the available history. However, existing TSFMs still face two challenges in developing and combining these capabilities. 
+
+[1] Underexplored training potential. In large language models (LLMs), pretraining builds broad linguistic competence and general knowledge, while midtraining strengthens specialized skills and extends context capacity through targeted continued pretraining (Liu et al., 2024a; Bai et al., 2023). Post-training further develops deliberative reasoning (Guo et al., 2025) and reasoning-budget con-trol (Aggarwal & Welleck, 2025). Although staged training is emerging in TSFMs (Ansari et al., 2025; Liu et al., 2026d), how to align these stages with data characteristics, task difficulty, and target capabilities remains underexplored, particularly the potential of post-training to expand forecasting capabilities and inference-time flexibility. Table 1: TSFM capabilities: ✓ supported; ◦ par-tial; ✗ unsupported. Cross-var. includes target– covariate interactions. Future cov.: future co-variate values available at forecast time. Prob.: probabilistic forecasting. Cont. quant.: continu-ous quantile functions or sampling. Par.: paral-lel decoding within supported horizons (Baguan-TS: inferred). TimesFM-2.5: external regression (XReg) for covariates; blockwise decoding. TTS: test-time scaling.                                                                                  
+
+> Model Cross-var. Future cov. Prob. Cont. quant. Par. TTS
+> TiRex (2026) ✗✗✓◦◦✓
+> Timer-S1 (2026) ✗✗✓◦◦✗
+> Sundial (2025) ✗✗✓✓✗✗
+> TimesFM-2.5 (2025) ◦◦✓✓◦✗
+> Time-MoE (2024) ✗✗✗✗✗✗
+> Xihe (2025) ✗✗✓◦✓✗
+> Aurora (2026) ✗✗✓✓✓✓
+> Chronos-2 (2025) ✓✓✓◦✓✗
+> Falcon-X (2026) ✓✗✓◦✓✗
+> TiRex-2 (2026) ✓✓✓◦◦✗
+> Toto-2.0 (2026) ✓✗✓◦✓✗
+> Baguan-TS (2026) ✓✓✓◦✓✗
+> Aurora-X (Ours) ✓✓✓✓✓✓
+
+[2] Limited architectural versatility. Chan-nel independence (CI) facilitates pretraining on heterogeneous data, but CI TSFMs such as TiRex (Auer et al., 2026) and Timer-S1 (Liu et al., 2026d) do not explicitly model cross-variable dependencies or natively condition on future covariates. Chronos-2 (Ansari et al., 2025) and Falcon-X (Liu et al., 2026c) use pre-defined quantiles during training and inference, limiting flexibility in characterizing predictive distributions. Sundial (Liu et al., 2025) and Time-MoE (Shi et al., 2024) extend forecasts autoregressively across output blocks, requir-ing sequential computation and potentially ac-cumulating errors. Overall, existing TSFM ar-chitectures have yet to combine all these capa-bilities within a single model, and few support test-time scaling (Table 1). To address these challenges, we introduce 
+
+Aurora-X , a billion-scale TSFM with a pro-gressive curriculum and a versatile architecture, as shown in Figure 1. During pretraining, we adopt the CI strategy to learn general tempo-ral patterns, then introduce joint variables, var-ied context and horizon lengths, and future co-variates during midtraining. Through upsam-pling and downsampling, post-training further enables variable-resolution forecasting with an adjustable temporal span per token. With fixed model weights, this supports longer histories under a fixed token budget or fewer tokens for the same history, enabling test-time scaling. With a versatile architecture, Aurora-X supports cross-variable and covariate conditioning, long in-put histories, and parallel decoding. To expand model capacity, we also propose a pattern-guided mixture of experts (MoE) with sparsely activated experts. Shallow patch similarities constrain rout-ing in deeper layers, guiding expert specialization across heterogeneous time series. We also propose an implicit quantile network (IQN) head conditioned on continuous quantile levels. By predicting arbitrary quantiles, it characterizes predictive distributions and enhances probabilistic forecasting flexibility. Our contributions are summarized as: 
+
+❶ We propose Aurora-X , a billion-scale TSFM that supports cross-variable and covariate con-ditioning, long input histories, variable-resolution inference, and arbitrary quantile prediction within a unified architecture. 2❷ We develop a progressive curriculum to learn temporal patterns during pretraining, extend cross-variable and covariate capabilities during midtraining, and enable variable-resolution in-ference through post-training. 
+
+❸ We combine pattern-guided MoE routing with covariate-aware parallel decoding and an im-plicit quantile head. Shallow patch similarities guide deep-layer expert routing, while the head supports flexible probabilistic forecasting through arbitrary quantile prediction. 
+
+❹ Evaluations against TSFMs on GIFT-Eval (Aksu et al., 2024), TIME (Qiao et al., 2026), and FEV-Bench (Shchur et al., 2025), and supervised models on TFB (Qiu et al., 2024) and DAG-Bench (Qiu et al., 2026b), demonstrate state-of-the-art forecasting performance with favorable computational cost and inference latency. 
+
+## 2 RELATED WORK 
+
+2.1 TIME SERIES FOUNDATION MODELS 
+
+To transfer forecasting knowledge across domains, Timer (Liu et al., 2024c), TimesFM (Das et al., 2024), and Chronos (Ansari et al., 2024) pretrain on heterogeneous corpora. Accommodating fore-casting tasks with different numbers and combinations of variables motivates any-variate attention in Moirai (Woo et al., 2024). Chronos-2 (Ansari et al., 2025) and TiRex-2 (Podest et al., 2026) support multivariate forecasting with known future covariates, while Baguan-TS (Yang et al., 2026) integrates covariates into sequence-native in-context learning. For uncertainty estimation, models offer different ways to access predictive quantiles. Moirai uses mixture distributions, Chronos-2 and Toto-2.0 (Khwaja et al., 2026) regress fixed quantile grids, and Baguan-TS derives quantiles from discretized distributions. Flow matching in Sundial (Liu et al., 2025) and Aurora (Wu et al., 2026a) supports continuous generative distributions, with quantiles estimated through sampling; Aurora also conditions on text and images. Decoding imposes an-other constraint: TimesFM and Sundial generate successive output blocks autoregressively, while Timer-S1 (Liu et al., 2026d) retains serial hidden-state computation within a single forward pass over its supported horizon. Aurora-X directly predicts marginal quantiles at arbitrary levels over a continuous range while decoding future patches in parallel. 2.2 TRAINING AND INFERENCE ADAPTATION 
+
+Expert specialization and training progression offer complementary routes to broader capabilities. Sparse experts in Time-MoE (Shi et al., 2024) and Timer-S1 scale capacity, while Pathformer (Chen et al., 2024b) and TFPS (Sun et al., 2024) guide specialization through scale-specific pathways and clustering encoded patches, respectively. Aurora-X regularizes deep-layer routing with learned shallow patch similarities, complementing load balancing. Capability development can draw on task diversity within pretraining, as in Moirai’s variable context and prediction lengths, or subsequent stages: Timer-S1 uses continued pretraining and context extension, while Chronos-2 undergoes post-training for longer contexts. Inference-time flexibility comes from computational budgets and input adaptation. Sundial varies sampling and flow-step budgets, while Baguan-TS combines retrieval with ensembles. Aurora and TiRex (Auer et al., 2026) adapt temporal resolution for periodic patterns. Aurora-X’s curriculum progressively develops temporal modeling, cross-variable dependencies, and covariate conditioning; multi-scale post-training makes temporal resolution controllable at inference, allowing historical coverage to be matched to the context-token budget. 
+
+## 3 AURORA -X 
+
+Aurora-X is a zero-shot forecaster for cross-domain forecasting. Given histories X ∈ RC×T of target and auxiliary variables, optional future covariates if available, and quantile levels τ ∈ (0 , 1) ,we predict target quantiles over the next H time steps. Figure 2 shows the full interface: patch embeddings pass through Time–Group MoE blocks to the quantile head. We pretrain on individual variables, then introduce joint variables and future covariates during midtraining. 3Multivariate histories Known future covariates     
+
+> (optional)
+> Re-Norm Patch Embedding
+> [time, value, mask] Context Future
+> Multivariate tokens
+> Time–Group MoE Blocks
+> × L
+> RMS Norm
+> Future states h
+> Implicit Quantile Head
+> τ
+> ∈(0, 1) Quantile forecasts
+> 0.9 0.5 0.1
+> 1 … H μ, σ All horizon patches in one forward pass
+
+Time–Group MoE Block Pattern-guided MoE Implicit Quantile Head   
+
+> Joint tokens
+> Pre-RMSNorm
+> Time Attention (RoPE)
+> +
+> Pre-RMSNorm
+> Group Attention
+> Across variables in a group
+> +
+> Pre-RMSNorm
+> Pattern-guided MoE +
+> Hidden token h
+> Prototype Router
+> Top-KRouting
+
+F1 F2 FE…         
+
+> Shared Expert
+> Weighted Sum +
+> MoE output Pattern-consistent routing (training only)
+> Pattern metric Clustering loss
+> Future state h τ
+> ∈(0, 1)
+> Condition Projection
+> Cosine τ
+> Embedding
+> +condition c
+> Learnable Query
+> AdaLN Residual MLP × D
+> Quantile patch qτ= f(h, τ)
+
+Aurora-X 
+
+> AdaLN + Projection
+> Inverse Norm
+
+Figure 2: Overview of Aurora-X (1.05B total parameters, L = 12 ). Lower panels show a Time– Group block, its MoE sublayer, and the quantile head. Patch Embedding is fed into the blocks, whose normalized future states condition parallel quantile decoding. 3.1 UNIFIED BACKBONE 
+
+Patch embedding. We first apply reversible instance normalization (RevIN) (Kim et al., 2021) us-ing each variable’s observed-history statistics, followed by arcsinh (Ansari et al., 2025) to compress extreme values. Non-overlapping patches of native length P provide N = ⌈T /P ⌉ context tokens for history and M = ⌈H/P ⌉ future tokens for prediction positions and available covariates. To support these inputs in parallel forecasting, we use a shared embedding: 
+
+z(0)  
+
+> v,i
+
+= Embed([ ti; ˜ xv,i ; mv,i ]) ∈ Rd, (1) where ti, ˜xv,i , mv,i ∈ RP denote relative times, normalized values, and observation masks, and 
+
+Embed : R3P → Rd is a shared residual MLP. Future targets receive zero values and masks during both training and inference, while known covariates retain observations. We exclude incomplete history patches as attention keys but keep future tokens active. 
+
+Time and group attention. We encode Z(0) ∈ RC×(N +M )×d through L Time–Group MoE blocks. Each block models temporal dependencies within variables, mixes variables in group Gg
+
+at aligned patch positions, and updates tokens through MoE: 
+
+U (ℓ) 
+
+> v, :,:
+
+= Z(ℓ−1)  
+
+> v, :,:
+
++ Attn RoPE 
+
+> T,ℓ
+
+
+
+RN( Z(ℓ−1)  
+
+> v, :,:
+
+)
+
+
+
+,V (ℓ)  
+
+> Gg,i, :
+
+= U (ℓ)  
+
+> Gg,i, :
+
++ Attn G,ℓ 
+
+
+
+RN( U (ℓ) 
+
+> Gg,i, :
+
+)
+
+
+
+, (2) 
+
+Z(ℓ) = V (ℓ) + MoE ℓ
+
+
+
+RN( V (ℓ))
+
+
+
+,
+
+where RN denotes RMSNorm (Zhang & Sennrich, 2019), and U (ℓ) and V (ℓ) are the intermediate states. Temporal attention is bidirectional over (N +M )×d states; group attention operates on |G g |× 
+
+d states, both using unscaled scores. Singleton groups retain group attention during CI pretraining; midtraining enables cross-variable mixing. Finally, RMSNorm provides hv,j = RN( Z(L))v,N +j, : ∈
+
+Rd, j = 1 , . . . , M , to the quantile head. 43.2 PATTERN -G UIDED MIXTURE OF EXPERTS 
+
+To accommodate heterogeneous temporal patterns, we replace each Time–Group block’s feed-forward sublayer with a sparsely routed MoE trained jointly with the backbone. Sparse activation expands model capacity, but load balancing alone does not guide specialization as deep temporal and cross-variable mixing can weaken pattern distinctions. We therefore guide specialization with shallow patch similarities, encouraging similar local shapes to share experts. 
+
+Prototype router and top-K routing. Each layer contains one shared expert and E = 16 routed experts ( F1, . . . , F E in Figure 2), with K = 4 activated per token. Given the MoE input h = h(ℓ) 
+
+> v,i
+
+=RN( V (ℓ))v,i, :, we compute its affinity to each expert’s learnable prototype ce ∈ Rd:
+
+ae = (WK h)⊤(WQ ce)
+
+√drout 
+
+, s = LN E (a), p = Softmax( s), (3) where WK , W Q ∈ Rdrout ×d project states and prototypes, a = [ ae]Ee=1 , and LN E normalizes logits across experts without affine parameters. We select the K highest-scoring experts, denoted by E(h),and combine their outputs with the shared expert: 
+
+MoE( h) = Fshared (h) + X
+
+> e∈E (h)
+
+ge(h)Fe(h), ge(h) = pe(h)
+
+P 
+
+> e′∈E (h)
+
+pe′ (h) . (4) Here Fe, F shared : Rd → Rd preserve the token dimension; each layer learns its own experts, prototypes, and projections. 
+
+Pattern metric and clustering loss. To preserve local pattern information in deeper layers, we learn a pattern metric from normalized context value patches during training. For patch ˜xb,i ∈ RP
+
+in minibatch variable row b, we compute 
+
+ub,i = Normalize( Wpat sg(˜ xb,i )) , Sb,ij = exp u⊤
+
+> b,i
+
+ub,j − 1
+
+σ2pat 
+
+!
+
+, (5) where Wpat ∈ Rdpat ×P is learned per layer, Normalize denotes ℓ2 normalization, and σpat controls the similarity bandwidth. Similar projected shapes yield larger Sb,ij , providing a shallow refer-ence for routing. The stop-gradient operator sg detaches patch inputs while keeping the projection learnable; parameter layer indices are omitted. For context positions i, j ≤ N within each variable row, let Db,ie = 1[e ∈ E (h(ℓ) 
+
+> b,i
+
+)] indicate expert selection, with vector Db,i . We connect these discrete assignments to the pattern metric through a straight-through estimator: 
+
+Ab,i = sg( Db,i ) + pb,i − sg( pb,i ), Ωb,ij = 1
+
+K
+
+> E
+
+X
+
+> e=1
+
+Ab,ie Ab,je . (6) Here Ωb,ij is the fraction of selected experts shared by two patches in the forward pass, while gradients follow softmax probabilities to update the router and upstream representations. We use this overlap to weight pattern similarities and regularize the projection: 
+
+Lpat = − 1
+
+B
+
+> B
+
+X
+
+> b=1
+
+PNi,j =1 Ωb,ij Sb,ij 
+
+max 
+
+PNi,j =1 Ωb,ij , ϵ 
+
+ , Rorth = ∥ ¯Wpat ¯W ⊤ 
+
+> pat
+
+− I∥2
+
+> F
+
+d2pat 
+
+, (7) where B counts variable rows across the minibatch, ¯Wpat contains row-normalized weights, I is the identity matrix, and ϵ > 0 is a numerical floor. The normalized objective includes self-pairs. For fixed similarities, it favors sharing above the current weighted mean similarity and discourages sharing below it. Learning Wpat draws co-assigned patches together, while orthogonality promotes diverse projection directions. This guides specialization across heterogeneous series by linking deep expert assignments to shallow temporal patterns; Appendix C provides the analysis and proofs. We complement pattern guidance with load balancing, Lbal = E P 
+
+> e
+
+fe ¯pe, to spread utilization across experts. Here fe = J−1 P 
+
+> t
+
+Dt,e and ¯pe = J−1 P 
+
+> t
+
+pt,e , where J counts both context and future tokens in a minibatch. 53.3 IMPLICIT QUANTILE HEAD 
+
+Probabilistic forecasting should characterize predictive distributions flexibly and efficiently. Fixed quantile heads (Ansari et al., 2025; Liu et al., 2026d) describe distributions at predefined levels, limiting direct support for customized intervals and tail queries. Sample-based forecasters (Liu et al., 2025; Wu et al., 2026a) estimate these quantities from multiple generated trajectories, intro-ducing sampling overhead. We therefore adopt an implicit quantile network (IQN) conditioned on continuous quantile levels to achieve flexible probabilistic forecasting. It directly predicts arbitrary quantiles in parallel from shared future states, enabling characterization of marginal distributions without trajectory sampling. 
+
+Quantile conditioning. Given a normalized future state h ∈ Rd from the final Time–Group MoE block (Figure 2), the head qθ (h, τ ) ∈ RP predicts the conditional τ -quantile at each patch position. We combine a projection of h with a cosine embedding of the requested level τ ∈ (0 , 1) :
+
+ϕ(τ ) = [cos( π n τ )] R−1 
+
+> n=0
+
+, c(h, τ ) = Wh h + bh + MLP τ (ϕ(τ )) ∈ Rd. (8) Here ϕ(τ ) ∈ RR represents the quantile level at multiple frequencies, and c(h, τ ) integrates it with the future state. We then refine a shared learnable query v0 ∈ Rd through D residual MLP layers with adaptive layer normalization: 
+
+va+1 = va + αa(c) ⊙ MLP a([1 + γa(c)] ⊙ LN( va) + βa(c)) , (9) where a = 0 , . . . , D − 1, and βa(c), γ a(c), α a(c) ∈ Rd provide the condition-dependent shift, scale, and residual gate. This modulation incorporates the future state and requested level at every layer. A final adaptive normalization and projection yield P quantile values, with head parameters shared across variables, patches, and levels. 
+
+Quantile Optimization. During training, we independently sample Q levels from U(0 , 1) for each target patch at every step. We supervise the corresponding predictions with the masked pinball loss: 
+
+ℓIQN (h, ˜y) = 
+
+PQq=1 
+
+PPt=1 mt ρτq (˜ yt − qθ,t (h, τ q )) 
+
+Q max(1 , PPt=1 mt) , ρτ (e) = max {τ e, (τ − 1) e}. (10) Here ˜yt is the normalized target and mt indicates valid target positions. The loss weights underesti-mation by τ and overestimation by 1 − τ , guiding each prediction toward its requested conditional quantile. Averaging over target patches gives LIQN ; known covariates provide conditioning and are excluded from this loss. Uniform sampling approximates the integrated pinball loss over quantile levels, without an explicit non-crossing constraint. During inference, one backbone evaluation provides the future states for parallel decoding of all patch–quantile pairs. For each target and requested level, the M predicted patches are concatenated and cropped to H steps, then transformed by sinh and inverse RevIN to obtain the forecast. 3.4 CURRICULUM AND VARIABLE -R ESOLUTION POST -T RAINING 
+
+Capability-oriented curriculum. We progressively introduce richer forecasting inputs through the curriculum in Figure 1. We first pretrain on individual variables using singleton groups. During midtraining, M1 adds multivariate groups and longer contexts and horizons; M2 varies these lengths; M3 introduces future covariates if available. Finally, multi-scale post-training develops variable-resolution forecasting (Figure 3). Each stage continues the preceding checkpoint. To jointly learn quantile prediction and expert specialization, we optimize 
+
+L = LIQN +
+
+> L
+
+X
+
+> ℓ=1
+
+h
+
+λbal L(ℓ)bal + λpat 
+
+
+
+L(ℓ)pat + λorth R(ℓ)orth 
+
+i 
+
+. (11) Here λbal , λpat , and λorth control load balancing, pattern guidance, and orthogonality, respectively. 6Multi-scale post-training. Pretraining and midtraining use a fixed temporal span per token (fixed resolution), so longer histories require more tokens. We therefore introduce multi-scale post-training to teach the model to fore-cast across resolutions, allowing longer histo-ries within a fixed token budget or fewer to-kens for the same history at inference. On a one-billion-point subset (Appendix A.4), we resam-ple history and future separately after RevIN and arcsinh , aligning scales and block bound-aries across related variables. For native patch length P = 48 and positive scale k ∈ K , we re-sample blocks of integer length kP to P values; each token covers kP original points. k < 1 up-samples shorter spans and k > 1 downsamples longer spans. Let ˜x(k) 
+
+> j
+
+= ˜ x(j−1) kP +1: jkP and 
+
+Ra→b denote linear resampling. We construct the augmented sequence as: 
+
+Ak(˜ x) = Concat j
+
+h
+
+RkP →P
+
+
+
+˜x(k)
+
+> j
+
+i 
+
+. (12) (a) Multi-scale post-training 
+
+One history-normalized sequence, k ∈ �
+
+Upsample, k < 1 
+
+kP → P
+
+… …
+
+Downsample, k > 1 
+
+kP → P
+
+Train on each pair History Aurora-X Loss Target 
+
+(b) Resolution-adaptive inference 
+
+kNP historical points k > 1 
+
+N context tokens P-point patch 
+
+Resample 
+
+kP → P
+
+Predict 
+
+Aurora-X 
+
+Resample 
+
+P → kP 
+
+Inverse norm. Observed history Forecast 
+
+Figure 3: (a) Post-training uses resampled history–target pairs. (b) Inference extends histor-ical coverage at a fixed context-token budget and returns forecasts to the requested resolution. The resampled inputs contain Nk = ⌈T / (kP )⌉ context tokens and Mk = ⌈H/ (kP )⌉ future tokens on the native P -point grid. Given their normalized future states h(k) 
+
+> v,j
+
+∈ Rd and normalized targets 
+
+˜yv, 1: H , we apply the same transformation to the targets and optimize 
+
+Lpost IQN (k) = 1
+
+|I k|
+
+X
+
+> (v,j )∈I k
+
+ℓIQN 
+
+
+
+h(k) 
+
+> v,j
+
+, RkP →P
+
+ ˜yv, (j−1) kP +1: jkP 
+
+
+
+, (13) where Ik indexes target patches (v, j ), 1 ≤ j ≤ Mk. We pad incomplete blocks and mask in-valid target positions (Equation (10)). This objective replaces LIQN in Equation (11), while MoE regularization is evaluated on the augmented tokens. 
+
+Resolution-adaptive inference. During inference, we choose k to control the observations repre-sented by each token (Figure 3(b)). We first map normalized histories and covariates with RkP →P .After quantile decoding, we restore each length-P patch with RP →kP , concatenate the patches, crop to H steps, and apply the inverse transformation. Model weights remain fixed, and time co-ordinates use the native grid. For k > 1, a fixed history requires fewer context tokens; at a fixed context-token budget N , historical coverage expands from N P to kN P observations. We evaluate both settings in Appendix A.11. Existing models (Wang et al., 2025a; Wu et al., 2025a; 2026a) also adapt resolution; Appendices B.1–B.2 compare our resampling with projection reparameterization and LightGTS’s Flex-resize (Wang et al., 2025a). 
+
+## 4 EXPERIMENTS Aurora-X 
+
+> Probabilistic Foundation Model Covariate
+> vs advanced TSFMs
+> GIFT-Eval
+> 8.0% MASE↓ vs TiRex
+> Best MASE in comparison
+> TIME
+> 4.3% MASE↓ vs TimesFM-2.5
+> Best MASE in comparison
+> FEV-Bench
+> 4.4% MASE↓ vs Chronos-2
+> Best MASE in comparison
+> TFB (Multivariate)
+> 9.0% MSE↓ vs DUET 3.6% MAE↓ vs DUET
+> DAG-Bench (Covariate)
+> 11.5% MSE↓ vs DAG 7.7% MAE↓ vs DAG
+> vs supervised models
+
+Figure 4: Forecasting performance across five benchmarks. We evaluate Aurora-X on five benchmarks cover-ing general forecasting, multivariate forecasting, and forecasting with known future covariates. Figure 4 summarizes its overall performance against pretrained TSFMs and task-specific su-pervised models. We present the GIFT-Eval, TIME, and FEV-Bench results below, followed by analyses of expert routing, forecasting heads, and training-stage gains in Section 4.2. Compar-isons on TFB and DAG-Bench are reported in Appendix A.8. Appendix A provides detailed set-tings, complete results, and expanded probabilistic rankings. Inference efficiency and forecasting visualizations are presented in Appendices A.12 and A.13, respectively. 74.1 GENERAL FORECASTING PERFORMANCE 0.60 0.70 0.80    
+
+> Relative MASE ↓
+> Aurora-X
+> Falcon-2.0 TiRex-2 PT Falcon-X Timer-S1 Toto-2 2.5B Chronos-2 Xihe-Ultra TimesFM-2.5 TiRex Moirai-2 Sundial
+> 0.659 0.666 0.678 0.687 0.693 0.696 0.698 0.701 0.705 0.716 0.728 0.750
+> 0.65 0.70
+> Relative MASE ↓
+> Aurora-X
+> Toto-2 2.5B Toto-2 313M Toto-2 1B Chronos-2 PatchTST-FM TimesFM-2.5 Toto-2 22M TiRex Toto-2 4M TS-ICL
+> 0.640 0.642 0.644 0.645 0.662 0.662 0.669 0.670 0.683 0.691 0.694
+> 0.60 0.70 0.80
+> Relative MASE ↓
+> Aurora-X
+> TimesFM-2.5 Chronos-2 TiRex-2 TiRex FlowState CITRAS-FM Toto-1 Toto-2 1B Moirai-2 Chronos-Bolt Sundial
+> 0.617 0.644 0.645 0.663 0.699 0.702 0.707 0.715 0.720 0.720 0.735 0.748
+
+(a) GIFT-Eval (b) TIME (c) FEV-Bench 
+
+Figure 5: Relative MASE on GIFT-Eval, TIME, and FEV-Bench: geometric means of configuration-wise ratios to Seasonal Naive; lower is better. Aurora-X (1.05B total parameters) is highlighted in color. Model selection is detailed in Appendix A.2. As shown in Figure 5, Aurora-X achieves the lowest relative MASE among the compared TSFMs on GIFT-Eval, TIME, and FEV-Bench. On GIFT-Eval, it reduces relative MASE by 1.1% compared with Falcon-2.0 and by 8.0% compared with TiRex. On TIME, the margin over Toto-2.0 (2.5B) is smaller, at 0.3%, while the reduction relative to TimesFM-2.5 is 4.3%. On FEV-Bench, Aurora-X improves over TimesFM-2.5 and Chronos-2 by 4.2% and 4.4%, respectively. These results show a consistent advantage in point forecasting across the three benchmark collections. Complementary probabilistic results are reported in Appendix A.7. 4.2 MODEL ANALYSIS 
+
+The architecture comparisons use the same pretraining corpus, with all MoE variants using 16 routed experts, top-4 selection per token, and the same expert width as Aurora-X. Each comparison replaces the relevant module within the Aurora-X backbone. We examine both expert specialization and forecasting accuracy, then trace how the full curriculum develops the model’s capabilities from temporal modeling to covariate conditioning and variable-resolution forecasting. 1 8 16 
+
+> Trend Seasonality Shifting Stationarity Transition
+> Aurora-X
+
+1 8 16 
+
+> Time-MoE
+
+1 8 16 
+
+> Moirai-MoE
+
+1 8 16 
+
+> Timer-S1
+
+Figure 6: Expert-selection shares across five TFB-based scenarios, with 16 routed experts and top-4 selection. Columns index experts; rows sum to one. Darker shading indicates higher normalized selection frequency on a shared color scale. 
+
+MoE design. Load balancing promotes expert utilization, but specialization requires distinct rout-ing preferences for different temporal patterns. We compare our MoE with implementations based on Time-MoE, Moirai-MoE, and Timer-S1. Following TFB’s (Qiu et al., 2024) characterization, we 8select datasets representing five temporal properties and inspect routing at layer 6 of the 12-layer backbone (Figure 6). Distinct rows indicate scenario-dependent expert preferences; similar rows suggest weaker differentiation across these scenarios. This probes whether input-specific routing persists after repeated representation mixing. We then compare forecasting accuracy on GIFT-Eval, TIME, and FEV-Bench (Figure 7). Appendix A.5 details dataset selection, routing-frequency aggre-gation, and the shared forecasting evaluation protocol for these comparisons. 
+
+Forecasting head. To examine the effect of quantile parameterization, the head comparison in-cludes IQN, fixed quantile regression (Chronos-2), flow matching (Sundial), and a mixture distribu-tion head (Moirai). The backbone architecture, pretraining data, and evaluation horizons are shared. Evaluation uses common quantile levels; generative heads obtain them from their predictive distribu-tions. Figure 8 reports point accuracy from median forecasts using relative MASE against Seasonal Naive, as in Figures 5 and 7. 0.70 0.75 0.80 0.85 
+
+> Relative MASE ↓
+> GIFT-Eval TIME FEV-Bench
+> 0.758 0.790 0.775 0.793 0.827 0.809 0.809 0.842 0.824 0.781 0.813 0.799
+> Aurora-X Time-MoE Moirai-MoE Timer-S1
+
+Figure 7: Relative MASE of four MoE imple-mentations after pretraining. Lower is better. 0.70 0.75 0.80 0.85 
+
+> Relative MASE ↓
+> GIFT-Eval TIME FEV-Bench
+> 0.758 0.790 0.775 0.797 0.831 0.815 0.779 0.810 0.799 0.813 0.849 0.829
+> IQN Fixed quantile Flow matching Mixture distribution
+
+Figure 8: Relative MASE of four forecasting heads after pretraining. Lower is better. 
+
+Training-stage gains. Figure 9 follows Aurora-X through pretraining, three midtraining stages, and post-training. Relative MASE decreases at every transition, while the largest stage-wise re-ductions occur from Pre to M1 on GIFT-Eval and TIME, and from M2 to M3 on FEV-Bench. These trajectories show that improvements accu-mulate across stages, with their relative contri-butions varying by benchmark. Overall, relative MASE decreases by 13.1%, 19.0%, and 20.4% from Pre to Post on GIFT-Eval, TIME, and FEV-Bench, respectively. Post-training yields a fur-ther reduction of 2.1–2.8% relative to M3. To-gether, these results support a progressive cur-riculum that develops forecasting capabilities be-yond the pretrained checkpoint. Appendix A.6 reports the complete stage-wise scores. Pre M1 M2 M3 Post 0.60 0.65 0.70 0.75 0.80   
+
+> Relative MASE ↓
+> GIFT-Eval TIME FEV-Bench
+
+Figure 9: Relative MASE across training stages. Pre and Post denote pretraining and post-training; M1–M3 denote midtraining stages. 
+
+## 5 CONCLUSION 
+
+We introduce Aurora-X, a billion-scale time series foundation model combining pattern-guided MoE routing, an implicit quantile head, and a capability-oriented curriculum. Variable-resolution post-training enables context-token budget control and longer historical coverage. Strong performance across five forecasting benchmarks, together with favorable computational cost and inference la-tency, supports Aurora-X as an out-of-the-box tool for decision intelligence. 9REFERENCES 
+
+Pranjal Aggarwal and Sean Welleck. L1: Controlling how long a reasoning model thinks with reinforcement learning. arXiv preprint arXiv:2503.04697 , 2025. Taha Aksu, Gerald Woo, Juncheng Liu, Xu Liu, Chenghao Liu, Silvio Savarese, Caiming Xiong, and Doyen Sahoo. Gift-eval: A benchmark for general time series forecasting model evaluation. 
+
+arXiv preprint arXiv:2410.10393 , 2024. Abdul Fatir Ansari, Lorenzo Stella, Ali Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebastian Pineda Arango, Shubham Kapoor, et al. Chronos: Learning the language of time series. Transactions on Machine Learning Research , 2024. Abdul Fatir Ansari, Oleksandr Shchur, Jaris Küken, Andreas Auer, Boran Han, Pedro Mercado, Syama Sundar Rangapuram, Huibin Shen, Lorenzo Stella, Xiyuan Zhang, et al. Chronos-2: From univariate to universal forecasting. arXiv preprint arXiv:2510.15821 , 2025. Andreas Auer, Patrick Podest, Daniel Klotz, Sebastian Böck, Günter Klambauer, and Sepp Hochre-iter. Tirex: Zero-shot forecasting across long and short horizons with enhanced in-context learn-ing. Advances in Neural Information Processing Systems , 38:57529–57580, 2026. Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei Huang, et al. Qwen technical report. arXiv preprint arXiv:2309.16609 , 2023. Wanlin Cai, Yuxuan Liang, Xianggen Liu, Jianshuai Feng, and Yuankai Wu. Msgnet: Learning multi-scale inter-series correlations for multivariate time series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pp. 11141–11149, 2024. Jialin Chen, Jan Eric Lenssen, Aosong Feng, Weihua Hu, Matthias Fey, Leandros Tassiulas, Jure Leskovec, and Rex Ying. From similarity to superiority: Channel clustering for time series fore-casting. arXiv preprint arXiv:2404.01340 , 2024a. Peng Chen, Yingying Zhang, Yunyao Cheng, Yang Shu, Yihang Wang, Qingsong Wen, Bin Yang, and Chenjuan Guo. Pathformer: Multi-scale transformers with adaptive pathways for time series forecasting. In ICLR , 2024b. Fang Cheng, Hui Liu, and Xinwei Lv. Metagnsdformer: Meta-learning enhanced gated non-stationary informer with frequency-aware attention for point-interval remaining useful life pre-diction of lithium-ion batteries. Advanced Engineering Informatics , 69:103798, 2026a. Hanyin Cheng, Xingjian Wu, Xiangfei Qiu, Yang Shu, Bin Yang, and Chenjuan Guo. CCD: Captur-ing cross-correlations with deformable convolutional networks for multivariate time series fore-casting. In KDD , 2026b. Hanyin Cheng, Xingjian Wu, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Chenjuan Guo. CoRA: Boosting time series foundation models for multivariate forecasting through correlation-aware adapter. In ICLR , 2026c. Hanyin Cheng, Ruitong Zhang, Yuning Lu, Peng Chen, Meng Wang, Yang Shu, Bin Yang, and Chenjuan Guo. STAR: Boosting time series foundation models for anomaly detection through state-aware adapter. In NeurIPS , 2026d. Hanyin Cheng, Jingrong Zhou, Yang Shu, and Chenjuan Guo. KITE: Knowledge-guided probabilis-tic modeling for time series forecasting with exogenous variables. In ICML , 2026e. Abhimanyu Das, Weihao Kong, Andrew Leach, Shaan Mathur, Rajat Sen, and Rose Yu. Long-term forecasting with tide: Time-series dense encoder. Trans. Mach. Learn. Res. , 2023, 2023. Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting. In Forty-first International Conference on Machine Learning , 2024. Google Research. TimesFM 2.5: 200M PyTorch checkpoint. Hugging Face, 2025. Model card and implementation. 10 Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. Yifan Hu, Peiyuan Liu, Peng Zhu, Dawei Cheng, and Tao Dai. Adaptive multi-scale decomposition framework for time series forecasting. In AAAI , 2025. Emaad Khwaja, Chris Lettieri, Gerald Woo, Eden Belouadah, Marc Cenac, Guillaume Jarry, En-guerrand Paquin, Xunyi Zhao, Viktoriya Zhukov, Othmane Abou-Amal, et al. Toto 2.0: Time series forecasting enters the scaling era. arXiv preprint arXiv:2605.20119 , 2026. Taesung Kim, Jinhee Kim, Yunwon Tae, Cheonbok Park, Jang-Ho Choi, and Jaegul Choo. Re-versible instance normalization for accurate time-series forecasting against distribution shift. In 
+
+ICLR , 2021. Zhengyu Li, Xiangfei Qiu, Yuhan Zhu, Xingjian Wu, Jilin Hu, Chenjuan Guo, and Bin Yang. GCGNet: Graph-consistent generative network for time series forecasting with exogenous vari-ables. In ICLR , 2026. Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et al. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 , 2024a. Xvyuan Liu, Xiangfei Qiu, Hanyin Cheng, Xingjian Wu, Chenjuan Guo, Bin Yang, and Jilin Hu. ASTGI: Adaptive spatio-temporal graph interactions for irregular multivariate time series fore-casting. In ICLR , 2026a. Xvyuan Liu, Xiangfei Qiu, Xingjian Wu, Zhengyu Li, Chenjuan Guo, Jilin Hu, and Bin Yang. Rethinking irregular time series forecasting: A simple yet effective baseline. In AAAI , 2026b. Yiding Liu, Yifan Hu, Hongjie Xia, Peiyuan Liu, Hongzhou Chen, Xilin Dai, Zewei Dong, and Jiang-Ming Yang. Falcon-x: A time series foundation model for heterogeneous multivariate mod-eling. arXiv preprint arXiv:2605.27286 , 2026c. Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. itransformer: Inverted transformers are effective for time series forecasting. In ICLR , 2024b. Yong Liu, Haoran Zhang, Chenyu Li, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. Timer: Generative pre-trained transformers are large time series models. In International Confer-ence on Machine Learning , pp. 32369–32399. PMLR, 2024c. Yong Liu, Guo Qin, Zhiyuan Shi, Zhi Chen, Caiyin Yang, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. Sundial: A family of highly capable time series foundation models. arXiv preprint arXiv:2502.00816 , 2025. Yong Liu, Xingjian Su, Shiyu Wang, Haoran Zhang, Haixuan Liu, Yuxuan Wang, Zhou Ye, Yang Xiang, Jianmin Wang, and Mingsheng Long. Timer-s1: A billion-scale time series foundation model with serial scaling. arXiv preprint arXiv:2603.04791 , 2026d. Yue Ma, Yingqing He, Xiaodong Cun, Xintao Wang, Siran Chen, Xiu Li, and Qifeng Chen. Follow your pose: Pose-guided text-to-video generation using pose-free videos. In AAAI , volume 38, pp. 4117–4125, 2024a. Yue Ma, Hongyu Liu, Hongfa Wang, Heng Pan, Yingqing He, Junkun Yuan, Ailing Zeng, Chengfei Cai, Heung-Yeung Shum, Wei Liu, et al. Follow-your-emoji: Fine-controllable and expressive freestyle portrait animation. In SIGGRAPH Asia , pp. 1–12, 2024b. Yue Ma, Kunyu Feng, Zhongyuan Hu, Xinyu Wang, Yucheng Wang, Mingzhe Zheng, Xuanhua He, Chenyang Zhu, Hongyu Liu, Yingqing He, et al. Controllable video generation: A survey. arXiv preprint arXiv:2507.16869 , 2025. Yue Ma, Jiangming Wang, Yucheng Wang, Xilai Wang, Zhiyuan Li, Xinyu Wang, Hongyu Liu, Ruo-fan Liang, Songchun Zhang, Yuxuan Xue, et al. Livelight: Real-time streaming video relighting with interactive control. arXiv preprint arXiv:2608.01771 , 2026. 11 Yuqi Nie, Nam H. Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In ICLR , 2023. Patrick Podest, Marco Pichler, Elias Bürger, Levente Zólyomi, Bernhard Voggenberger, Wilhelm Berghammer, Daniel Klotz, Sebastian Böck, Günter Klambauer, and Sepp Hochreiter. Tirex-2: Generalizing tirex to multivariate data and streaming. arXiv preprint arXiv:2607.01204 , 2026. Zhongzheng Qiao, Sheng Pan, Anni Wang, Viktoriya Zhukova, Yong Liu, Xudong Jiang, Qingsong Wen, Mingsheng Long, Ming Jin, and Chenghao Liu. It’s time: Towards the next generation of time series forecasting benchmarks. arXiv preprint arXiv:2602.12147 , 2026. Xiangfei Qiu, Jilin Hu, Lekui Zhou, Xingjian Wu, Junyang Du, Buang Zhang, Chenjuan Guo, Aoy-ing Zhou, Christian S. Jensen, Zhenli Sheng, and Bin Yang. TFB: Towards comprehensive and fair benchmarking of time series forecasting methods. In Proc. VLDB Endow. , pp. 2363–2377, 2024. Xiangfei Qiu, Zhe Li, Wanghui Qiu, Shiyan Hu, Lekui Zhou, Xingjian Wu, Zhengyu Li, Chenjuan Guo, Aoying Zhou, Zhenli Sheng, Jilin Hu, Christian S. Jensen, and Bin Yang. TAB: Unified benchmarking of time series anomaly detection methods. In Proc. VLDB Endow. , pp. 2775–2789, 2025a. Xiangfei Qiu, Xingjian Wu, Hanyin Cheng, Xvyuan Liu, Chenjuan Guo, Jilin Hu, and Bin Yang. DBLoss: Decomposition-based loss function for time series forecasting. In NeurIPS , 2025b. Xiangfei Qiu, Xingjian Wu, Yan Lin, Chenjuan Guo, Jilin Hu, and Bin Yang. DUET: Dual clustering enhanced multivariate time series forecasting. In SIGKDD , pp. 1185–1196, 2025c. Xiangfei Qiu, Kangjia Yan, Xvyuan Liu, Xingjian Wu, and Jilin Hu. Bridging time and frequency: A joint modeling framework for irregular multivariate time series forecasting. In ICML , 2026a. Xiangfei Qiu, Yuhan Zhu, Zhengyu Li, Xingjian Wu, Bin Yang, and Jilin Hu. DAG: A dual correla-tion network for time series forecasting with exogenous variables. In ICML , 2026b. Oleksandr Shchur, Abdul Fatir Ansari, Caner Turkmen, Lorenzo Stella, Nick Erickson, Pablo Guer-ron, Michael Bohlke-Schneider, and Yuyang Wang. fev-bench: A realistic benchmark for time series forecasting. arXiv preprint arXiv:2509.26468 , 2025. Xiaoming Shi, Shiyu Wang, Yuqi Nie, Dianqi Li, Zhou Ye, Qingsong Wen, and Ming Jin. Time-moe: Billion-scale time series foundation models with mixture of experts. arXiv e-prints , pp. arXiv–2409, 2024. Yanru Sun, Zongxia Xie, Emadeldeen Eldele, Dongyue Chen, Qinghua Hu, and Min Wu. Learn-ing pattern-specific experts for time series forecasting under patch-level distribution shift. arXiv preprint arXiv:2410.09836 , 2024. Yinbo Sun, Yuchen Fang, Zhibo Zhu, Jia Li, Yu Liu, Qiwen Deng, Jun Zhou, Hang Yu, Xingyu Lu, and Lintao Ma. Xihe: Scalable zero-shot time series learner via hierarchical interleaved block attention. arXiv preprint arXiv:2510.21795 , 2025. Yihang Wang, Yuying Qiu, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Guo Chenjuan. Lightgts: A lightweight general time series forecasting model. In ICML , 2025a. Yihang Wang, Yuying Qiu, kai Zhao, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Guo Chenjuan. Towards a general time series forecasting model with unified representation and adap-tive transfer. In ICML , 2025b. Yuxuan Wang, Haixu Wu, Jiaxiang Dong, Guo Qin, Haoran Zhang, Yong Liu, Yunzhong Qiu, Jian-min Wang, and Mingsheng Long. Timexer: Empowering transformers for time series forecasting with exogenous variables. Advances in Neural Information Processing Systems , 37:469–498, 2024. Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and Doyen Sahoo. Unified training of universal time series forecasting transformers. In Forty-first International Conference on Machine Learning , 2024. 12 Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. Timesnet: Temporal 2d-variation modeling for general time series analysis. In ICLR , 2023. Xingjian Wu, Hanyin Cheng, Xiangfei Qiu, Zhengyu Li, Jilin Hu, Chenjuan Guo, and Bin Yang. Flame: Flow enhanced legendre memory models for general time series forecasting. arXiv preprint arXiv:2512.14253 , 2025a. Xingjian Wu, Xiangfei Qiu, Hanyin Cheng, Zhengyu Li, Jilin Hu, Chenjuan Guo, and Bin Yang. Enhancing time series forecasting through selective representation spaces: A patch perspective. In NeurIPS , 2025b. Xingjian Wu, Xiangfei Qiu, Hongfan Gao, Jilin Hu, Bin Yang, and Chenjuan Guo. K2VAE: A koopman-kalman enhanced variational autoencoder for probabilistic time series forecasting. In 
+
+ICML , 2025c. Xingjian Wu, Xiangfei Qiu, Zhengyu Li, Yihang Wang, Jilin Hu, Chenjuan Guo, Hui Xiong, and Bin Yang. CATCH: Channel-aware multivariate time series anomaly detection via frequency patching. In ICLR , 2025d. Xingjian Wu, Jianxin Jin, Wanghui Qiu, Peng Chen, Yang Shu, Bin Yang, and Chenjuan Guo. Aurora: Towards universal generative multimodal time series forecasting. In ICLR , 2026a. Xingjian Wu, Junkai Lu, Zhengyu Li, Xiangfei Qiu, Jilin Hu, Chenjuan Guo, Christian S Jensen, and Bin Yang. TimeART: Towards agentic time series reasoning via tool-augmentation. arXiv preprint arXiv:2601.13653 , 2026b. Linxiao Yang, Xue Jiang, Gezheng Xu, Tian Zhou, Min Yang, ZhaoYang Zhu, Linyuan Geng, Zhipeng Zeng, Qiming Chen, Xinyue Gu, et al. Baguan-ts: A sequence-native in-context learning model for time series forecasting with covariates. arXiv preprint arXiv:2603.17439 , 2026. Chengqing Yu, Fei Wang, Zezhi Shao, Tangwen Qian, Zhao Zhang, Wei Wei, Zhulin An, Qi Wang, and Yongjun Xu. Ginar+: A robust end-to-end framework for multivariate time series forecasting with missing values. IEEE Transactions on Knowledge and Data Engineering , 37(8):4635–4648, 2025a. Chengqing Yu, Fei Wang, Chuanguang Yang, Zezhi Shao, Tao Sun, Tangwen Qian, Wei Wei, Zhulin An, and Yongjun Xu. Merlin: Multi-view representation learning for robust multivariate time series forecasting with unfixed missing rates. In SIGKDD , pp. 3633–3644, 2025b. Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. Are transformers effective for time series forecasting? In AAAI , volume 37, pp. 11121–11128, 2023. Biao Zhang and Rico Sennrich. Root mean square layer normalization. Advances in neural infor-mation processing systems , 32, 2019. Yunhao Zhang and Junchi Yan. Crossformer: Transformer utilizing cross-dimension dependency for multivariate time series forecasting. In ICLR , 2022. 13 A EXPERIMENTAL SETTINGS AND ADDITIONAL RESULTS 
+
+A.1 BENCHMARKS AND EVALUATION PROTOCOL 
+
+We evaluate Aurora-X on five benchmarks covering general forecasting across domains, multivariate prediction, and forecasting with future covariates. Together, they assess transfer across temporal patterns and the ability to exploit different forms of predictive information. 
+
+GIFT-Eval (Aksu et al., 2024) evaluates general forecasting across diverse domains, sampling fre-quencies, and prediction lengths. We use its 97 configurations, whose short-, medium-, and long-term tasks assess forecasting under heterogeneous temporal scales. 
+
+TIME (Qiao et al., 2026) is a task-centric benchmark for zero-shot forecasting on newly collected data. It contains 98 tasks from 50 datasets across eight domains, with task configurations designed around application requirements and variate predictability. Its feature-based analyses further char-acterize performance across temporal patterns. 
+
+FEV-Bench (Shchur et al., 2025) comprises 100 forecasting tasks from 96 datasets across seven domains. It includes univariate and multivariate targets, static attributes, past-only dynamic covari-ates, and known future covariates, providing varied input structures for assessing general forecasting models. 
+
+TFB (Qiu et al., 2024) provides a unified evaluation framework for univariate and multivariate fore-casting across diverse temporal characteristics. We use eight multivariate datasets: ETTh1, ETTh2, ETTm1, ETTm2, Weather, Solar, Electricity, and Traffic, with prediction lengths of 96, 192, 336, and 720. 
+
+DAG-Bench (Qiu et al., 2026b) refers to the twelve real-world covariate-forecasting datasets eval-uated in DAG. They cover electricity prices, energy generation, reservoir water levels, and wind power. Forecast horizons are 24 and 360 for ten datasets, and 10 and 30 for Colbun and Rapel. These tasks evaluate how models use future exogenous information to improve target forecasts. 
+
+Evaluation protocol. We follow the benchmark-defined forecasting tasks, data splits, prediction horizons, and metric definitions. Each benchmark is evaluated under its corresponding input setting, including the availability of future covariates. 
+
+Reported aggregation and input configurations. Relative MASE is the geometric mean of configuration-wise ratios to Seasonal Naive. FEV-Bench uses the recorded task-level ratios di-rectly, without leaderboard clipping, failure imputation, or training-overlap substitutions. TFB and DAG-Bench report arithmetic horizon averages of MSE and MAE on normalized series; aggregate comparisons weight datasets equally. Means are computed from the reported three-decimal horizon-specific scores, and percentage improvements are calculated before display rounding. On TFB, Aurora-X uses 2,880 history points and 48 points per patch, except on Solar, where the patch span is 144. The eight baselines taken from the SEER table use 96 history points; other baselines retain their published configurations. GIFT-Eval and TIME use dataset-specific inference spans selected with benchmark feedback. On DAG-Bench, models receive future covariates through the benchmark’s input adapters. A.2 BASELINES AND RESULT SOURCES 
+
+Time series foundation models. We compare Aurora-X with pretrained forecasters spanning dif-ferent architectures and probabilistic prediction strategies. Timer-S1 (Liu et al., 2026d) combines sparse MoE blocks with serial-token prediction. Chronos-2 (Ansari et al., 2025) uses group atten-tion to share information among related series, target variables, and covariates. TiRex (Auer et al., 2026) employs an xLSTM backbone for recurrent state tracking, while TiRex-2 (Podest et al., 2026) extends this approach to multivariate inputs, future covariates, and streaming inference. Falcon-X (Liu et al., 2026c) models heterogeneous variables through a shared latent prototype space. The Xihe family (Sun et al., 2025) captures local and global temporal dependencies with hierarchical interleaved block attention; our comparison includes Xihe-Ultra. Sundial (Liu et al., 2025) learns predictive distributions through flow matching, and Toto-2.0 (Khwaja et al., 2026) provides fore-14 casting models at multiple parameter scales. We also include TimesFM-2.5, Moirai-2.0, Falcon-2.0, FlowState, CITRAS-FM, Chronos-Bolt, Toto-1.0, PatchTST-FM-Extended, and TS-ICL. Evaluated versions, sizes, and checkpoint settings are identified in the results. 
+
+Supervised multivariate forecasting. The TFB comparison covers fourteen supervised base-lines. DUET (Qiu et al., 2025c) combines temporal and channel clustering, while AMD (Hu et al., 2025) models temporal and channel dependencies through adaptive multiscale decomposi-tion. SRSNet (Wu et al., 2025b) adaptively selects and reassembles informative temporal patches. PatchTST (Nie et al., 2023) uses channel-independent patch tokens; iTransformer (Liu et al., 2024b) attends over variate tokens, and Crossformer (Zhang & Yan, 2022) separates temporal and cross-dimension attention. MSGNet (Cai et al., 2024) learns inter-series correlations at multiple temporal scales using adaptive graph convolution. TimesNet (Wu et al., 2023) represents periodic variation in two-dimensional tensors, and DLinear (Zeng et al., 2023) provides a linear forecasting baseline. TimeKAN, TimePro, xPatch, Amplifier, and Fredformer complete the comparison. 
+
+Forecasting with covariates. DAG-Bench includes ten supervised baselines. DAG (Qiu et al., 2026b) models temporal and channel relationships between endogenous and exogenous variables through dual correlation networks. TimeXer (Wang et al., 2024) combines patch-wise self-attention with variate-wise cross-attention to incorporate exogenous information. TiDE (Das et al., 2023) uses an MLP encoder–decoder to model temporal dependencies and covariates. We additionally compare with GCGNet, TFT, CrossLinear, DUET, Amplifier, TimeKAN, and PatchTST under the benchmark’s covariate-input setting. 
+
+Model selection and result sources. The main MASE figure compares individual TSFMs and excludes benchmark-specific fine-tuning, ensembles, and tabular foundation-model adaptations. Its GIFT-Eval panel requires complete recorded coverage and no disclosed test overlap; expanded rank-ings include additional checkpoints, with fine-tuned variants marked explicitly. TIME includes the reported Toto-2.0 sizes and PatchTST-FM-Extended; PatchTST-FM-R1 and OmniScient are ex-cluded. For duplicated TFB baselines, we use the SEER table for DUET, Fredformer, iTransformer, PatchTST, SRSNet, xPatch, Amplifier, and DLinear; the other six methods use the CCD table. CCD and SEER are excluded. DAG-Bench retains all ten published baselines. Each table ranks its dis-played models separately; red boldface and blue underlining mark the best and second-best distinct scores, including all ties at three-decimal precision. A.3 MODEL CONFIGURATION 
+
+Aurora-X has approximately one billion total parameters. Its backbone comprises 12 Time–Group blocks with a hidden width of 768 and a native patch length of 48. Each MoE layer combines one shared expert with 16 routed experts, selecting four routed experts per token. Group attention, future time encoding, and the arcsinh transformation are enabled. Table 2 summarizes the model configuration. For IQN training, each target patch and its conditioning state are replicated five times, with 20 in-dependently sampled quantile levels per replica. This gives Q = 100 quantile samples per original target patch in Equation (10); inference can query arbitrary continuous quantile levels. The regu-larization coefficients follow the nested weighting in Equation (11), with the orthogonality penalty multiplied by both λpat and λorth . The router uses a Switch-style auxiliary load-balancing loss; the separate expert-bias update rate is zero. The serialized configuration records float32 as its dtype and Transformers version 4.50.1. A.4 TRAINING DATA AND FIVE -S TAGE CURRICULUM 
+
+Training corpora. Pretraining and midtraining use the open-source TimeBench corpus adopted by Sundial (Liu et al., 2025) and Timer-S1 (Liu et al., 2026d). It brings together heterogeneous time series from domains including meteorology, healthcare, finance, and the Internet of Things. For post-training, we construct a subset of one billion original time points from the pretraining corpora used by LightGTS (Wang et al., 2025a) and ROSE (Wang et al., 2025b). This size refers to the source observations before multi-scale augmentation. 15 Table 2: Aurora-X model configuration. Parameter count denotes total model size; expert counts are per MoE layer.                                    
+
+> Component Setting Value
+> Model scale Total parameters 1B Backbone Time–Group blocks 12 Hidden width 768 Attention heads 12 Feed-forward hidden width 3,072 Native patch length 48 Backbone and expert activation ReLU Dropout rate 0.1 Time-encoding scale 8,160 RoPE base 10,000 Initialization factor 0.05 Mixture of experts Routed experts 16 Shared experts 1Active routed experts per token 4Expert hidden width 3,072 Router dimension 768 Shallow-pattern dimension 32 Load balancing Switch-style Implicit quantile head Residual blocks 4Cosine features 128 Quantile samples per replica 20 Target/condition replication factor 5Head activation SiLU MoE regularization Pattern-loss coefficient λpat 0.01 Pattern-similarity bandwidth σpat 1.0 Relative orthogonality coefficient λorth 0.1 Load-balancing coefficient λbal 0.001 Expert-bias update rate 0.0
+
+Training resources and schedule. We train Aurora-X using 64 NVIDIA H800 GPUs and AdamW with an initial learning rate of 5 × 10 −5, cosine annealing, and FP32 precision. We use a per-GPU batch size of 128 and accumulate gradients over three steps, yielding an effective batch size of 24,576. The curriculum consists of pretraining (Pre), three midtraining stages (M1–M3), and post-training (Post), with each stage continuing from the preceding checkpoint. Table 3 summarizes the 160K optimization steps across all five stages. Table 3: Optimization steps across the five training stages of Aurora-X. K denotes 1,000 steps. 
+
+Stage Training focus Steps 
+
+Pre Channel-independent temporal modeling 50K M1 Cross-variable modeling with extended contexts and horizons 25K M2 Adaptation to varied context lengths and forecast horizons 25K M3 Known future covariate conditioning 50K Post Variable-resolution forecasting 10K 
+
+Total 160K Pre: temporal pattern modeling. We begin with channel-independent forecasting on TimeBench. Each variable is modeled through its own historical observations, allowing the shared backbone to learn temporal patterns across heterogeneous sources before introducing cross-variable interactions. 16 M1: cross-variable dependency modeling. We introduce jointly modeled variables and extend the context and forecast horizon. Group attention can then combine each target’s temporal history with information from related variables, developing multivariate forecasting capabilities. 
+
+M2: context and horizon adaptation. We vary historical context lengths and forecast horizons during training. This exposes the same model to different amounts of conditioning information and prediction demands, supporting flexible forecasting configurations. 
+
+M3: future covariate conditioning. We introduce known future covariates alongside target histo-ries. Available covariate values condition the forecast, while prediction losses are evaluated only on target variables. This stage teaches the model to use auxiliary information extending into the forecast horizon. 
+
+Post: variable-resolution forecasting. We augment the one-billion-point subset by enumerating temporal spans and resampling each block to the native patch length. Histories, covariates, and targets undergo aligned transformations, with supervision evaluated on the resampled targets. This stage develops the ability to adjust temporal resolution at inference, controlling historical coverage and context-token usage with fixed model weights. Pre and M1–M3 use the quantile objective and MoE regularizers in Equation (11). Post uses the resampled-target objective in Equation (13) with the same regularizers. The construction of paired resolution augmentations and their alignment with inference are detailed in Appendix B. A.5 ARCHITECTURE COMPARISON PROTOCOL 
+
+Shared pretraining setting. The architecture studies compare module implementations within Aurora-X, using our pretraining corpus. The protocol matches training exposure, backbone dimen-sions, and evaluation configurations. All four MoE variants use 16 routed experts with top-4 se-lection per token and expert width matched to Aurora-X; shared-expert configurations and module-specific objectives are recorded for each variant. The head comparison retains the Aurora-X MoE and changes only the forecasting head and its associated objective. These comparisons use the pre-training checkpoint, while the training-stage analysis follows the full curriculum. 
+
+Routing across distinct inputs. We follow the characteristic-based selection in TFB (Qiu et al., 2024), Section 5.2.3, which identifies a representative dataset with the highest score for each char-acteristic. Table 4 lists the five temporal scenarios used here. These descriptors identify prominent properties, rather than mutually exclusive dataset classes. TFB’s transition score describes symbolic transition regularity; shifting captures changes in the value distribution. Table 4: Routing scenarios following TFB’s characteristic analysis. Each dataset is TFB’s highest-scoring representative for the corresponding characteristic. 
+
+Characteristic Dataset 
+
+Trend FRED-MD Seasonality Electricity Shifting NYSE Stationarity Solar Transition PEMS08 To isolate temporal routing behavior, we sample channel-wise context windows at the native patch resolution from held-out data. We fix window length and sample equal numbers of valid context patches per dataset, selecting channels and windows uniformly. All variants receive identical probe windows, and routing is evaluated at layer 6 of the 12-layer backbone; future-token routing is ex-cluded. This intermediate-layer probe examines whether distinct input distributions retain differ-ent expert preferences after multiple representation transformations. Neither window selection nor dataset assignment depends on a learned router or its shallow-pattern clusters. Let cs,e count selec-tions of expert e in probe window s. For a dataset group G, the heatmap reports 
+
+PG,e = 1
+
+|G| 
+
+X
+
+> s∈G
+
+cs,e 
+
+P 
+
+> e′
+
+cs,e ′
+
+.
+
+17 Each sequence receives equal weight; rows sum to one, and darker shading indicates higher nor-malized expert-selection frequency. Rows describe input-dependent expert preferences; their group-balanced average describes overall utilization. Expert indices are local to each variant, and shared experts are excluded. 
+
+Forecasting evaluation. All variants use common benchmark configurations and relative MASE aggregation. Head comparisons use a common evaluation quantile grid containing the median. IQN and the fixed quantile head predict these levels directly; distributional heads estimate them from their predictive distributions, with the extraction procedure and inference budget recorded per run. 
+
+Routing across depth. Figure 10 presents routing profiles across all 12 layers, with layer 6 repro-ducing the profiles in Figure 6. The layer-wise panels compare hotspot locations, scenario overlap, and background utilization across depth. Within these panels, Aurora-X has distinct scenario profiles at every layer. The other three implementations show clear scenario differences in layers 1–3; these differences weaken from layer 4 onward. Their deeper profiles become similar across scenarios within each layer, while the preferred experts can still differ between layers. All panels use a com-mon color scale. Expert indices are local to each layer and variant, so matching column positions across layers do not imply the same learned expert function. 18 Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+1 8 16 
+
+Trend Seasonality Shifting Stationarity Transition 
+
+1 8 16 1 8 16 1 8 16 
+
+Aurora-X Time-MoE Moirai-MoE Timer-S1 
+
+> Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 Layer 8 Layer 9 Layer 10 Layer 11 Layer 12
+
+Figure 10: Routing profiles across all 12 layers. Each layer contains four model panels, with five scenario rows and 16 expert columns per panel. Rows sum to one; darker shading indicates higher selection frequency on a shared color scale. Layer 6 matches Figure 6. 19 A.6 PERFORMANCE ACROSS TRAINING STAGES 
+
+Figure 11 tracks forecasting accuracy as Aurora-X progresses through the curriculum. Relative MASE decreases at every stage on all three benchmarks. From pretraining to post-training, the re-ductions are 13.1% on GIFT-Eval, 19.0% on TIME, and 20.4% on FEV-Bench. The largest absolute decrease occurs from Pre to M1 on GIFT-Eval and TIME, and from M2 to M3 on FEV-Bench. Post-training further reduces relative MASE by 2.3%, 2.1%, and 2.8% compared with M3, respectively, showing continued gains after midtraining. Pre M1 M2 M3 Post 0.60 0.65 0.70 0.75 0.80         
+
+> Relative MASE ↓  0.7580 0.7080 0.6900 0.6740
+> 0.6588
+> (a) GIFT-Eval
+> Pre M1 M2 M3 Post
+> 0.7900 0.7280 0.6940 0.6540
+> 0.6401
+> (b) TIME
+> Pre M1 M2 M3 Post
+> 0.7750 0.7310 0.6890 0.6350
+> 0.6170
+> (c) FEV-Bench
+> Training stage
+
+Figure 11: Relative MASE across successive Aurora-X training stages; lower is better. Pre and Post denote pretraining and post-training, while M1–M3 denote successive midtraining stages. All panels use the same vertical scale. A.7 EXPANDED PROBABILISTIC FORECASTING RANKINGS 
+
+Figures 12 and 13 complement the main MASE comparison with expanded probabilistic rankings. GIFT-Eval uses weighted quantile loss (WQL), while FEV-Bench uses scaled quantile loss (SQL), normalized by in-sample seasonal differences. We report geometric means of model-to-Seasonal-Naive metric ratios; lower values are better. Models must have complete recorded MASE coverage and an available probabilistic score. The GIFT-Eval ranking includes 43 models and checkpoints, with the two fine-tuned variants explic-itly distinguished. Aurora-X obtains relative WQL of 0.4665, compared with 0.4669 for TiRex-2 (PT) and 0.4634 for the fine-tuned Toto-2.0 (2.5B) checkpoint. On FEV-Bench, Aurora-X achieves relative SQL of 0.5168, the lowest among the twelve displayed models. Different model sizes and training settings are listed separately. 20 0.40 0.60 0.80 
+
+Relative WQL ↓ 
+
+Toto-2.0 (2.5B) FT 
+
+Aurora-X 
+
+TiRex-2 (PT) Toto-2.0 (2.5B) TiRex-2 (ZS) Toto-2.0 (1B) Toto-2.0 (313M) Timer-S1 Chronos-2 Falcon-X Falcon-2.0 FlowState-r1.1 Xihe-Ultra TiRex Granite-FlowState-r1.1 TimesFM-2.5 Xihe-Max t0-alpha Chronos-2-Synth Toto-2.0 (22M) FlowState-9.1M TTM-R3-FT 
+
+0.4634 1
+
+0.4665 2
+
+0.4669 3
+
+0.4759 4
+
+0.4781 5
+
+0.4784 6
+
+0.4814 7
+
+0.4853 8
+
+0.4854 9
+
+0.4857 10 
+
+0.4863 11 
+
+0.4866 12 
+
+0.4880 13 
+
+0.4885 14 
+
+0.4901 15 
+
+0.4903 16 
+
+0.4905 17 
+
+0.4941 18 
+
+0.4958 19 
+
+0.4963 20 
+
+0.5019 21 
+
+0.5111 22 0.40 0.60 0.80 
+
+Relative WQL ↓ 
+
+Moirai-2.0 Toto-1.0 TTM-R3-PT Toto-2.0 (4M) TempoPFN CleanTS-65M Kairos-50M YingLong-300M Kairos-10M Kairos-23M YingLong-110M PatchFM Sundial-Base YingLong-50M Moirai-1.1-Large YingLong-6M Moirai-1.1-Base Reverso Reverso-Small Moirai-1.1-Small Reverso-Nano 
+
+0.5164 23 
+
+0.5173 24 
+
+0.5195 25 
+
+0.5242 26 
+
+0.5327 27 
+
+0.5433 28 
+
+0.5482 29 
+
+0.5483 30 
+
+0.5541 31 
+
+0.5544 32 
+
+0.5574 33 
+
+0.5576 34 
+
+0.5590 35 
+
+0.5667 36 
+
+0.5989 37 
+
+0.6090 38 
+
+0.6095 39 
+
+0.6103 40 
+
+0.6265 41 
+
+0.6504 42 
+
+0.6610 43 
+
+GIFT-Eval · relative WQL 
+
+(a) Ranks 1–22 (b) Ranks 23–43 
+
+FT: benchmark fine-tuning. Figure 12: Expanded WQL ranking on GIFT-Eval. The two panels show a single ranking of 43 models and checkpoints. Lavender bars and FT labels identify fine-tuned variants. Scores use four decimal places; lower is better. 21 0.50 0.60 
+
+Relative SQL ↓ 
+
+Aurora-X 
+
+Chronos-2 TimesFM-2.5 TiRex-2 TiRex FlowState CITRAS-FM Toto-1.0 Toto-2.0 (1B) Moirai-2.0 Chronos-Bolt Sundial-Base 
+
+0.5168 1
+
+0.5272 2
+
+0.5332 3
+
+0.5450 4
+
+0.5732 5
+
+0.5837 6
+
+0.5882 7
+
+0.5889 8
+
+0.5929 9
+
+0.5975 10 
+
+0.6111 11 
+
+0.6613 12 
+
+FEV-Bench · relative SQL Figure 13: Relative SQL of twelve TSFMs on FEV-Bench. Scores use four decimal places; lower is better. 22 A.8 MULTIVARIATE AND COVARIATE FORECASTING 
+
+Tables 5 and 6 report multivariate forecasting on TFB and forecasting with known future covariates on DAG-Bench, using task-specific supervised models as baselines. On TFB, Aurora-X reduces average MSE by 9.0% and MAE by 3.6% relative to DUET. It obtains the lowest horizon-averaged MSE on seven of the eight datasets and the lowest MAE on five. On DAG-Bench, Aurora-X reduces average MSE by 11.5% and MAE by 7.7% relative to DAG, ranking first in MSE on nine of the twelve datasets and in MAE on six. Its performance is particularly strong on the four SDWPF subsets, where it achieves the lowest values for both metrics. These rankings use the complete baseline sets in Appendices A.9 and A.10. The results demonstrate that the shared forecasting model remains competitive with supervised predictors in both settings. Table 5: Aurora-X is evaluated against recent advanced supervised baselines on TFB. MSE and MAE are averaged over prediction horizons of 96 , 192 , 336 , and 720 steps. Lower values are better. Red boldface and blue underlining denote the best and second-best distinct values within this table, including all ties at the displayed precision. Differences in context settings are detailed in Appendix A.1, and full results are provided in Appendix A.9. 
+
+Dataset Aurora-X DUET TimeKAN AMD TimePro SRSNet xPatch Amplifier 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.390 0.411 0.443 0.436 0.431 0.429 0.439 0.430 0.438 0.438 0.442 0.434 0.444 0.429 0.449 0.437 ETTh2 0.353 0.380 0.372 0.398 0.391 0.412 0.371 0.398 0.377 0.404 0.376 0.402 0.369 0.392 0.389 0.411 ETTm1 0.335 0.364 0.390 0.393 0.384 0.401 0.389 0.396 0.391 0.400 0.385 0.395 0.387 0.383 0.383 0.396 ETTm2 0.268 0.313 0.280 0.324 0.282 0.330 0.278 0.323 0.281 0.326 0.284 0.330 0.280 0.319 0.280 0.326 Weather 0.211 0.245 0.251 0.273 0.245 0.273 0.254 0.280 0.252 0.276 0.250 0.277 0.247 0.266 0.247 0.275 Solar 0.222 0.242 0.237 0.233 0.255 0.282 0.253 0.281 0.233 0.267 0.250 0.281 0.277 0.268 0.222 0.256 Electricity 0.170 0.266 0.172 0.259 0.197 0.286 0.187 0.281 0.169 0.263 0.189 0.276 0.184 0.266 0.174 0.268 Traffic 0.413 0.270 0.451 0.269 0.455 0.318 0.500 0.324 0.447 0.302 0.495 0.307 0.500 0.283 0.485 0.315 
+
+Table 6: Aurora-X is compared with supervised covariate-aware baselines on DAG-Bench. MSE and MAE are averaged over prediction horizons of 24 and 360 steps, or 10 and 30 steps for Colbun and Rapel. Lower values are better. Red boldface and blue underlining denote the best and second-best distinct values within this table, including all ties at the displayed precision. Full results for each horizon are reported in Appendix A.10. 
+
+Dataset Aurora-X DAG GCGNet TimeXer TFT DUET Amplifier TimeKAN 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE NP 0.359 0.346 0.362 0.344 0.370 0.348 0.418 0.371 0.379 0.375 0.411 0.408 0.420 0.419 0.406 0.420 PJM 0.112 0.204 0.094 0.181 0.095 0.187 0.108 0.199 0.114 0.207 0.102 0.197 0.137 0.247 0.139 0.263 BE 0.413 0.283 0.423 0.280 0.431 0.294 0.452 0.290 0.454 0.291 0.515 0.354 0.559 0.413 0.548 0.407 FR 0.411 0.225 0.414 0.220 0.415 0.234 0.428 0.241 0.504 0.257 0.496 0.327 0.554 0.408 0.548 0.374 DE 0.427 0.409 0.370 0.370 0.402 0.389 0.475 0.418 0.490 0.446 0.483 0.430 0.473 0.441 0.473 0.446 Energy 0.197 0.343 0.124 0.268 0.132 0.278 0.163 0.315 0.130 0.283 0.203 0.368 0.233 0.389 0.219 0.381 Sdwpfm1 0.330 0.388 0.423 0.461 0.424 0.457 0.702 0.609 0.482 0.475 0.599 0.571 0.437 0.490 0.447 0.535 Sdwpfm2 0.340 0.399 0.478 0.485 0.475 0.486 0.803 0.653 0.476 0.489 0.515 0.490 0.491 0.513 0.497 0.564 Sdwpfh1 0.312 0.366 0.449 0.486 0.450 0.500 0.746 0.644 0.479 0.492 0.539 0.516 0.537 0.598 0.577 0.638 Sdwpfh2 0.312 0.383 0.523 0.530 0.520 0.536 0.891 0.719 0.566 0.521 0.647 0.566 0.521 0.581 0.647 0.672 Colbun 0.093 0.145 0.098 0.155 0.107 0.176 0.145 0.236 0.238 0.298 0.198 0.266 0.173 0.246 0.128 0.175 Rapel 0.226 0.279 0.230 0.306 0.306 0.307 0.344 0.362 0.305 0.334 0.270 0.326 0.257 0.322 0.250 0.311 
+
+23 A.9 COMPLETE MULTIVARIATE FORECASTING RESULTS 
+
+Tables 7 and 8 report all TFB results at horizons 96, 192, 336, and 720. Table 5 summarizes seven recent advanced supervised baselines; the full tables include all fourteen, divided into two groups with Aurora-X first in each. Each table ranks its displayed models separately, including all ties at the reported precision. Both follow the source selection described above. Table 7: Full TFB results, model group 1. Lower is better; red bold and blue underlining indicate the best and second-best distinct values within this table, including all ties at the displayed precision. 
+
+Dataset H Aurora-X DUET TimeKAN AMD TimePro SRSNet xPatch Amplifier 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 96 0.362 0.390 0.377 0.393 0.374 0.391 0.375 0.392 0.375 0.398 0.383 0.395 0.378 0.390 0.376 0.393 192 0.392 0.409 0.429 0.425 0.421 0.421 0.430 0.422 0.427 0.429 0.433 0.422 0.433 0.420 0.442 0.430 336 0.404 0.416 0.471 0.446 0.464 0.440 0.471 0.443 0.472 0.450 0.476 0.446 0.484 0.445 0.478 0.446 720 0.401 0.427 0.496 0.480 0.466 0.462 0.478 0.464 0.476 0.474 0.474 0.471 0.480 0.462 0.501 0.479 ETTh2 96 0.291 0.334 0.296 0.345 0.293 0.343 0.287 0.338 0.293 0.345 0.296 0.345 0.287 0.332 0.298 0.347 192 0.349 0.373 0.368 0.389 0.375 0.396 0.367 0.388 0.367 0.394 0.369 0.392 0.360 0.382 0.378 0.401 336 0.375 0.394 0.411 0.422 0.429 0.441 0.410 0.424 0.419 0.431 0.413 0.425 0.417 0.421 0.428 0.437 720 0.396 0.420 0.412 0.434 0.466 0.468 0.421 0.440 0.427 0.445 0.425 0.444 0.412 0.433 0.452 0.460 ETTm1 96 0.285 0.332 0.324 0.354 0.327 0.365 0.327 0.361 0.326 0.361 0.319 0.358 0.316 0.343 0.318 0.356 192 0.321 0.354 0.369 0.379 0.363 0.387 0.366 0.383 0.367 0.383 0.359 0.381 0.369 0.369 0.362 0.381 336 0.347 0.371 0.404 0.402 0.389 0.407 0.398 0.404 0.402 0.409 0.391 0.404 0.401 0.392 0.393 0.404 720 0.387 0.398 0.463 0.437 0.457 0.445 0.464 0.437 0.469 0.446 0.470 0.436 0.461 0.429 0.460 0.442 ETTm2 96 0.174 0.248 0.174 0.255 0.178 0.262 0.176 0.259 0.178 0.260 0.181 0.267 0.174 0.252 0.178 0.261 192 0.235 0.291 0.243 0.302 0.244 0.308 0.242 0.302 0.242 0.303 0.243 0.306 0.240 0.297 0.243 0.303 336 0.290 0.329 0.304 0.341 0.305 0.346 0.298 0.337 0.303 0.342 0.306 0.346 0.302 0.335 0.305 0.344 720 0.371 0.384 0.399 0.397 0.402 0.404 0.396 0.394 0.400 0.399 0.407 0.399 0.403 0.393 0.393 0.397 Weather 96 0.148 0.189 0.163 0.202 0.164 0.210 0.174 0.221 0.166 0.207 0.167 0.214 0.166 0.202 0.165 0.210 192 0.185 0.226 0.218 0.252 0.209 0.250 0.219 0.259 0.216 0.254 0.215 0.255 0.210 0.242 0.212 0.253 336 0.226 0.260 0.274 0.294 0.264 0.290 0.273 0.296 0.273 0.296 0.270 0.294 0.267 0.284 0.267 0.293 720 0.286 0.304 0.349 0.343 0.343 0.342 0.349 0.345 0.351 0.346 0.346 0.344 0.344 0.335 0.344 0.342 Solar 96 0.201 0.225 0.200 0.207 0.228 0.254 0.209 0.241 0.196 0.237 0.216 0.258 0.234 0.245 0.186 0.232 192 0.223 0.241 0.228 0.233 0.241 0.284 0.235 0.260 0.231 0.263 0.247 0.280 0.265 0.262 0.231 0.264 336 0.238 0.252 0.262 0.244 0.273 0.292 0.294 0.316 0.250 0.281 0.268 0.294 0.301 0.280 0.234 0.263 720 0.225 0.249 0.258 0.249 0.279 0.297 0.275 0.308 0.253 0.285 0.268 0.290 0.308 0.284 0.238 0.265 Electricity 96 0.146 0.244 0.145 0.233 0.174 0.266 0.147 0.251 0.139 0.234 0.161 0.252 0.160 0.244 0.149 0.245 192 0.159 0.255 0.163 0.248 0.182 0.273 0.176 0.262 0.156 0.249 0.172 0.261 0.169 0.253 0.165 0.260 336 0.172 0.268 0.175 0.262 0.197 0.286 0.193 0.281 0.172 0.269 0.190 0.279 0.185 0.268 0.176 0.271 720 0.204 0.295 0.204 0.291 0.236 0.320 0.232 0.329 0.209 0.299 0.231 0.313 0.221 0.300 0.204 0.296 Traffic 96 0.389 0.260 0.407 0.252 0.423 0.286 0.443 0.298 0.426 0.292 0.471 0.295 0.475 0.279 0.450 0.295 192 0.403 0.265 0.431 0.262 0.442 0.295 0.496 0.323 0.439 0.298 0.480 0.300 0.486 0.277 0.489 0.311 336 0.414 0.269 0.456 0.269 0.473 0.335 0.520 0.330 0.449 0.307 0.496 0.306 0.500 0.280 0.484 0.321 720 0.445 0.285 0.509 0.292 0.481 0.357 0.540 0.344 0.475 0.309 0.531 0.328 0.537 0.295 0.517 0.333 
+
+24 Table 8: Full TFB results, model group 2. Lower is better; red bold and blue underlining indicate the best and second-best distinct values within this table, including all ties at the displayed precision. 
+
+Dataset H Aurora-X Fredformer MSGNet iTransformer PatchTST Crossformer TimesNet DLinear 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 96 0.362 0.390 0.378 0.395 0.390 0.411 0.386 0.405 0.414 0.419 0.423 0.448 0.384 0.402 0.397 0.412 192 0.392 0.409 0.435 0.424 0.443 0.442 0.441 0.436 0.460 0.445 0.471 0.474 0.436 0.429 0.446 0.441 336 0.404 0.416 0.485 0.447 0.482 0.469 0.487 0.458 0.501 0.466 0.570 0.546 0.491 0.469 0.489 0.467 720 0.401 0.427 0.496 0.472 0.496 0.488 0.503 0.491 0.500 0.488 0.653 0.621 0.521 0.500 0.513 0.510 ETTh2 96 0.291 0.334 0.291 0.342 0.329 0.371 0.297 0.349 0.302 0.348 0.745 0.584 0.340 0.374 0.340 0.394 192 0.349 0.373 0.372 0.390 0.402 0.414 0.380 0.400 0.388 0.400 0.877 0.656 0.402 0.414 0.482 0.479 336 0.375 0.394 0.419 0.431 0.440 0.445 0.428 0.432 0.426 0.433 1.043 0.731 0.452 0.452 0.591 0.541 720 0.396 0.420 0.431 0.450 0.480 0.477 0.427 0.445 0.431 0.446 1.104 0.763 0.462 0.468 0.839 0.661 ETTm1 96 0.285 0.332 0.326 0.361 0.319 0.366 0.334 0.368 0.329 0.367 0.404 0.426 0.338 0.375 0.346 0.374 192 0.321 0.354 0.363 0.384 0.377 0.397 0.377 0.391 0.367 0.385 0.450 0.451 0.374 0.387 0.382 0.391 336 0.347 0.371 0.395 0.406 0.417 0.422 0.426 0.420 0.399 0.410 0.532 0.515 0.410 0.411 0.410 0.415 720 0.387 0.398 0.456 0.441 0.487 0.463 0.491 0.459 0.454 0.439 0.666 0.589 0.478 0.450 0.473 0.451 ETTm2 96 0.174 0.248 0.177 0.258 0.182 0.266 0.180 0.264 0.175 0.259 0.287 0.366 0.187 0.267 0.193 0.293 192 0.235 0.291 0.243 0.301 0.248 0.306 0.250 0.309 0.241 0.302 0.414 0.492 0.249 0.309 0.284 0.361 336 0.290 0.329 0.302 0.340 0.312 0.346 0.311 0.348 0.305 0.343 0.597 0.542 0.321 0.351 0.382 0.429 720 0.371 0.384 0.404 0.398 0.414 0.404 0.412 0.407 0.402 0.400 1.730 1.042 0.408 0.403 0.558 0.525 Weather 96 0.148 0.189 0.163 0.207 0.163 0.212 0.174 0.214 0.177 0.218 0.158 0.230 0.172 0.220 0.195 0.252 192 0.185 0.226 0.224 0.258 0.211 0.254 0.221 0.254 0.225 0.259 0.206 0.277 0.219 0.261 0.237 0.295 336 0.226 0.260 0.278 0.298 0.273 0.299 0.278 0.296 0.278 0.297 0.272 0.335 0.280 0.306 0.282 0.331 720 0.286 0.304 0.357 0.350 0.351 0.348 0.358 0.349 0.354 0.348 0.398 0.418 0.365 0.359 0.345 0.382 Solar 96 0.201 0.225 0.189 0.236 0.210 0.246 0.203 0.237 0.234 0.286 0.310 0.331 0.250 0.292 0.290 0.378 192 0.223 0.241 0.227 0.259 0.265 0.290 0.233 0.261 0.267 0.310 0.734 0.725 0.296 0.318 0.320 0.398 336 0.238 0.252 0.243 0.286 0.294 0.318 0.248 0.273 0.290 0.315 0.750 0.735 0.319 0.330 0.353 0.415 720 0.225 0.249 0.250 0.285 0.285 0.315 0.249 0.275 0.289 0.317 0.769 0.765 0.338 0.337 0.357 0.413 Electricity 96 0.146 0.244 0.148 0.242 0.165 0.274 0.148 0.240 0.195 0.285 0.219 0.314 0.168 0.272 0.210 0.302 192 0.159 0.255 0.165 0.257 0.185 0.292 0.162 0.253 0.199 0.289 0.231 0.322 0.184 0.289 0.210 0.305 336 0.172 0.268 0.180 0.274 0.197 0.304 0.178 0.269 0.215 0.305 0.246 0.337 0.198 0.300 0.223 0.319 720 0.204 0.295 0.218 0.305 0.231 0.332 0.225 0.317 0.256 0.337 0.280 0.363 0.220 0.320 0.258 0.350 Traffic 96 0.389 0.260 0.403 0.274 0.608 0.349 0.395 0.268 0.544 0.359 0.522 0.290 0.593 0.321 0.650 0.396 192 0.403 0.265 0.429 0.289 0.634 0.371 0.417 0.276 0.540 0.354 0.530 0.293 0.617 0.336 0.598 0.370 336 0.414 0.269 0.441 0.295 0.669 0.388 0.433 0.283 0.551 0.358 0.558 0.305 0.629 0.336 0.605 0.373 720 0.445 0.285 0.463 0.300 0.729 0.420 0.467 0.302 0.586 0.375 0.589 0.328 0.640 0.350 0.645 0.394 
+
+25 A.10 COMPLETE COVARIATE FORECASTING RESULTS 
+
+Tables 9 and 10 report both forecast horizons for each DAG-Bench dataset. Table 6 summarizes DAG, GCGNet, TimeXer, TFT, DUET, Amplifier, and TimeKAN. Here, all ten supervised baselines, including TiDE, CrossLinear, and PatchTST, are divided into two groups with Aurora-X as the first model in each. Each table ranks its displayed models separately, including all ties at the reported precision. Aurora-X achieves the lowest horizon-averaged MSE and MAE on all four SDWPF subsets. Table 9: Full DAG-Bench results, model group 1. Lower is better; red bold and blue underlining indicate the best and second-best distinct values within this table, including all ties at the displayed precision. 
+
+Dataset H Aurora-X DAG GCGNet TimeXer TFT TiDE 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE NP 24 0.231 0.258 0.202 0.237 0.208 0.237 0.236 0.266 0.219 0.249 0.284 0.301 360 0.487 0.434 0.521 0.451 0.531 0.459 0.600 0.475 0.539 0.501 0.601 0.498 PJM 24 0.073 0.172 0.057 0.143 0.060 0.150 0.075 0.166 0.095 0.195 0.106 0.214 360 0.150 0.236 0.130 0.218 0.129 0.223 0.140 0.231 0.133 0.219 0.177 0.279 BE 24 0.348 0.234 0.361 0.229 0.350 0.248 0.392 0.253 0.426 0.272 0.426 0.285 360 0.477 0.331 0.485 0.330 0.511 0.340 0.512 0.327 0.482 0.310 0.571 0.364 FR 24 0.358 0.187 0.355 0.171 0.347 0.188 0.366 0.208 0.543 0.253 0.418 0.255 360 0.464 0.262 0.473 0.268 0.482 0.279 0.489 0.273 0.465 0.261 0.551 0.308 DE 24 0.358 0.379 0.277 0.322 0.280 0.331 0.339 0.362 0.380 0.383 0.367 0.383 360 0.495 0.439 0.462 0.418 0.523 0.447 0.610 0.474 0.599 0.509 0.630 0.511 Energy 24 0.137 0.288 0.079 0.215 0.081 0.221 0.122 0.273 0.093 0.235 0.103 0.248 360 0.257 0.398 0.169 0.320 0.182 0.334 0.204 0.357 0.167 0.331 0.202 0.355 Sdwpfm1 24 0.321 0.373 0.351 0.400 0.376 0.415 0.558 0.533 0.366 0.421 0.474 0.488 360 0.339 0.403 0.495 0.522 0.472 0.499 0.845 0.684 0.597 0.528 0.492 0.526 Sdwpfm2 24 0.333 0.387 0.372 0.414 0.421 0.441 0.627 0.570 0.411 0.458 0.461 0.492 360 0.347 0.411 0.583 0.556 0.529 0.531 0.978 0.736 0.541 0.519 0.511 0.540 Sdwpfh1 24 0.314 0.358 0.408 0.438 0.435 0.486 0.651 0.587 0.401 0.460 0.434 0.489 360 0.310 0.373 0.489 0.534 0.465 0.514 0.841 0.700 0.557 0.523 0.472 0.527 Sdwpfh2 24 0.311 0.374 0.438 0.465 0.473 0.506 0.820 0.677 0.474 0.493 0.579 0.553 360 0.312 0.391 0.608 0.595 0.566 0.565 0.962 0.761 0.657 0.549 0.619 0.614 Colbun 10 0.059 0.112 0.061 0.094 0.065 0.108 0.113 0.172 0.092 0.135 0.089 0.131 30 0.126 0.178 0.135 0.215 0.149 0.243 0.176 0.299 0.383 0.460 0.240 0.322 Rapel 10 0.165 0.213 0.151 0.203 0.211 0.230 0.301 0.308 0.201 0.253 0.228 0.271 30 0.286 0.345 0.309 0.408 0.401 0.384 0.387 0.416 0.409 0.414 0.411 0.432 
+
+26 Table 10: Full DAG-Bench results, model group 2. Lower is better; red bold and blue underlining indicate the best and second-best distinct values within this table, including all ties at the displayed precision. 
+
+Dataset H Aurora-X DUET CrossLinear Amplifier TimeKAN PatchTST 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE NP 24 0.231 0.258 0.246 0.287 0.210 0.266 0.252 0.303 0.273 0.310 0.249 0.294 360 0.487 0.434 0.576 0.528 0.531 0.508 0.587 0.534 0.538 0.529 0.530 0.498 PJM 24 0.073 0.172 0.072 0.166 0.088 0.191 0.096 0.208 0.115 0.244 0.116 0.239 360 0.150 0.236 0.131 0.228 0.135 0.254 0.177 0.285 0.162 0.281 0.149 0.279 BE 24 0.348 0.234 0.432 0.272 0.391 0.259 0.471 0.339 0.451 0.319 0.452 0.326 360 0.477 0.331 0.597 0.436 0.568 0.416 0.646 0.487 0.645 0.495 0.702 0.538 FR 24 0.358 0.187 0.384 0.251 0.390 0.226 0.459 0.348 0.454 0.296 0.518 0.368 360 0.464 0.262 0.607 0.403 0.575 0.370 0.648 0.468 0.641 0.452 0.658 0.452 DE 24 0.358 0.379 0.376 0.378 0.387 0.396 0.394 0.407 0.399 0.412 0.413 0.412 360 0.495 0.439 0.589 0.482 0.583 0.507 0.551 0.474 0.547 0.479 0.589 0.498 Energy 24 0.137 0.288 0.117 0.283 0.241 0.418 0.138 0.306 0.135 0.298 0.239 0.390 360 0.257 0.398 0.288 0.452 0.237 0.385 0.328 0.472 0.302 0.464 0.214 0.363 
+
+Sdwpfm1 24 0.321 0.373 0.551 0.564 0.355 0.473 0.364 0.445 0.418 0.503 0.374 0.454 360 0.339 0.403 0.646 0.577 0.497 0.532 0.510 0.535 0.476 0.566 0.497 0.550 Sdwpfm2 24 0.333 0.387 0.445 0.452 0.477 0.536 0.394 0.462 0.474 0.538 0.418 0.492 360 0.347 0.411 0.584 0.528 0.589 0.611 0.587 0.563 0.520 0.589 0.602 0.603 Sdwpfh1 24 0.314 0.358 0.527 0.513 0.548 0.585 0.576 0.627 0.511 0.582 0.422 0.505 360 0.310 0.373 0.551 0.519 0.566 0.601 0.497 0.569 0.643 0.694 0.513 0.548 Sdwpfh2 24 0.311 0.374 0.629 0.563 0.468 0.540 0.473 0.533 0.580 0.614 0.457 0.527 360 0.312 0.391 0.665 0.569 0.608 0.609 0.569 0.628 0.713 0.729 0.641 0.632 Colbun 10 0.059 0.112 0.089 0.134 0.071 0.102 0.071 0.121 0.061 0.101 0.062 0.122 30 0.126 0.178 0.307 0.397 0.182 0.288 0.275 0.370 0.195 0.249 0.417 0.496 Rapel 10 0.165 0.213 0.174 0.219 0.163 0.209 0.181 0.227 0.174 0.231 0.163 0.218 30 0.286 0.345 0.365 0.432 0.340 0.417 0.333 0.416 0.325 0.390 0.374 0.445 
+
+27 A.11 TOKEN BUDGET AND EFFECTIVE CONTEXT LENGTH 
+
+Resolution-adaptive inference offers two ways to allocate a context budget: compress a given history into fewer tokens, or expose the model to a longer history without increasing the number of context tokens. We consider both settings on the eight TFB datasets, keeping the model checkpoint and forecast horizons fixed. Figure 14 illustrates the two operating modes. 
+
+Evaluation design. We vary the temporal span per token, s, over {48 , 96 , 192 , 336 , 480 }. Each token represents s original time points resampled to the native patch length of 48. Forecasts are restored to the original grid before scoring. MSE and MAE are averaged over the four horizons within each dataset, then equally across the eight datasets. All configurations share forecast origins with sufficient observed history, input settings, and quantile queries. Token counts are per variable. 60 30 15 9 6            
+
+> Allocated context tokens 48 96 192 336 480
+> Inference token length
+> 0.29 0.30 0.31 0.32 0.33 0.34 0.35
+> Mean error ↓
+> (a) Fixed history: 2,880 points
+> 480 960 1920 3360 4800
+> Historical coverage (points) 48 96 192 336 480
+> Inference token length
+> (b) Fixed budget: 10 context tokens
+> MSE MAE
+
+Figure 14: TFB token-budget study. (a) A fixed 2,880-point input with decreasing context-token usage. (b) Ten context tokens with increasing historical coverage. Scores represent averages over eight datasets and four forecast horizons; lower is better. 
+
+Compressing a fixed history. With 2,880 supplied observations, the five spans allocate 60, 30, 15, 9, and 6 context-token slots, respectively. Increasing s maps more original points to each native 48-point patch, lowering temporal resolution while preserving embedding dimensions and model weights. A history of T points therefore uses Ns = ⌈T /s ⌉ context slots. Fewer tokens reduce temporal-attention interactions and token-wise projection, routing, and expert computation. This sweep tests whether coarser representations retain predictive information as context-token usage decreases by up to 90%, using native resolution as the accuracy reference. The same span applies to every dataset, including Solar. At s = 336 , the incomplete leading patch is masked: eight valid patches encode the latest 2,688 points, while normalization uses all 2,880 supplied observations. 
+
+Extending history at a fixed context budget. With ten context tokens, increasing the span ex-poses the model to 480, 960, 1,920, 3,360, and 4,800 historical points. This sweep examines whether broader temporal coverage supplies predictive information absent from shorter histories. Together, the two sweeps test the trade-off between temporal detail and historical coverage enabled by variable-resolution post-training. The controlled budget concerns context tokens: for a fore-cast horizon H, the model still allocates ⌈H/s ⌉ future tokens. End-to-end compute therefore also depends on the forecast horizon and resampling operations. 28 A.12 INFERENCE EFFICIENCY 
+
+Experimental setup. We evaluate the cost of a complete probabilistic forecast, including the back-bone and its native output procedure. The primary comparison uses the same univariate ETT history with context length L = 960 , forecast horizon H = 96 , batch size one, and nine requested quantiles 
+
+{0.1, 0.2, . . . , 0.9}. Here, L counts original observations, so equal history lengths need not imply equal token counts. All models run in FP32 on one NVIDIA A800 80GB PCIe GPU, with TF32, autocast, and torch.compile disabled. Table 11 reports six models, including three inference token lengths for Aurora-X. Table 11: Inference cost at L = 960 , H = 96 , batch size one, and nine requested quantiles, mea-sured in FP32 on an A800 80GB PCIe GPU. Parentheses give Aurora-X’s inference token length. Parameters are total counts; memory is peak allocated GPU memory. Moirai-MoE uses 100 Monte Carlo paths, and TimesFM uses flip averaging.                                     
+
+> Model Params (B) GMACs Latency (ms) Memory (GiB) Aurora-X (48) 1.049 8.031 47.054 3.917 Aurora-X (96) 1.049 4.070 46.301 3.917 Aurora-X (192) 1.049 2.329 44.704 3.917 Toto-2.0-1B 1.041 34.114 110.639 4.110 Toto-2.0-2.5B 2.454 80.596 140.409 9.453 Timer-S1 8.304 32.844 107.580 31.268 Moirai-MoE-Base 0.935 2883.643 829.886 3.765 TimesFM-2.5 0.231 13.963 68.689 0.881
+
+Native forecasting procedures. Aurora-X directly queries the nine IQN levels, while Toto uses its official single-pass parallel forecasting configuration. Timer-S1 retains native generation with RevIN, KV caching, and the executed multi-token prediction layers. Moirai-MoE uses patches of length 16 and 100 Monte Carlo paths to obtain empirical quantiles; at H = 96 , its initial forward pass is followed by five full forward passes over these paths. TimesFM retains its continuous quantile head, flip averaging with two decoding passes, and native output corrections. Only its wrapper-level CPU conversions are removed, with predictions checked against the original API. These settings preserve each model’s forecasting procedure; the common quantile request does not equate their predictive distributions or accuracy. 
+
+Measurement protocol. Matrix multiply–accumulate operations (MACs) are counted from exe-cuted linear layers, attention, and routed experts using FlopCounterMode with an independent operator audit. The matrix multiplication within Moirai’s distance-based routing is included. At-tention counts use complete dense matrix shapes, including masked positions. One GMAC denotes 
+
+10 9 MACs, with two FLOPs per matrix MAC. Normalization, activation, sampling, sorting, and interpolation contribute to latency but are excluded from matrix MACs. Counting uses no_grad ,and its outputs are verified against native inference. Latency is the median synchronized wall-clock time under inference_mode , following five warm-up iterations. We use 30 repetitions for Aurora-X’s token-length sweep and 20 for each base-line. Inputs are already on the GPU; timing includes normalization, routing, prediction heads, and complete native generation, excluding weight loading and host–device transfers. The measured GPU has no competing compute process. Memory is PyTorch’s peak allocated GPU memory, including model parameters and tensors. Parameter counts include all loaded parameters, excluding buffers, rather than only the active MoE parameters. 29 10 0 10 1 10 2 10 3   
+
+> MACs (G, log scale) Aurora-X (48) Aurora-X (96) Aurora-X (192) Toto-2.0-1B Toto-2.0-2.5B Timer-S1 Moirai-MoE-Base (100 paths) TimesFM-2.5 (flip avg.)
+> 8.03 4.07 2.33 34.11 80.60 32.84 2884 13.96
+> 10 010 110 210 3
+> Latency (ms, log scale)
+> 47.05 46.30 44.70 111 140 108 830 68.69
+
+Figure 15: Complete-forecast MACs and median latency for the configurations in Table 11. Native output procedures are retained, including Moirai-MoE’s 100 sampling paths and TimesFM’s flip averaging. 
+
+Comparison with pretrained forecasters. Figure 15 compares the resulting computation and latency. With comparable total parameter counts, Aurora-X at its native token length of 48 uses 76.5% fewer MACs than Toto-2.0-1B and achieves a measured 2.35 × speedup. Timer-S1 has a larger total parameter count, whereas TimesFM provides a smaller-model reference. Moirai-MoE’s repeated sampling contributes substantially to its complete-forecast cost, so this difference cannot be attributed solely to the backbone architecture. 48 96 192 Inference token length 246810 12 14 MACs (G)   
+
+> H = 96 H = 384 H = 720
+> 48 96 192 Inference token length 45 50 55 60 65 70 75 Latency (ms)
+
+Figure 16: Aurora-X inference cost as the temporal span per token increases, with L = 960 and three forecast horizons. Each configuration returns nine quantiles. Latency error bars show the empirical 10th–90th percentiles of 30 synchronized runs. 
+
+Effect of temporal resolution. Figure 16 complements the context-budget study in Ap-pendix A.11 with measured computation and latency. Longer inference tokens lower temporal res-olution by resampling longer blocks to the native patch length of 48. At L = 960 and H = 96 ,lengths 48, 96, and 192 use 20, 10, and 5 context tokens, plus 2, 1, and 1 future tokens, respectively. This shorter backbone sequence reduces attention, routing, and expert computation; output resam-pling still returns all 96 forecast points. Lengths 96 and 192 reduce MACs by 49.3% and 71.0%, respectively, relative to length 48. Native output padding and final truncation remain included in the measurement. The 3.45 × reduction in MACs at length 192 yields a much smaller 1.05 × latency speedup, demonstrating that matrix computation alone does not determine end-to-end latency. This efficiency sweep does not evaluate the corresponding change in benchmark accuracy. 30 A.13 FORECASTING WITH ARBITRARY QUANTILE QUERIES 
+
+The implicit quantile head allows users to query forecast levels beyond a predefined output grid. Figures 17 and 18 illustrate this interface on eight real forecasting windows from GIFT-Eval, TIME, FEV-Bench, and TFB. Each example combines five directly queried random quantile levels with an independently computed central forecast summary. Appendix A.14 complements these examples with point and interval forecasts on all predefined windows. 
+
+Case selection. We use 24 predefined test windows from twelve dataset configurations. For each window, we score the predetermined display variable by the mean absolute error of its central fore-cast, divided by the population standard deviation of its cached input history. We retain the lowest-error window per dataset and then the two lowest-error datasets per benchmark; ties use normalized RMSE and the case identifier. This selection uses test targets, yielding illustrative examples with relatively accurate central forecasts rather than an unbiased performance summary. Table 12 lists the resulting inputs. Table 12: Input configurations of the eight selected forecasting examples. L is cached input length, 
+
+H is the forecast horizon, and C is the number of jointly predicted target variables. Each plot displays the listed variable and the last 2H history points.                                                   
+
+> Panel Benchmark Dataset Variable LHC
+> (a) GIFT-Eval jena_weather/H var_0 8112 48 21 (b) solar/H var_0 7992 48 1(c) TIME Australia_Solar/H solar_63726 2880 24 3(d) epf_electricity_price/H var_0 2880 24 1(e) FEV-Bench bizitobs_l2c_1H target_0 2280 24 7(f) ETT_1H OT 8160 168 7(g) TFB ETTh1 OT 528 96 7(h) Weather OT 528 96 21
+
+Quantile queries and central forecasts. For each case, five levels are sampled independently from Uniform(0 .02 , 0.98) , rounded to four decimal places, and queried directly through the IQN head. We use a fixed global seed of 20260921 with deterministic case-specific seeds. Separately, for each forecast step h, we average predictions at twenty equally spaced levels in [0 .05 , 0.95] :
+
+¯y(20)  
+
+> h
+
+= 120 
+
+> 19
+
+X
+
+> j=0
+
+bQh
+
+
+
+0.05 + 0.90 j
+
+19 
+
+
+
+. (14) Here bQh(τ ) denotes the predicted marginal quantile at level τ . This finite-grid average is neither the median nor an exact integral over the full predictive distribution. The five random levels do not enter its calculation. Requested levels are sorted for display, while the predicted values and any quantile crossings are preserved. 
+
+Inference and interpretation. All eight cases use the same Aurora-X checkpoint in FP32, with joint target-variable attention and an inference token length of 48. Model inputs retain the cached histories in Table 12; incomplete leading patches follow native masking. TFB inputs are standard-ized using training-split statistics, and predictions are restored to their original units. Plots show only the last 2H observed steps before the forecast origin. Solar examples exhibit larger separation between quantile curves near production peaks, whereas the displayed bizitobs window has a nar-rower spread. These views illustrate how directly queried marginal forecasts vary with the input and forecast step. The curves are not joint trajectory samples, and the selected examples do not establish distributional calibration. 31 0 40 80 120 
+
+Time steps 
+
+970 980 990 1000 
+
+> Value
+
+History Forecast 
+
+(a) GIFT-Eval: Jena Weather      
+
+> History Future truth 20-level mean
+> τ= 0.4722
+> τ= 0.4738
+> τ= 0.4999
+> τ= 0.8200
+> τ= 0.8585
+
+0 40 80 120 
+
+Time steps 
+
+040 80 120 
+
+> Value
+
+History Forecast 
+
+(b) GIFT-Eval: Solar      
+
+> History Future truth 20-level mean
+> τ= 0.0415
+> τ= 0.3463
+> τ= 0.5577
+> τ= 0.5801
+> τ= 0.8874
+
+0 20 40 60 
+
+Time steps 
+
+0.0 0.5 1.0 1.5 
+
+> Value
+
+1e6 History Forecast 
+
+(c) TIME: Australia Solar      
+
+> History Future truth 20-level mean
+> τ= 0.4446
+> τ= 0.5189
+> τ= 0.5729
+> τ= 0.5940
+> τ= 0.8816
+
+0 20 40 60 
+
+Time steps 
+
+24 32 40 48 
+
+> Value
+
+History Forecast 
+
+(d) TIME: Electricity Price      
+
+> History Future truth 20-level mean
+> τ= 0.3017
+> τ= 0.4708
+> τ= 0.6127
+> τ= 0.6852
+> τ= 0.9072
+
+Figure 17: Selected forecasting examples on GIFT-Eval and TIME. Gray and orange denote ob-served history and future truth. Thin colored curves show five random marginal quantiles; dashed blue shows the independent twenty-level average. The vertical dashed line separates history from forecast. Cases are selected by test error as described in Appendix A.13. 32 0 20 40 60  
+
+> Time steps
+> 12 18 24 30
+> Value
+> History Forecast
+
+(e) FEV-Bench: bizitobs          
+
+> History Future truth 20-level mean
+> τ= 0.1591
+> τ= 0.6054
+> τ= 0.6232
+> τ= 0.8336
+> τ= 0.8810
+> 0150 300 450
+> Time steps
+> 10 20 30 40
+> Value
+> History Forecast
+
+(f) FEV-Bench: ETT          
+
+> History Future truth 20-level mean
+> τ= 0.0215
+> τ= 0.1272
+> τ= 0.2420
+> τ= 0.4142
+> τ= 0.8432
+> 080 160 240
+> Time steps
+> 048
+> Value
+> History Forecast
+
+(g) TFB: ETTh1          
+
+> History Future truth 20-level mean
+> τ= 0.0393
+> τ= 0.1730
+> τ= 0.2032
+> τ= 0.2195
+> τ= 0.4295
+> 080 160 240
+> Time steps
+> 415 420 425 430
+> Value
+> History Forecast
+
+(h) TFB: Weather      
+
+> History Future truth 20-level mean
+> τ= 0.0794
+> τ= 0.3943
+> τ= 0.6236
+> τ= 0.6451
+> τ= 0.6944
+
+Figure 18: Selected forecasting examples on FEV-Bench and TFB, using the same display and test-error selection protocol as Figure 17. Each panel preserves 2H history points, the full H-step forecast, and the five originally queried quantile levels. Shading identifies the forecast window. A.14 ADDITIONAL FORECASTING VISUALIZATIONS 
+
+Figures 19–22 show all 24 predefined test windows from twelve dataset configurations, with two windows per configuration. Windows and display variables were fixed before inference, with-out filtering by forecast error. Each panel compares Aurora-X with Seasonal Naive, which re-peats the latest observed seasonal cycle. The blue forecast averages nineteen queried levels, 
+
+0.05 , 0.10 , . . . , 0.95 ; the shaded band spans P10–P90 and denotes a nominal 80% prediction in-terval. Only these two endpoints are reordered when necessary for plotting. Inputs retain all cached history and jointly modeled targets; displayed values are in original units. The inference token length is 48, except for the two short-history Australian Tourism cases, which use 8. These views comple-ment the arbitrary-quantile examples with recurring cycles, level changes, and irregular fluctuations; empirical interval coverage varies across windows. 33 0 60 120 180 
+
+> Time steps
+> −40 040
+> Value
+
+(a) ETT var_0 | window 4    
+
+> 060 120 180
+> Time steps
+> −40 040
+> Value
+
+(b) ETT var_0 | window 11    
+
+> 060 120 180
+> Time steps
+> 960 975 990
+> Value
+
+(c) Jena Weather var_0 | window 5    
+
+> 060 120 180
+> Time steps
+> 960 975 990
+> Value
+
+(d) Jena Weather var_0 | window 17    
+
+> 060 120 180
+> Time steps
+> 050 100 150
+> Value
+
+(e) Solar var_0 | window 1250    
+
+> 060 120 180
+> Time steps
+> 050 100
+> Value
+
+(f) Solar var_0 | window 2473 
+
+> Ground truth Aurora-X (19-level mean) 80% prediction interval Seasonal Naive
+
+Figure 19: Forecasts on six predefined GIFT-Eval windows from ETT, Jena Weather, and Solar, with horizon 48. Orange shows observed history and future truth; blue is Aurora-X’s nineteen-level mean; gray dashed curves show Seasonal Naive. Shading denotes the P10–P90 prediction interval. The vertical dashed line marks the forecast origin. Each panel displays 192 history points from the cached input. 34 0 30 60 90 
+
+> Time steps
+> 0.0 0.6 1.2 1.8
+> Value
+> 1e6
+
+(a) Australia Solar solar_63726 | window 63    
+
+> 030 60 90
+> Time steps
+> 0.0 0.5 1.0 1.5
+> Value
+> 1e6
+
+(b) Australia Solar solar_63726 | window 72    
+
+> 030 60 90
+> Time steps
+> 24.0 25.5 27.0
+> Value
+
+(c) Coastal T/S TEMP | window 90    
+
+> 030 60 90
+> Time steps
+> 19.25 19.50 19.75
+> Value
+
+(d) Coastal T/S TEMP | window 644    
+
+> 030 60 90
+> Time steps
+> 020 40 60
+> Value
+
+(e) Electricity Price var_0 | window 192    
+
+> 030 60 90
+> Time steps
+> 24 32 40 48
+> Value
+
+(f) Electricity Price var_0 | window 517 
+
+> Ground truth Aurora-X (19-level mean) 80% prediction interval Seasonal Naive
+
+Figure 20: Forecasts on six predefined TIME windows from Australia Solar, Coastal T/S, and elec-tricity prices. Models receive 2,880 history points and predict 24 steps; each panel displays the final 96 history points. Curves and intervals follow Figure 19. These windows show both close forecasts and departures from the observed future, particularly for irregular fluctuations. 35 0 250 500 750 
+
+Time steps 
+
+> 15 30
+> Value
+
+(a) ETT OT | window 4    
+
+> 0250 500 750
+
+Time steps 
+
+> 4812
+> Value
+
+(b) ETT OT | window 19    
+
+> 030 60 90
+
+Time steps 
+
+> 010 20 30
+> Value
+
+(c) bizitobs target_0 | window 4    
+
+> 030 60 90
+
+Time steps 
+
+> 0816 24
+> Value
+
+(d) bizitobs target_0 | window 19    
+
+> 0816 24
+
+Time steps 
+
+> 4000 6000 8000
+> Value
+
+(e) Australian Tourism target | window 0    
+
+> 010 20 30
+
+Time steps 
+
+> 1600 2400 3200 4000
+> Value
+
+(f) Australian Tourism target | window 1 
+
+> Ground truth Aurora-X (19-level mean) 80% prediction interval Seasonal Naive
+
+Figure 21: Forecasts on six predefined FEV-Bench windows. Horizons are 168 for ETT, 24 for bizitobs, and 8 for Australian Tourism. The corresponding displays retain 672, 96, and 20 or 28 historical points, respectively. Curves and intervals follow Figure 19; the Tourism cases illustrate prediction from short observed histories. 36 0 150 300 450 
+
+Time steps 
+
+> 04812
+> Value
+
+(a) ETTh1 OT | window 12096    
+
+> 0150 300 450
+
+Time steps 
+
+> 04812
+> Value
+
+(b) ETTh1 OT | window 12185    
+
+> 0150 300 450
+
+Time steps 
+
+> 816 24 32
+> Value
+
+(c) ETTh2 OT | window 12096    
+
+> 0150 300 450
+
+Time steps 
+
+> 816 24 32
+> Value
+
+(d) ETTh2 OT | window 12185    
+
+> 0150 300 450
+
+Time steps 
+
+> 416 424 432
+> Value
+
+(e) Weather OT | window 44319    
+
+> 0150 300 450
+
+Time steps 
+
+> 420 440 460
+> Value
+
+(f) Weather OT | window 44653 
+
+> Ground truth Aurora-X (19-level mean) 80% prediction interval Seasonal Naive
+
+Figure 22: Forecasts on six predefined TFB windows from ETTh1, ETTh2, and Weather, with hori-zon 96. Each model input contains 528 history points, of which the final 384 are shown. Predictions are restored from training-split standardization to original units. Curves and intervals follow Fig-ure 19. 37 B RESOLUTION ADAPTATION AND TRAINING CONSISTENCY 
+
+Resolution adaptation changes the temporal span represented by each token while retaining a pre-trained backbone. This section relates our explicit patch resampling to the projection resizing used in LightGTS (Wang et al., 2025a), then explains how the data-side formulation supports consistent multi-scale training. We compare resolution operators around a shared base model, with matched patch boundaries, normalization, and auxiliary inputs. B.1 EQUIVALENT PLACEMENT OF RESOLUTION OPERATORS 
+
+Let P be the native patch length and Pk = kP ∈ N the requested temporal span. For a normalized input patch xk ∈ RPk and a native-grid output patch y ∈ RP , write linear resampling in matrix form: 
+
+Dkxk = RPk →P (xk), Dk ∈ RP ×Pk ,Uky = RP →Pk (y), Uk ∈ RPk ×P . (15) The matrices use fixed interpolation coordinates and boundary conventions. Dk maps observations to the native grid, and Uk restores predictions to the requested grid; they need not be inverses. 
+
+Proposition 1 (data–parameter equivalence). For an input projection W ∈ Rd×P with bias 
+
+b, resampling the patch is exactly equivalent to replacing its value projection by Wk = W D k.Likewise, for an output projection V ∈ RP ×d with bias c, output resampling is equivalent to Vk =
+
+UkV and ck = Ukc:
+
+W (Dkxk) + b = ( W D k)xk + b, Uk(V h + c) = ( UkV )h + Ukc. (16) 
+
+Proof. Both identities follow from associativity and distributivity of matrix multiplication. In Aurora-X’s residual MLP embedding, the same composition is applied to the value columns of both input affine branches; time and mask features are held fixed. Both branches then receive identical pre-activations, so the subsequent nonlinearities, expert routing, and backbone states are identical. On the output side, composing Uk with the quantile head’s final affine projection gives the same restored predictions for every quantile query. Thus, the equivalence extends through nonlinear mod-ules when the linear resolution maps are placed at their boundaries. B.2 RELATIONSHIP TO LIGHT GTS F LEX -R ESIZE 
+
+LightGTS derives a particular projection transformation using a Moore–Penrose pseudoinverse. With matched interpolation conventions, converting its row-vector notation to the column-vector convention above gives 
+
+RFlex  
+
+> k
+
+= δ−1 
+
+> k
+
+U + 
+
+> k
+
+, W Flex  
+
+> k
+
+= W R Flex  
+
+> k
+
+, δk = pP/P k. (17) Here δk is the scale factor specified by LightGTS. Consequently, Flex-resize itself has an exact data-side realization: 
+
+W Flex  
+
+> k
+
+xk + b = W (RFlex  
+
+> k
+
+xk) + b. (18) Equation (18) reveals the resampling implicit in parameter resizing. The vector U + 
+
+> k
+
+xk is the minimum-norm least-squares reconstruction of P native-grid values whose interpolation by Uk best fits the Pk observations. For Pk > P , it reduces the sample count; for Pk < P , it reconstructs a denser native grid. Thus, Flex-resize implements an interpolation-based upsampling or downsam-pling operation on the input, followed by the scale factor δ−1 
+
+> k
+
+, while keeping that operation implicit in the projection weights. Its pseudoinverse-derived reconstruction weights need not equal ordinary interpolation weights. 
+
+Proposition 2 (conditions for agreement with Flex-resize). For a fixed value projection W , di-rect resampling and Flex-resize produce identical outputs of this affine projection for every xk if and only if W (Dk − RFlex  
+
+> k
+
+) = 0 . Agreement for every value projection requires Dk = RFlex  
+
+> k
+
+. Their projection discrepancy satisfies 
+
+zdirect  
+
+> k
+
+− zFlex  
+
+> k
+
+= W (Dk − RFlex  
+
+> k
+
+)xk,
+
+∥zdirect  
+
+> k
+
+− zFlex  
+
+> k
+
+∥2 ≤ ∥ W ∥2 ∥Dk − RFlex  
+
+> k
+
+∥2 ∥xk∥2. (19) 38 Proof. Subtracting the two affine projections cancels their common bias and yields the first iden-tity. Equality for all patches is equivalent to the resulting linear map being zero. Requiring equality for all W further forces Dk = RFlex  
+
+> k
+
+. The bound follows from submultiplicativity of the spectral norm. Aurora-X uses ordinary linear interpolation for Dk, whereas LightGTS uses the scaled pseudoin-verse RFlex  
+
+> k
+
+. Reverse interpolation is generally different from a pseudoinverse. Accordingly, the exact equivalence concerns placement of a matched operator; approximation to the particular Light-GTS operator depends on the discrepancy in Equation (19). For a patch generated as xk = Ukx0, suppressing the common affine bias and explicitly aligning LightGTS’s scalar factor gives 
+
+zdirect  
+
+> k
+
+− δkzFlex  
+
+> k
+
+= W (DkUk − U + 
+
+> k
+
+Uk)x0. (20) If Uk has full column rank, then U + 
+
+> k
+
+Uk = IP : the remaining difference is the round-trip interpo-lation error measured by W . It vanishes on signals recovered by DkUk and is small when their recovery error is small. Otherwise, U + 
+
+> k
+
+Uk projects the native signal onto the recoverable subspace. The scalar factor remains part of the implemented Flex-resize; Equation (20) explicitly aligns it for this comparison. B.3 CONSISTENCY OF MULTI -S CALE TRAINING AND INFERENCE 
+
+The data-side formulation makes the same resolution transformation available for constructing train-ing examples. Let NX denote RevIN followed by arcsinh , using statistics from the original observed history X. For known future covariates C and targets Y , construct 
+
+Xk = Ak(NX (X)) , Ck = Ak(NX (C)) , Yk = Ak(NX (Y )) , (21) where statistics are applied variable-wise and Ak applies Dk separately to each patch. Each aug-mented history–target pair therefore uses the same temporal granularity, with Pk original points represented by P native-grid values. Let Fθ denote the native-grid forecaster, including covariate conditioning and a quantile query τ ,and let Bk apply Uk to each output patch. The corresponding training objective and inference com-putation are 
+
+J (θ) = E(X,C,Y ),k,τ [ℓτ (Fθ (Xk, C k; τ ), Y k)] ,
+
+bYk(τ ) = N −1 
+
+> X
+
+(BkFθ (Xk, C k; τ )) , (22) where ℓτ averages the masked pinball loss over valid target positions, as in Equation (13). Both com-putations call the same forecaster on the same canonical inputs. Their consistency follows directly from reusing the augmentation operator in inference, with supervision defined on that canonical grid. This construction fixes the order of preprocessing: history-based normalization and arcsinh precede resampling, and the augmented arrays are not normalized again. History blocks are aligned to the forecast origin, and future blocks begin at the first forecast step. History statistics and resampling do not depend on future targets; targets are transformed separately using those history statistics. Related variables share scale and block boundaries. Alignment requires identical validity rules and native-grid time features during training and inference. These choices preserve the input interface even when patches contain different amounts of historical information. 
+
+Implications for foundation-model training. The operator equivalence allows resolution adap-tation to be expressed as paired data augmentation while retaining a fixed model interface. Multiple resolutions can be prepared in the data pipeline and batched using the same patch shape, embedding, quantile head, and loss. Scales can be enumerated without requiring a detected period, and the same transformation aligns histories, covariates, and targets. LightGTS also learns across varying periods through its adaptive projections; our design emphasizes explicit paired augmentation and dedicated variable-resolution post-training. This uniform data construction provides direct training–inference alignment and a reusable augmentation pipeline, making it well suited to scaling foundation-model training over heterogeneous sequences. 39 C THEORETICAL ANALYSIS OF SHALLOW -P ATTERN CLUSTERING 
+
+Expert specialization requires a criterion for deciding which patches should share computation. Similarity-based channel clustering (Chen et al., 2024a) motivates using temporal structure to guide parameter sharing. We develop this connection for Aurora-X’s normalized, overlapping expert as-signments: the pattern loss measures cluster coherence, its gradient favors sharing among suffi-ciently similar patches, and the projection regularizer encourages distinct feature directions. C.1 NORMALIZED CO-A SSIGNMENT AND KERNEL CLUSTERING 
+
+Consider one nonempty context with N patches at one MoE layer, and omit batch and layer indices. Let D ∈ { 0, 1}N ×E contain the hard top-K assignments, with P 
+
+> e
+
+Die = K, 1 ≤ K ≤ E, and 
+
+σpat > 0. The shared expert is excluded. Define 
+
+Ω = DD ⊤
+
+K , ZΩ = X
+
+> i,j
+
+Ωij , ρ =
+
+P 
+
+> i,j
+
+Ωij Sij 
+
+ZΩ
+
+, ℓpat = −ρ. (23) This is the per-context term of Equation (7), including self-pairs. Since Ωii = 1 , ZΩ ≥ N , so a denominator floor smaller than one is inactive. For the kernel geometry below, assume that projected patch norms exceed the normalization floor, giving ∥ui∥2 = 1 . Their similarity then satisfies 
+
+Sij = exp 
+
+
+
+− ∥ui − uj ∥22
+
+2σ2pat 
+
+
+
+= ⟨ϕi, ϕ j ⟩H, ∥ϕi∥2 
+
+> H
+
+= 1 , (24) where ϕi is a feature representation of the Gaussian kernel in a Hilbert space H.
+
+Proposition C.1 (within-expert kernel dispersion). Let Ce = {i : Die = 1 }, ne = |C e|, and, for each nonempty expert assignment, define its feature mean and variance by 
+
+μe = 1
+
+ne
+
+X
+
+> i∈C e
+
+ϕi, Ve = 1
+
+ne
+
+X
+
+> i∈C e
+
+∥ϕi − μe∥2
+
+> H
+
+.
+
+Then the clustering objective admits the exact decomposition 
+
+1 + ℓpat =
+
+P 
+
+> e:ne>0
+
+n2
+
+> e
+
+Ve
+
+P 
+
+> e
+
+n2
+
+> e
+
+. (25) 
+
+Proof. Expanding the variance gives Ve = 1 − ∥ μe∥2
+
+> H
+
+. Moreover, 
+
+KZ Ω = X
+
+> e
+
+n2
+
+> e
+
+, K X
+
+> i,j
+
+Ωij Sij = X
+
+> e
+
+X
+
+> i∈C e
+
+ϕi
+
+> 2
+> H
+
+= X
+
+> e:ne>0
+
+n2
+
+> e
+
+∥μe∥2
+
+> H
+
+.
+
+Substituting these identities into Equation (23) proves the result. Each patch may belong to several 
+
+Ce, so the identity applies directly to top-K routing. Thus, the loss measures a weighted average of within-expert pattern dispersion. Experts receive weights proportional to n2
+
+> e
+
+, reflecting their numbers of co-assigned ordered pairs. It encourages co-herent expert assignments, while allowing overlapping pattern groups. For zero or sub-unit normal-ized features, use the feature map of the positive-semidefinite kernel k(u, v ) = exp[( u⊤v−1) /σ 2pat ].The same expansion adds the diagonal-deficit term P 
+
+> e
+
+ne
+
+P 
+
+> i∈C e
+
+(1 −Sii )/ P 
+
+> e
+
+n2 
+
+> e
+
+to Equation (25). The pure variance interpretation holds under the unit-norm condition. 
+
+Corollary (control of dissimilar co-assignments). For 0 < δ ≤ 2, let qδ be the share of total co-assignment weight allocated to pairs with ∥ui − uj ∥2 ≥ δ. Under the unit-norm condition, 
+
+qδ =
+
+P 
+
+> i,j
+
+Ωij 1[∥ui − uj ∥2 ≥ δ]
+
+ZΩ
+
+≤ 1 + ℓpat 
+
+1 − exp[ −δ2/(2 σ2pat )] . (26) Indeed, 1 + ℓpat = P 
+
+> i,j
+
+Ωij (1 − Sij )/Z Ω, and each such pair contributes at least 1 −
+
+exp[ −δ2/(2 σ2pat )] . The bound quantifies how a loss close to −1 restricts dissimilar pairs that share experts; its weights include self-pairs, as in the implemented objective. 40 C.2 PATTERN -D EPENDENT LEARNING SIGNALS FOR ROUTING 
+
+The normalization by ZΩ makes the routing signal depend on relative pattern similarity. To charac-terize this signal, hold S fixed and consider the continuous extension of Equation (23). 
+
+Proposition C.2 (normalized affinity and straight-through gradients). The derivative with re-spect to an overlap entry is 
+
+∂ℓ pat 
+
+∂Ωij 
+
+= − Sij − ρZΩ
+
+. (27) For the actual straight-through assignment in Equation (6), let pi = Softmax( si), where si is the normalized router-logit vector. Define the affinity of patch i to expert e’s assigned patches, centered at the current mean similarity, as 
+
+cie = X
+
+> j
+
+Dje (Sij − ρ).
+
+The backward derivative with respect to sie is 
+
+∂ℓ pat 
+
+∂s ie 
+
+= − 2pie 
+
+KZ Ω
+
+cie − X
+
+> f
+
+pif cif 
+
+ . (28) 
+
+Proof. The quotient rule gives Equation (27). Writing Ω = AA ⊤/K , symmetry of S yields 
+
+∂ℓ pat 
+
+∂A A=D
+
+= − 2
+
+KZ Ω
+
+(S − ρ11 ⊤)D. 
+
+The straight-through construction has ∂A/∂p = I in the backward pass. Applying the softmax Jacobian diag( pi) − pip⊤ 
+
+> i
+
+gives Equation (28). Equation (27) favors increasing overlap for pairs more similar than the current co-assignment aver-age and decreasing it for less similar pairs. Equation (28) describes how this preference reaches the router: the partial derivative with respect to an expert’s normalized logit is negative when its pattern-affinity score exceeds the probability-weighted mean across experts. Gradients subsequently pass through logit normalization and the shared routing parameters. They are the implemented straight-through surrogate gradients, rather than derivatives of the discrete top-K map. The similarity matrix is computed from shallow patches, so its pattern distinctions do not di-rectly depend on distinctions retained in deep hidden states. In addition, for fixed assignments, 
+
+∂ℓ pat /∂S ij = −Ωij /Z Ω: the learned pattern projection receives a signal to increase similarity among co-assigned patches. These two paths couple expert sharing with learning a local pattern metric. C.3 WHEN PATTERN GROUPING IS PREFERRED TO COLLAPSED ROUTING 
+
+The preceding identities characterize local training signals. The following comparison states when the objective itself favors differentiated assignments over sending every patch to the same experts. 
+
+Proposition C.3 (objective gap for pattern-separated routing). Partition the patches into G ≥ 2
+
+nonempty pattern groups of sizes ng , and suppose E ≥ GK . Hold S fixed. Let μin and μout be the mean similarities over within-group and between-group ordered pairs, respectively, including self-pairs within groups. Compare two feasible assignments: each group selects its own disjoint set of K experts, or every patch selects the same K experts. Their pattern losses satisfy 
+
+ℓcollapse − ℓgroup = 1 −
+
+P 
+
+> g
+
+n2
+
+> g
+
+N 2
+
+!
+
+(μin − μout ). (29) Consequently, pattern-separated routing has strictly lower loss when μin > μ out .41 Proof. With disjoint expert sets, Ωij = 1 within a group and zero between groups, so ℓgroup =
+
+−μin . Under complete routing collapse, Ωij = 1 for every pair. Its mean similarity is therefore 
+
+[P 
+
+> g
+
+n2 
+
+> g
+
+μin + ( N 2 − P 
+
+> g
+
+n2 
+
+> g
+
+)μout ]/N 2. Subtracting the losses gives Equation (29). This establishes a preference of the pattern objective under explicit capacity and similarity condi-tions. It does not assert that discrete-routing optimization always escapes collapse. For example, take two patches with distinct unit pattern features, K = 1 , E ≥ 2, and identical hard assignments. The two rows of S have equal sums, so Equation (28) gives zero routing gradient, even though sep-arate assignments have lower pattern loss. Pattern coherence and optimization dynamics are distinct questions. C.4 PROJECTION DIVERSITY AND THE ROLE OF LOAD BALANCING 
+
+Learning the metric together with routing makes projection diversity relevant: repeated projection directions reduce the information available for comparing patches. The orthogonality term in Equa-tion (7) penalizes this degeneracy. 
+
+Proposition C.4 (rank constraint induced by row orthogonality). Let m = dpat , assume the rows of ¯Wpat have unit norm, and let r = rank( ¯Wpat ). Then 
+
+Rorth = ∥ ¯Wpat ¯W ⊤ 
+
+> pat
+
+− Im∥2
+
+> F
+
+m2 ≥ 1
+
+r − 1
+
+m . (30) In particular, when m > 1, a penalty below 1/[m(m − 1)] implies full row rank, and collinear rows incur a penalty of at least 1 − 1/m .
+
+Proof. Let GW = ¯Wpat ¯W ⊤
+
+> pat
+
+. Its trace is m, and it has r positive eigenvalues. Cauchy–Schwarz gives ∥GW ∥2 
+
+> F
+
+≥ m2/r . Thus, 
+
+m2Rorth = ∥GW ∥2 
+
+> F
+
+− 2 tr( GW ) + m = ∥GW ∥2 
+
+> F
+
+− m ≥ m2/r − m. 
+
+The stated consequences follow by setting r ≤ m − 1 or r = 1 .This result concerns the diversity of projection directions; distinct inputs can still have the same normalized projection. Load balancing addresses a different aspect of routing. The auxiliary loss depends on marginal expert usage and mean routing probabilities, both of which remain unchanged when token-wise assignments and probabilities are jointly permuted. With the patch similarities held fixed, such a permutation can change the pattern loss. Load balancing therefore acts on marginal utilization, while shallow-pattern clustering guides which patches share experts and orthogonality encourages a richer comparison space. 42 D ADDITIONAL RELATED WORK 
+
+Conditioning on structured inputs. Aurora-X’s progression from individual channels to jointly modeled variables connects to several approaches to dependency learning: DUET organizes mul-tivariate forecasting through dual clustering (Qiu et al., 2025c), CCD captures cross-correlations with deformable convolutional networks (Cheng et al., 2026b), and CoRA introduces a correlation-aware adapter for pretrained time series models (Cheng et al., 2026c). When external predictors are available, GCGNet (Li et al., 2026) and KITE (Cheng et al., 2026e) incorporate exogenous vari-ables into graph-consistent generation and knowledge-guided probabilistic forecasting, respectively. The distinction between jointly observed targets and auxiliary predictors is particularly relevant to Aurora-X’s staged development of multivariate and covariate capabilities. Input conditioning has a wider interpretation in visual computing. Pose instructions guide text-to-video generation (Ma et al., 2024a), portrait animation admits fine-grained expressive control (Ma et al., 2024b), and streaming relighting supports interactive adjustments (Ma et al., 2026); these examples belong to the larger field reviewed in a survey of video controllability (Ma et al., 2025). They illustrate the variety of signals that can specify an output. For Aurora-X, the conditioning interface is defined by target histories, related channels, and available future covariates. 
+
+Training across observation regimes. Heterogeneity is not limited to the number of chan-nels. ASTGI addresses irregular multivariate observations using graph interactions over space and time (Liu et al., 2026a), while a joint temporal–spectral framework (Qiu et al., 2026a) and a delib-erately simple baseline (Liu et al., 2026b) investigate the same forecasting regime from different modeling perspectives. Incomplete inputs introduce a related challenge, examined by GinAR+ (Yu et al., 2025a); Merlin specifically considers missing rates that are not fixed (Yu et al., 2025b). Rep-resentation and optimization choices supply further axes of variation, including SRSNet’s patch-based selection of representation spaces (Wu et al., 2025b) and the decomposition-based objective of DBLoss (Qiu et al., 2025b). Together, these studies contextualize the diversity of data conditions and learning choices that a forecasting curriculum may encounter. Aurora-X develops its capabil-ities through successive changes to the training configuration, followed by adaptation to multiple temporal resolutions. 
+
+Uncertainty estimation and task adaptation. Different downstream uses also call for differ-ent outputs. K2VAE combines Koopman and Kalman components with variational inference for probabilistic forecasts (Wu et al., 2025c); MetaGNSDformer targets point and interval estimates of lithium-ion battery remaining useful life (Cheng et al., 2026a). Aurora-X exposes uncertainty through a continuously conditioned quantile head. Other work extends the task repertoire of tempo-ral models: STAR adapts a foundation model to anomaly detection (Cheng et al., 2026d), CATCH detects anomalies with frequency patching that accounts for channels (Wu et al., 2025d), and TAB standardizes benchmarking for detection methods (Qiu et al., 2025a). TimeART investigates rea-soning over time series with agentic tool use (Wu et al., 2026b). These directions locate forecasting within a larger collection of predictive, diagnostic, and reasoning capabilities. 43

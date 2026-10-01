@@ -1,0 +1,207 @@
+Title: Forecast Workflow Bench: Evaluating Language-Model Decisions with Budgeted Forecast Tools
+
+URL Source: https://arxiv.org/pdf/2609.27385v1
+
+Published Time: Thu, 24 Sep 2026 00:36:16 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# FORECAST WORKFLOW BENCH: EVALUATING LANGUAGE-MODEL DECISIONS WITH BUDGETED FORECAST TOOLS 
+
+# Shunya Nagashima 
+
+# Neurogica Inc. 
+
+ABSTRACT 
+
+Time-series foundation models (TSFMs) provide forecasts for operational decisions, but accuracy alone does not determine their value. Evaluating agents that use these models requires measuring decision quality and forecast cost. FWBench eval-uates this capability on 1,251 electricity and cycle-hire cases using fixed forecast tools and simulated capacity contracts. Agents select models, histories and horizons, then submit ca-pacities to minimize a stated loss–cost objective. We evaluated two hosted and eight local configurations, including small language models, and tested local models with and without TSFMs. GPT-6 Astra bought inexpensive short-horizon fore-casts selectively, using 2.5% of the budget, and outperformed fixed policies when the saved decisions were scored with three loss–cost weightings. FWBench enables reproducible eval-uation of how language models select and use time-series forecasts to make decisions under cost constraints. 
+
+Index Terms — Benchmarks, agents, large language mod-els, time-series forecasting, decision-making 
+
+1. INTRODUCTION 
+
+Effective decision-making requires anticipating future condi-tions. Time-series foundation models (TSFMs) provide accu-rate forecasts across domains [1, 2]; large language models (LLMs) can plan with tools [3]. Existing evaluations exam-ine forecast accuracy and forecaster selection [4, 5], but do not measure whether a forecast improves capacity decisions enough to justify its cost. Recent advances have enabled local forecasting with open-weight TSFMs smaller than one billion parameters [6, 7]. Com-bined with small language models (SLMs), they could support decisions without cloud communication. However, existing forecasting benchmarks have not established how well these local systems make cost-constrained decisions or how they compare with proprietary LLMs. Forecast Workflow Bench (FWBench; Fig. 1) evaluates these capabilities using fixed forecasters, real demand and simulated capacity contracts. The code 1 and dataset 2 are publicly available for repro-ducing the evaluation. Our contributions are (i) a 1,251-case 
+
+> 1https://github.com/Neurogica/forecast-workflow-bench
+> 2https://huggingface.co/datasets/Neurogica/forecast-workflow-bench
+
+(a) Real demand and operating request 
+
+336-hour real histories Operating request   
+
+> EIA EIA Bike
+> Forecast lead: 1 or 7 days Capacity blocks: 8 × 3 h Constraints: grid + ramp
+> Electricity: Feb / Jul / Aug ·Cycle hire: May
+
+(b) Agent and tools 
+
+LLM / SLM   
+
+> Model · context · horizon
+> Shared optimizer
+> candidate plan
+> Fixed forecast tools
+> Bolt Tiny Chronos-2 TimesFM 2.5 Free classical
+> forecasts
+> query
+
+Scorer   
+
+> Validity ↑ · Loss ↓ · Credits ↓ · S↓
+
+(c) Capacity plans   
+
+> Electricity (GW) Cycle hire (hires/h)
+> Target-day hour (UTC)
+> submit
+> Observed demand (GT)
+> hidden from agent
+> 24012 24 010
+
+Fig. 1 . FWBench inputs (a), forecasting tools, optimizer and scorer (b), and Astra’s submitted capacities (c): BANC, July 24; Hop Exchange, May 11. Capacities use physical units; histories show 3-hour medians. electricity and cycle-hire benchmark for evaluating forecast selection, its cost and the resulting capacity decisions; (ii) com-parisons of ten hosted and local configurations with fixed and adaptive policies; and (iii) paired ablation studies of TSFM access and thinking, oracle comparisons and sensitivity to objective weights. 
+
+2. RELATED WORK 
+
+Recent work on time-series foundation models has explored transferring pretrained knowledge across tasks [8]. Bench-marks evaluate forecast accuracy [4], forecaster selection [5] and broader time-series tasks. For agent-based systems, Time-SeriesGym evaluates time-series engineering [9], while Tem-poralBench assesses contextual prediction and event-informed reasoning [10]. arXiv:2609.27385v1 [cs.LG] 23 Sep 2026 Recent language-model agents combine planning, memory and external tools [11]. Benchmarks test how they use these tools and whether they complete tasks within resource limits. Existing benchmarks assess API planning and calling [3], pol-icy compliance [12], stateful tool use [13] and industrial opera-tions [14]. CostBench measures planning cost gaps [15], while EcoAgent-Bench evaluates budgeted economic decisions [16]. FWBench evaluates how forecast selection affects capacity decisions and cost. Hosted and local models use the same fixed tools, capacity constraints and forecast budget. 
+
+3. BENCHMARK DESIGN 3.1. Data construction and observation windows 
+
+FWBench uses U.S. Energy Information Administration form EIA-930 electricity demand [17, 18] and Transport for London (TfL) cycle-hire departures [19]. Windows must have unique timestamps and pass provider quality checks. We exclude forecast, adjusted, imputed and nonpositive electricity values, but retain zero cycle-hire counts. Agents observe hourly histories and submit capacities one or seven days before the target day. Timestamps mark the start of each UTC hour; agents cannot access future demand (ground truth, GT). Cycle-hire capacities represent departures per hour; the task does not model inventory or rebalancing. 
+
+3.2. Actions and decision loss 
+
+Forecast error alone does not measure the quality of capacity decisions. We score submitted capacities against observed demand using a decision loss that penalizes unused capacity and unmet demand under the simulated contract. For T target hours h = 0 , . . . , T − 1, yh is observed demand and zh = yh/s demand normalized by the visible-history mean s > 0. Plan a contains capacities ab for T /d 
+
+consecutive d-hour blocks ( b = 0 , . . . , T /d − 1; d divides T ). Feasible actions satisfy ab ∈ G and |ab − ab−1| ≤ r for b ≥ 1,where G contains allowed normalized capacities and r limits changes between adjacent blocks. Submissions use physical capacities sa b. For demand vector z = ( zh), loss is 
+
+ℓ(a, z ) = 1
+
+T 
+
+> T−1
+
+X
+
+> h=0
+
+[α(¯ ah − zh)+ + wh(zh − ¯ah)+] , (1) where ¯ah = a⌊h/d ⌋ is normalized capacity at hour h, (·)+
+
+clips negative values to zero, and α and wh are the surplus and hourly shortage weights supplied to the agent. Submissions require unique block IDs, finite grid values and feasible ramps; invalid answers are penalized above every feasible loss. 
+
+3.3. Forecast tools and decision support 
+
+Table 1 lists the tools, including fixed Chronos-Bolt Tiny, Chronos-2 and TimesFM 2.5 services [1, 2, 7, 6]. Unafford-
+
+Table 1 . Tools available to all agents. Forecast charges follow the selected model, history and horizon; other tools are free.        
+
+> Operation Information returned Inspect Models, history coverage, remaining budget Read history Observed hourly demand before the cutoff Quote Cost of the requested forecast Forecast and plan Forecast metadata and optimized capacities Classical plan Capacities from a free historical method Replay forecast Past-only forecast error and scored coverage
+
+able requests are refused. A shared optimizer uses dynamic programming to minimize expected contract loss given classi-cal or TSFM forecasts. Agents can test past forecast accuracy through replay: a model predicts from a historical origin us-ing only earlier observations. The tool returns pinball loss on observed hours and charges the forecast tariff. Prompts provide timestamps, block IDs, units, contract terms and the objective below. Agents submit capacities by block ID; browsing and file access are disabled. 
+
+3.4. Cost accounting, objective and references 
+
+CPU inference times determine fixed charges by model, history length and forecast horizon. Credits exclude language-model inference, loading and optimization; they do not measure eval-uation runtime. To balance decision quality and forecast cost, case i in domain j with credit budget B receives score 
+
+Si = 12
+
+ ℓi − Fi
+
+σj
+
++ ci
+
+B
+
+
+
+, (2) where ℓi is loss from Eq. (1) or the invalid penalty, ci is the credit charge, and Fi is the loss obtained by optimizing capac-ities with the actual target demand known. The scale σj > 0
+
+is the hour-of-day policy’s mean excess loss on pre-evaluation replay cases. This policy uses past observations at each target hour. Prompts omit Fi because it requires unseen demand; this constant does not affect the optimal action. Equal loss–cost weights express a preference, not an economic exchange rate (Section 4.5). Normalized excess loss is Ri = ( ℓi − Fi)/σ j ;lower Ri and Si are better. We average Ri, Si, loss and credits by series and lead, then average these means equally within each cohort. Cohort weights (Section 4.1) give the reported 
+
+R, S, loss and credits c. Invalid submissions retain their loss penalties in these averages. Baselines without language models include fixed policies that use one method for all cases, and selectors that choose free methods by 24-hour backtest loss. Selectors break ties by name and refit on full histories. Two oracles measure the score achievable by selecting plans with true future demand: the catalog oracle minimizes 
+
+Si over affordable full-history plans from eight classical and Table 2 . 1,251 cases, full tools. Valid: feasible plans; c:credits. S includes invalid penalties; Sv excludes them and renormalizes weights over differing valid subsets. †: Sv from only three cases. T: thinking; bold: agents.                                                                         
+
+> Configuration Valid ↑Loss ↓c↓S↓Sv↓
+> SLMs
+> Gemma 4 E4B [20] 1019 0.7074 74 4.6294 1.187 Qwen3 4B [21] 1242 0.7175 04.5478 4.113 Qwen3 4B T1237 0.5196 02.5232 2.429 Gemma 4 E4B T1251 0.3649 1209 1.0465 1.046
+> Larger local models
+> Qwen3.6 35B-A3B [22] 3†2.0080 1176 17.9773 0.544 Qwen3.6 35B-A3B T160 1.8533 1464 16.4632 1.003 Gemma 4 12B T[20] 490 1.2837 58104 10.6358 1.151 Gemma 4 12B 766 0.9611 46091 7.3281 0.983
+> Hosted LLMs
+> GPT-5.4 nano [23] 1139 0.5160 2886 2.6411 0.893 GPT-6 Astra [24] 1251 0.3044 2802 0.3964 0.396
+> Policies without language models
+> Fixed Chronos-2 [1] 1251 0.3050 108783 0.8651 –Backtest (8 windows) 1251 0.3265 00.6175 –Backtest selector 1251 0.3259 00.6109 –Fixed Chronos-Bolt Tiny [6] 1251 0.3087 39100 0.6014 –Weekday empirical 1251 0.3220 00.5726 –Lead-matched selector 1251 0.3211 00.5633 –Hour-of-day empirical 1251 0.3165 00.5147 –
+> Hindsight references (not agents)
+> Catalog oracle – 0.2899 1053 0.2393 –Perfect demand – 0.2676 –0.0000 –
+
+three TSFM methods, paying only for its choice; the free-menu oracle excludes TSFMs. 
+
+4. EXPERIMENTS 4.1. Experimental settings 
+
+We set T = 24 , d = 3 (eight actions), α = 0 .3, G =
+
+{0.40 , 0.45 , . . . , 2.00 }, and r = 0 .30 . Shortage weights fol-lowed six-hour segments 1, 1, 2, 1.5, shifted by target weekday. Each case allowed B = 113 ,726 forecast credits and 12 tool calls. Prompts instructed agents to minimize S in Eq. (2). We set σj = 0 .0542 for electricity and σj = 0 .0434 for cy-cle hire. Selectors used four or eight short-lead replays, or lead-matched replays with shorter histories. We used 1,091 electricity cases from 50 authorities in February, July and August 2026, and 160 cycle-hire cases from 20 stations in May 2026. Cohorts comprised three electricity seasons (weight 1/6 each) and transport (1/2). The target day began one or seven days after the decision. Agents had 336 hourly observations ending three hours before the decision and chose how much history to use. Forecasts began at the next hourly timestamp; 50 or 194 steps covered the target day. 0 6 12 18 24 
+
+> Target-day hour (UTC)
+> 5.0 7.5
+> Power (GW)
+> Observed demand (GT) Astra Gemma 4 12B Gemma 4 E4B (think.)
+
+Fig. 2 . SRP, July 25, one-day lead: demand and capacities. Case fixed before the run; configurations selected post hoc. 
+
+Table 3 . Resident SLMs, thinking on, on eight common cases. Peak GPU/host PSS; mean case time, GPU power and energy.             
+
+> SLM Memory (GiB) Time (s) GPU (W) GPU (kJ) Gemma 4 E4B 4.60 / 3.69 15.9 245 3.90 Qwen3 4B 9.84 / 1.06 13.9 310 4.30
+
+The two hosted models used high reasoning effort; the four quantized local models were tested with thinking off and on (Table 2). SLMs had < 10 B total parameters; larger local models had ≥ 10 B. In total, 22,518 conversations were scored. Post-hoc normalization accepted equivalent JSON and quoted numbers without changing numerical values. Table 3 profiles one case per cohort–lead pair on an RTX PRO 6000 Blackwell with CPU tools. All submissions were valid and used no forecast credits. GPU energy included idle periods; host memory used proportional set size (PSS). Bolt on one CPU thread took 7.5/65.9 ms for 50/194-step forecasts with 0.45 GiB peak PSS; CPU energy was not measured. 
+
+4.2. Quantitative results Overall comparison. Table 2 shows decision loss, forecast credits and S for agents and reference policies. Astra achieved similar loss to fixed Chronos-2 using 2.6% of its forecast cred-its. It bought only short-horizon Bolt Tiny forecasts (Fig. 3). It ranked first in S overall and in all eight cohort–lead sub-sets by point estimate. Astra’s improvements in S and loss over the best free policy and three selectors had paired 95% cluster-bootstrap intervals excluding zero. 
+
+Local decision quality and completion. All local configura-tions scored worse than hour-of-day empirical. Gemma 4 E4B with thinking completed every case yet scored more than twice as high, identifying forecast selection and use as improvement targets beyond valid output. Valid-only Sv excludes failures but compares different subsets. Qwen3.6 without thinking exhausted the 12-call limit in 1,245 cases, so workflow non-completion dominated its score. Table 4 . TSFM removal, 1,251 cases. Valid/ S: no-TSFM; ∆S:full minus no-TSFM (negative favors access). 95% CI: paired cluster-bootstrap confidence interval; bold excludes zero.                                                      
+
+> Configuration Valid ↑S↓∆S95% CI
+> SLMs
+> Gemma 4 E4B [20] 1008 4.052 +0 .577 [−0.277 ,1.321]
+> Qwen3 4B [21] 1242 4.514 +0 .034 [−0.042 ,0.159]
+> Qwen3 4B T1243 2.464 +0 .059 [−0.117 ,0.230]
+> Gemma 4 E4B T1250 1.139 −0.092 [−0.197 ,0.008]
+> Larger local models
+> Qwen3.6 35B-A3B [22] 118.090 −0.113 [−0.346 ,0.119]
+> Qwen3.6 35B-A3B T448 12.436 +4 .027 [3 .338 ,4.732]
+> Gemma 4 12B T[20] 584 9.662 +0 .974 [−0.345 ,2.184]
+> Gemma 4 12B 1146 2.062 +5 .266 [4 .573 ,5.944] 00.25 0.5 0.75 1Budget fraction c/B↓0.5 1.0 1.5 2.0 Normalized excess loss ↓
+> S=0.25 S=0.5
+> S=0.75
+> S=1
+> Catalog oracle Hour-of-day emp. Backtest selector Bolt Tiny Chronos-2 Astra Gemma E4B (think.) Same model, no TSFM
+
+Fig. 3 . Loss–cost trade-off on 1,251 cases; lower left is better. Diagonals: equal S; filled/hollow triangles: Gemma 4 E4B with thinking, with/without TSFMs; star: catalog oracle. 
+
+4.3. TSFM access and thinking 
+
+Table 4 shows no significant score benefit from TSFM access for any local configuration. Access significantly increased S
+
+for Gemma 4 12B without thinking and Qwen3.6 with thinking (paired 95% intervals excluded zero). On cases valid with and without TSFMs, access raised S for Gemma (714 cases) but lowered it for Qwen (58 cases). Thus, Gemma’s worse score was not explained by failed submissions alone. Qwen’s lower score on this subset did not establish a benefit across all cases, which included failures. With all tools available, thinking lowered S for three mod-els but raised it for Gemma 4 12B; all four paired intervals excluded zero. This comparison measured how agents used TSFMs, rather than TSFM forecast accuracy. 
+
+4.4. Effect of the stated objective 
+
+We tested whether including forecast cost in the objective changed purchases. Astra and nano received either loss-only instructions or instructions to minimize the combined loss– cost score S (Eq. (2)) on the same 16 cases, with identical tools and limits. Relative to loss-only instructions, minimizing 
+
+S reduced Astra’s credits by 98.5% with 1.6% higher decision loss. All Astra plans were valid. Only Astra showed a signifi-cant reduction in S. The change in purchases under identical tools and budgets indicates that the stated objective influenced how Astra used forecasts. In Fig. 2, Astra bought a Bolt Tiny forecast after three free plans. Gemma 4 12B without thinking spent 91% of its budget on forecasts ending before the target, but submitted a free plan. 
+
+4.5. Weight sensitivity and repeated executions 
+
+We rescored the saved decisions to test sensitivity to loss– cost weights. Astra remained first under both alternatives (0.25/0.75 and 0.75/0.25), with significant improvements over each setting’s best fixed policy. Giving more weight to loss made Bolt Tiny score better than hour-of-day empirical. We repeated Astra on 100 cases to assess run-to-run sta-bility. Both runs returned valid plans and ranked first against existing results on those cases. However, the paired 95% inter-val against the best fixed policy included zero, so the repeated ranking did not establish statistical superiority. 
+
+5. LIMITATIONS AND FUTURE WORK 
+
+The main limitation is coverage: we evaluated two domains over 16 dates under simulated contracts. Cycle-hire counts ex-cluded unmet demand. Weather could correlate results across sites. Confidence intervals were conditional on the sampled dates and were not adjusted for multiple testing. Fixed tariffs and one calibration week limited economic interpretation. Hosted comparisons lacked TSFM-removal tests and full-set repeated runs. The common harness did not evaluate differences between complete agent systems. In future work, we plan to evaluate task-specific deci-sion models, extend temporal and domain coverage, compare complete agent systems with their own harnesses, and repeat TSFM-access comparisons across calibration periods. We will measure end-to-end latency, memory and energy on edge de-vices while retaining common tools and scoring. Updated tool catalogs will require new oracle references. 
+
+6. CONCLUSION 
+
+FWBench evaluates LLM and SLM decisions with fixed fore-cast tools and a common loss–cost objective. Astra’s selective purchasing achieved similar loss to fixed Chronos-2 at lower forecast cost, while fully valid SLM plans still lagged behind free policies. Better forecast selection could narrow the gap to the hindsight catalog oracle; stronger TSFMs could further improve decision quality. FWBench supports evaluating im-provements in forecast selection and decision quality for both LLMs and SLMs under common tools and cost constraints. 7. REFERENCES 
+
+[1] Abdul Fatir Ansari, Oleksandr Shchur, Jaris K¨ uken, et al., “Chronos-2: From univariate to universal forecasting,” 
+
+arXiv preprint arXiv:2510.15821 , 2025. [2] Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou, “A decoder-only foundation model for time-series forecasting,” in Proceedings of ICML , 2024, pp. 10148– 10167. [3] Minghao Li, Yingxiu Zhao, Bowen Yu, et al., “API-Bank: A comprehensive benchmark for tool-augmented LLMs,” in Proceedings of EMNLP , 2023, pp. 3102–3116. [4] Taha Aksu, Gerald Woo, Juncheng Liu, et al., “GIFT-Eval: A benchmark for general time series forecasting model evaluation,” arXiv preprint arXiv:2410.10393 ,2024. [5] Kanghui Ning, Yushan Jiang, Kashif Rasul, An-derson Schneider, Yuriy Nevmyvaka, and Dongjin Song, “TimeRouter: Efficient and adaptive routing of time-series foundation models,” arXiv preprint arXiv:2606.11625 , 2026. [6] Amazon Science, “Chronos-Bolt Tiny model card,” https: //huggingface.co/amazon/chronos-bolt-tiny, Accessed: 2026-09-15. [7] Google Research, “TimesFM-2.5-200M model card,” https://huggingface.co/google/timesfm-2. 5-200m-pytorch, 2025, Accessed: 2026-09-15. [8] Yuxuan Liang, Haomin Wen, Yuqi Nie, et al., “Foun-dation models for time series analysis: A tutorial and survey,” in Proceedings of KDD , 2024, pp. 6555–6565. [9] Yifu Cai, Xinyu Li, Mononito Goswami, et al., “Time-SeriesGym: A scalable benchmark for (time series) machine learning engineering agents,” arXiv preprint arXiv:2505.13291 , 2025. [10] Muyan Weng, Defu Cao, Wei Yang, Yashaswi Sharma, and Yan Liu, “TemporalBench: A benchmark for evaluat-ing LLM-based agents on contextual and event-informed time series tasks,” in Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 , 2026, pp. 9997–10008. [11] Lei Wang, Chen Ma, Xueyang Feng, et al., “A survey on large language model based autonomous agents,” Fron-tiers of Computer Science , vol. 18, no. 6, pp. 186345, 2024. [12] Shunyu Yao, Noah Shinn, Pedram Razavi, and Karthik Narasimhan, “ τ -bench: A benchmark for tool-agent-user interaction in real-world domains,” in Proceedings of ICLR , 2025. [13] Jiarui Lu, Thomas Holleis, Yizhe Zhang, et al., “Tool-Sandbox: A stateful, conversational, interactive evalua-tion benchmark for LLM tool use capabilities,” in Find-ings of the Association for Computational Linguistics: NAACL 2025 , 2025, pp. 1160–1183. [14] Dhaval Patel et al., “AssetOpsBench: Benchmarking AI agents for task automation in industrial asset operations and maintenance,” arXiv preprint arXiv:2506.03828 ,2025. [15] Jiayu Liu, Cheng Qian, Zhaochen Su, et al., “CostBench: Evaluating multi-turn cost-optimal planning and adapta-tion in dynamic environments for LLM tool-use agents,” in Proceedings of ACL (Volume 1: Long Papers) , 2026, pp. 12826–12858. [16] Jie Wu, Ming Gong, Feixiang Cheng, and Qinqin Zhao, “EcoAgent-Bench: Evaluating economic decision-making in budget-constrained LLM agents,” arXiv preprint arXiv:2608.05519 , 2026. [17] U.S. Energy Information Administration, “Form EIA-930: Hourly and daily balancing authority operations report,” https://www.eia.gov/survey/, 2026, Accessed: 2026-09-15. [18] U.S. Energy Information Administration, “Copyrights and reuse,” https://www.eia.gov/about/copyrights reuse. php, 2026, Accessed: 2026-09-15. [19] Transport for London, “Our open data: Cycle hire trip data,” https://tfl.gov.uk/info-for/open-data-users/ our-open-data, 2026, Accessed: 2026-09-15. [20] Gemma Team, “Gemma 4 technical report,” arXiv preprint arXiv:2607.02770 , 2026. [21] An Yang, Anfeng Li, Baosong Yang, et al., “Qwen3 tech-nical report,” arXiv preprint arXiv:2505.09388 , 2025. [22] Qwen Team, “Qwen3.6-35B-A3B model card,” https: //huggingface.co/Qwen/Qwen3.6-35B-A3B, 2026, Ac-cessed: 2026-09-22. [23] OpenAI, “Introducing GPT-5.4 mini and nano,” https:// openai.com/index/introducing-gpt-5-4-mini-and-nano/, 2026, Accessed: 2026-09-15. [24] OpenAI, “GPT-6 Astra: A new generation of intelli-gence,” https://openai.com/index/gpt-6-astra/, 2026, Ac-cessed: 2026-09-15.

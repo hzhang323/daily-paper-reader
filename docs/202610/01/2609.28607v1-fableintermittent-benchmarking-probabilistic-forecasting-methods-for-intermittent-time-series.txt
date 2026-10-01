@@ -1,0 +1,796 @@
+Title: fable.intermittent: benchmarking probabilistic forecasting methods for intermittent time series
+
+URL Source: https://arxiv.org/pdf/2609.28607v1
+
+Published Time: Fri, 25 Sep 2026 00:06:44 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# fable.intermittent : benchmarking probabilistic forecasting methods for intermittent time series 
+
+Stefano Damato a, ∗, Lorenzo Zambon a, Giorgio Corani a, Dario Azzimonti a
+
+> aSUPSI, Istituto Dalle Molle di Studi sull’Intelligenza Artificiale (IDSIA), Lugano, Switzerland
+
+Abstract 
+
+Intermittent time series are common in spare-parts demand and retail sales. Since the cost of forecast errors is typically asymmetric, decisions such as inven-tory control require the full predictive distribution rather than a point forecast. Many probabilistic forecasting methods have been proposed; their implemen-tations, however, are scattered across different software frameworks, making it difficult to compare them systematically. We introduce fable.intermittent , an 
+
+R package that implements several probabilistic forecasting methods for inter-mittent series within the fable framework. The package allows several models to be fitted and evaluated on a collection of time series through a single, simple forecasting pipeline. We also introduce TWEES, a new exponential smoothing model with a Tweedie predictive distribution. Fitting TWEES requires repeated evaluation of the computationally demanding Tweedie density. We also release the R package tweedieDistr , whose implementation of the Tweedie distribution is substantially faster than the existing one while preserving the same numerical accuracy. We evaluate the methods implemented in fable.intermittent on four datasets, also released in the package. 
+
+Keywords: Intermittent demand; Probabilistic forecasting; Tweedie distribution; Exponential smoothing; Forecast reconciliation       
+
+> ∗Corresponding author
+> Email addresses: stefano.damato@supsi.ch (Stefano Damato),
+> lorenzo.zambon@supsi.ch (Lorenzo Zambon), giorgio.corani@supsi.ch (Giorgio Corani),
+> dario.azzimonti@supsi.ch (Dario Azzimonti) arXiv:2609.28607v1 [cs.LG] 23 Sep 2026
+
+1. Introduction 
+
+Intermittent time series are non-negative valued time series characterized by positive values interspersed with zeros (Boylan and Syntetos, 2021). They com-monly arise, for instance, in supply-chain applications (Syntetos et al., 2016) and retail (Fildes et al., 2022). Most methods for intermittent time series (Croston, 1972; Syntetos and Boylan, 2005; Teunter et al., 2011) provide point forecasts, which are insufficient to support decision making. The costs of forecasting er-rors are usually asymmetric, so that the optimal forecast is a quantile rather than the mean of the predictive distribution (Kolassa, 2016); inventory control, for instance, requires the upper tail of the predictive distribution of the demand (Prak and Teunter, 2019). Probabilistic models for intermittent time series span several methodologies, from statistical to machine learning approaches (Lang et al., 2026): static empir-ical and parametric distributions (Boylan and Babai, 2022; Kolassa, 2016), boot-strap methods (Willemain et al., 2004; Zhou and Viswanathan, 2011), Bayesian dynamic models (Harvey and Fernandes, 1989; Babai et al., 2021), exponential smoothing models for count data (Snyder et al., 2012; Svetunkov and Boylan, 2023), ARMA-based models (Sbrana, 2025; Sbrana and Babai, 2026), Gaussian processes for intermittent data (Damato et al., 2025). Probabilistic forecasts can also be produced by a global deep-learning model such as DeepAR (Salinas et al., 2020), trained with a distribution head suitable for intermittent data. Only a few methods, however, have publicly available implementations. In 
+
+R (R Core Team, 2026), the smooth package (Svetunkov, 2026) implements the intermittent exponential smoothing (iETS) model (Svetunkov and Boylan, 2023); while fableCount (Almeida and Vieira, 2024) makes available the mod-els GLARMA and INGARCH for time series of counts. In Python , GluonTS 
+
+(Alexandrov et al., 2020) provides global deep-learning models. Other models, e.g. Damato et al. (2025) and Sbrana and Babai (2026), are only released in project repositories. Available implementations, moreover, are spread across dif-ferent frameworks, making it laborious to compare several probabilistic methods for intermittent time series on the same data. We fill this gap with fable.intermittent , an R package which extends the fable 
+
+framework (O’Hara-Wild et al., 2026a) by implementing several probabilistic forecasting methods from the literature. The package allows these methods to be fitted and evaluated on collections of time series with a straightforward pipeline. 
+
+fable.intermittent also provides TWEES, a novel probabilistic model for in-termittent time series. It is an exponential smoothing model with a Tweedie predictive distribution. The Tweedie distribution is suitable for intermittent data as it combines a point mass at zero with a continuous mixture of Gamma distributions over the positive real line. Recent studies (Damato et al., 2025, 2026) show that it improves the estimation of the highest quantiles compared with distributions traditionally used for forecasting of intermittent time series, such as the negative binomial and hurdle-shifted negative binomial. Following the design of Snyder et al. (2012), we use two different exponential smoothing 2recursions to model the mean of the predictive distribution and the probability of demand occurrence. In our experiments, TWEES is among the most accurate models. The evaluation of the Tweedie density, however, is computationally demand-ing (Dunn and Smyth, 2005). This is problematic when the Tweedie distribution is the predictive distribution of a time series model, as the density must be eval-uated repeatedly during estimation, especially when the model is fitted on a large collection of time series. We address this limitation with tweedieDistr ,an R package providing a novel implementation of the Tweedie distribution. For density evaluation, our implementation is up to 20 times faster than that of the tweedie package (Dunn, 2026), while retaining the same numerical accu-racy. Both fable.intermittent and tweedieDistr are released under the LGPL-3.0 License 1 and available on CRAN 2, the official archive of R packages. The paper is organized as follows. Sec. 2 presents the models implemented in fable.intermittent , the datasets available within the package, and an example of the forecasting pipeline. Sec. 3 describes our implementation of the Tweedie distribution, available in tweedieDistr , and its speedup over the implementation provided by tweedie . Sec. 4 introduces the TWEES model. Sec. 5 evaluates the models of fable.intermittent on several datasets. Sec. 6 shows how the resulting forecasts can be probabilistically reconciled using fable.bayesRecon (Azzimonti et al., 2026). Finally, Sec. 7 presents our conclusions. 
+
+2. Literature models and datasets provided by fable.intermittent 
+
+Name Family Reference Croston-based WSS Bootstrapping Willemain et al. (2004) ✓
+
+VZ Bootstrapping Zhou and Viswanathan (2011) ✓
+
+BETANBB Bayesian Harvey and Fernandes (1989) ✗
+
+GAMPOISB Bayesian Harvey and Fernandes (1989) ✗
+
+HSPES Exponential smoothing Snyder et al. (2012) ✓
+
+NEGBINES Exponential smoothing Snyder et al. (2012) ✗
+
+EMPSD Static distribution Boylan and Babai (2022) ✗
+
+PARAMSD Static distribution Kolassa (2016) ✗
+
+MARWAL ARMA Sbrana (2025) ✓
+
+NNARMA ARMA Sbrana and Babai (2026) ✗
+
+> Table 1: Methods from the literature implemented in the package, grouped by methodological family.
+> 1https://gnu.org
+> 2https://cran.r-project.org/web/packages/fable.intermittent/index.html ,
+> https://cran.r-project.org/web/packages/tweedieDistr/index.html .
+
+32.1. Models 
+
+The package implements the probabilistic models for intermittent time series listed in Tab. 1. The last column indicates which models rely on Croston’s decomposition (Croston, 1972), which decomposes the series into an occurrence process, indicating whether demand is positive, and a demand size process, containing the positive demand values. According to the model classification by Januschowski et al. (2020), all the implemented models are local. Bootstrapping methods for intermittent demand, reviewed by Hasni et al. (2019), resample past demand values to estimate the demand size process. In particular, we implement WSS (Willemain et al., 2004), which models the occur-rence process as a two-state Markov Chain, and VZ (Zhou and Viswanathan, 2011), which bootstraps demand intervals. The Bayesian methods of Harvey and Fernandes (1989) use a prior for the parameters of the predictive distribu-tion, and update it as the time series evolves; GAMPOISB uses a Gamma prior for the Poisson parameter, while BETANBB uses a Beta prior for the probabil-ity parameter of a negative binomial model, which count parameter is learned via maximum likelihood. Snyder et al. (2012) couple exponential smoothing with predictive distributions suitable for count data: in HSPES, two processes smooth the rate of a Poisson on the demand size and a probability of occur-rence to get a hurdle-shifted Poisson forecast distribution, while in NEGBINES a single process determines the mean of a negative binomial distribution. ARMA-based models use a Gaussian likelihood, but the mean is tailored to properties of intermittent demand: Sbrana (2025) additionally models the occurrence with a Markov chain, while Sbrana and Babai (2026) constrain the mean of the forecast distribution to be positive. Finally, static distributions treat time series data as i.i.d. observations; they are considered a solid bench-mark for intermittent time series (Spiliotis et al., 2021). We implement EMPSD, the simple empirical distribution of the data (Boylan and Babai, 2022), and PARAMSD that fits a parametric distribution (Kolassa, 2016). Our implemen-tation fits five candidate parametric distributions (Poisson, negative binomial, their hurdle-shifted versions and a discretized Tweedie distribution) and selects among them by minimizing the Bayes Information Criterion (BIC, Schwarz, 1978). See Appendix A for more detailed descriptions. Some of the methods above share the same routines, which are run several times for each time series fit. Our package improves the computational efficiency of these methods by implementing the repeated routines, such as exponential smoothing and ARMA recursions and Bayesian updates, in C++ via the package 
+
+Rcpp (Eddelbuettel and Francois, 2011). 
+
+2.2. Datasets 
+
+The package provides four datasets of intermittent time series (Tab. 2) in a format ready to be ingested by the fable pipeline. Auto (T¨ urkmen et al., 2021) contains monthly demand for automotive spare parts; its series are short and only mildly intermittent. Pasta (Mancuso et al., 2021) contains daily sales of 118 pasta products, including promotion covariates. RAF (Syntetos and Boylan, 4Dataset Frequency N L Period Zeros (%) ADI CV 2
+
+Auto Monthly 3000 24 2010-01 – 2011-12 22 1.26 0.35 Pasta Daily 118 1,798 2014-01 – 2018-12 24 1.25 0.61 RAF Monthly 5000 84 1996-01 – 2002-12 90 10.50 0.46 TinyM5 Daily 280 1,913 2011-01 – 2016-04 51 2.06 0.37 
+
+Table 2: Overview of the datasets included in the package. N and L denote respectively the number of time series in the data set and their length. The last three columns report the overall proportion of zero observations, the median across series of the average inter-demand interval (ADI), and the median squared coefficient of variation of the non-zero demand sizes (CV 2). 
+
+2005) contains monthly demand for spare parts of the Royal Air Force. TinyM5 
+
+is a subset from the data set of the M5 competition (Makridakis et al., 2022) and contains daily sales of different products at Walmart; we use the selection of Joachimiak (2022). Both Pasta and RAF are characterized by demand spikes (high CV 2), which challenge the tails of the predictive distributions. RAF has also the most intermittent demand. 11.32 310 30 100 0 0.49 1 5 10 50 100 CV 2 (log scale) ADI (log scale) SBC class Smooth Erratic Intermittent Lumpy Dataset Auto Pasta RAF TinyM5 
+
+Figure 1: Classification of the series of the four data sets according to average inter-demand interval (ADI, log scale) and the squared coefficient of variation of the non-zero demand sizes (CV 2, linearly-adjusted log scale). Dashed lines mark the cut-offs of Syntetos et al. (2005) (ADI = 1 .32, CV 2 = 0 .49). A small number of series with CV 2 = 0 (constant non-zero demand size) appear in the plot exactly on zero because of the linearly adjusted log scale. 
+
+Fig. 1 shows the distribution of the average inter-demand interval (ADI) and 5the squared coefficient of variation of non-zero demand sizes (CV 2) across the time series of the different datasets, following the classification of Syntetos et al. (2005). The data sets are released in the tsibble (Wang et al., 2020) format, a tidy data structure to store time series. In each data set, the column value stores the actual observations, and the column index saves their timestamps. One or more additional columns serve as time series identifiers; others may provide exogenous covariates. 
+
+2.3. Easy benchmarking with fable.intermittent 
+
+The package fable.intermittent extends fable (O’Hara-Wild et al., 2026a), the tidy time series modelling framework of the tidyverts 3 ecosystem. All mod-els share a common syntax and can be straightforwardly fitted to collections of time series stored as tsibble objects. Their probabilistic forecasts are rep-resented as distributional objects (O’Hara-Wild et al., 2026c). This common representation allows the models to be evaluated through the same pipeline, based on fabletools (O’Hara-Wild et al., 2026b) functions, and compared with other models available in fable or its extensions. Listings 1 and 2 show the basic pipeline to obtain a tsibble, res , with the results of Sec. 5.2. In a few lines, we train and evaluate 11 models, the ten models of Tab. 1 and the new model TWEES introduced in Sec. 4.  
+
+> 1
+
+library(fable)  
+
+> 2
+
+library(fable.intermittent)  
+
+> 3
+
+library(dplyr)  
+
+> 45
+
+# forecast 28 steps ahead  
+
+> 6
+
+h <- 28  
+
+> 78
+
+# Create train/test split of pasta data set  
+
+> 9
+
+train <- pasta |> filter(index <= max(index) - h)  
+
+> 10
+
+test <- pasta |> filter(index > max(index) - h)  
+
+> 11
+
+head(train,1)  
+
+> 12 13
+
+# A tsibble: 1 x 5 [1D]  
+
+> 14
+
+# Key: brand, product [1]  
+
+> 15
+
+index brand product value promotion  
+
+> 16
+
+<date> <chr> <chr> <dbl> <int>  
+
+> 17
+
+1 2014-01-02 B1 1 7 0      
+
+> Listing 1: Load the pasta data set and create a train/test split. Lines 12-16 show the shape of the tsibble train where the column value contains the values of the time series.
+> 3https://tsibble.tidyverts.org/
+
+61 # Fit models on train  
+
+> 2
+
+fit <- train |>  
+
+> 3
+
+model(  
+
+> 4
+
+wss = WSS(value),  
+
+> 5
+
+vz = VZ(value),  
+
+> 6
+
+betanbb = BETANBB(value),  
+
+> 7
+
+gampoisb = GAMPOISB(value),  
+
+> 8
+
+hspes = HSPES(value),  
+
+> 9
+
+negbines = NEGBINES(value),  
+
+> 10
+
+twees = TWEES(value),  
+
+> 11
+
+empsd = EMPSD(value),  
+
+> 12
+
+paramsd = PARAMSD(value),  
+
+> 13
+
+marwal = MARWAL(value),  
+
+> 14
+
+nnarma = NNARMA(value)  
+
+> 15
+
+) 
+
+> 16 17
+
+# Forecast 28 steps ahead  
+
+> 18
+
+fc <- fit |>  
+
+> 19
+
+forecast(h = h)  
+
+> 20 21
+
+# compute the accuracy, group by model and average over the dataset.  
+
+> 22
+
+res <- fc |>  
+
+> 23
+
+accuracy(data, measures = experiment_measures) |>  
+
+> 24
+
+group_by(.model) |>  
+
+> 25
+
+summarise(across(where(is.numeric), \(x) mean(x, na.rm = TRUE)))        
+
+> Listing 2: The pipeline for fitting, forecasting and evaluation on the Pasta dataset. Here,
+> experiment measures is a list of fabletools forecast evaluation measures; .model is the column where model names are stored, over which we group the results and compute the mean.
+
+3. tweedieDistr : a fast implementation of the Tweedie distribution 
+
+3.1. The Tweedie distribution 
+
+The Tweedie is a family of exponential dispersion distributions (Jørgensen, 1987) characterized by a power mean-variance relationship. If Y ∼ Tw( μ, ϕ, ρ ), then Var( Y ) = ϕμ ρ, (1) where μ > 0 is the mean, ϕ > 0 is the dispersion parameter, and ρ > 0 is the power parameter. As in Damato et al. (2025), we limit the power to ρ ∈
+
+(1 , 2): for this choice of the power parameter, the Tweedie distribution can be parameterized as a Compound Poisson Gamma model: 
+
+Y =
+
+> N
+
+X
+
+> i=1
+
+Xi, with (2) 
+
+Xii.i.d. 
+
+∼ Gamma( α, β ), N ∼ Pois( λ),
+
+7μ = 2.0 φ = 1.0 ρ = 1.2 μ = 2.0 φ = 5.0 ρ = 1.2 0 1 2 3 4 5 6 7 8 0 1 2 3 4 5 6 7 80.0 0.2 0.4 0.6 0.8 yp(y) Mass in 0 Density for y > 0 Figure 2: Two Tweedie distributions with the same mean and power parameter, but different dispersion. 
+
+where λ, α, and β are functions of the original parameters (Dunn and Smyth, 2005). From this parametrisation it can be seen why the Tweedie is suitable for intermittent demand: the sum of Gamma random variables models the positive mass and allows for a flexible right tail behaviour, while the Poisson distribution provides an atomic mass in zero computed from Eq. (2) as 
+
+P (Y = 0) = P (N = 0) = e−λ = e− μ2−ρϕ(2 −ρ) (3) Fig. 2 shows two Tweedie distributions with the same mean ( μ = 2) and power (ρ = 1 .2), but different dispersion ϕ; this results in different probabilities of zero and different distributions of positive values. 
+
+3.2. A novel, fast implementation in tweedieDistr 
+
+For y > 0, the evaluation of the Tweedie density is computationally cum-bersome because it requires computing infinite sums. The R package tweedie 
+
+(Dunn, 2026) uses evaluation strategies based on series expansion (Dunn and Smyth, 2005) and Fourier inversion of the characteristic function (Dunn and Smyth, 2008). The running times of these implementations, however, can be-come a bottleneck when fitting a Tweedie distribution to each time series of a large collection, or when the Tweedie distribution is used as the likelihood of a time series model and must therefore be evaluated repeatedly. Our package tweedieDistr provides a substantially faster implementation of the Tweedie distribution. Similarly to the package of Dunn (2026), tweed-ieDistr follows the R statistical convention implementing functions for the evalu-ation of the density function ( dtweedie() ), the cumulative distribution function (ptweedie() ) and its inverse ( qtweedie() ), and for random sample generation (rtweedie() ). In Fig. 3 we show the speedup on the three core functions dtweedie() ,
+
+ptweedie() , and qtweedie() provided by tweedieDistr over tweedie for differ-ent values of power, dispersion, and sample size. See Appendix C for more details about our experimental setup. 8The implementations of tweedieDistr are on average 15, 300, and 600 times faster than their counterpart in tweedie . The speedup can be attributed, in part, to the use of C++ via Rcpp /RcppArmadillo (Eddelbuettel and Francois, 2011) in our implementations. Moreover, a substantial advantage is provided by different choices in terms of algorithms, detailed in Appendix B. Finally, 
+
+tweedieDistr vectorises over mean, dispersion and power, whereas tweedie re-quires an R-level loop for the power parameter, as it only treats it as a scalar value. The function dtweedie() from tweedieDistr achieves the same accuracy as the one in tweedie . Instead, the cumulative function evaluation ( ptweedie() ) is 2% more accurate in tweedieDistr than in tweedie on average, when compared to Monte Carlo evaluations. Moreover, the tweedie implementation of the inverse cumulative distribution ( qtweedie() ) sometimes S: returns and error when ρ
+
+approaches 2. We observed such failures in the upper row of the third panel in Fig. 3; they are more frequent in cells closer to the top left corner, that is, when ϕ grows larger. D: nella fig 3 per` o abbiamo dei numeri, vuol dire che i numeri in quella cella sono calcolati su un numero di esperimenti piu’ piccolo? S: si However, the scope of the tweedie package is wider, as it implements the functions above for any ρ > 0, while tweedieDistr currently handles only 
+
+ρ ∈ (1 , 2). 
+
+4. The TWEES model 
+
+TWEES is an exponential smoothing model with a Tweedie predictive dis-tribution. A smoothed level controls the mean of a Tweedie likelihood, following a simple exponential smoothing recursion as in Snyder et al. (2012). Thus, de-noting the data of time series as y1, . . . , y T , TWEES models Yi ∼ Tw( μi, ϕ i, ρ ), whit the recursion 
+
+μi = αμyi−1 + θμ ¯μ + (1 − αμ − θμ)μi−1
+
+where αμ and θμ are learnable smoothing parameters, and ¯ μ is the average of the training data. This model is also similar to the TweedieGP model of Damato et al. (2025), where the mean of the Tweedie distribution is modeled with a Gaussian process. Recall that the variance of Yi is tied to its mean through Eq. (1); here, however, the dispersion ϕi is not kept fixed, but derived from a separate occurrence process, described next. To let occurrence and demand size evolve independently, we run a second damped exponential smoothing on the occurrence indicator ot = 1yt>0, as in the hurdle-shifted Poisson model of Snyder et al. (2012): 
+
+πi = απ oi−1 + θπ ¯π + (1 − απ − θπ )πi−1,
+
+where απ and θπ are smoothing parameters too, and ¯ π is the average of the occurrence process. Then, we constrain ϕi so that the mass at zero of the Tweedie matches the occurrence forecast πi: since the zero-mass of a Tweedie 9dtweedie (n = 200) 19 17 17 17 17 17 17 17 17 17 17 17 17 18 17 17 17 17 16 20 21 18 12 10 10 9 10 10 10 10 10 10 10 10 10 10 15 19 20 13 10 9 9 10 10 9 10 10 10 10 10 10 10 10 11 15 17 17 18 19 19 20 20 21 21 21 22 22 22 22 23 22 10 14 16 16 17 18 18 19 20 20 20 21 21 21 22 22 22 22 9 11 12 13 14 15 16 16 17 17 17 17 18 18 18 19 19 19 8 10 11 11 12 13 14 15 15 16 16 17 17 17 17 18 18 18 7 9 10 10 10 11 11 11 12 13 14 14 15 15 16 16 16 16 5 7 8 8 9 9 9 9 9 9 10 10 10 11 11 12 13 14 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 Power  Speedup 
+
+510 20 ptweedie (n = 200) 265 396 408 409 411 415 419 419 426 428 437 435 436 440 444 450 450 456 224 323 344 350 356 362 367 369 377 382 390 391 396 397 405 410 410 413 186 278 301 313 321 331 335 339 348 356 362 368 369 377 380 387 388 392 165 250 275 287 296 302 306 312 316 324 331 333 340 342 352 354 358 363 152 231 264 285 296 307 314 321 330 337 342 348 354 362 367 377 376 386 121 199 233 253 266 275 283 292 295 302 304 307 315 315 323 330 330 332 98 170 204 227 246 260 271 279 286 290 293 298 303 309 314 319 328 328 74 134 168 194 213 230 246 258 269 280 286 289 291 295 297 299 304 309 44 86 112 131 148 163 176 187 199 210 220 231 237 247 255 261 271 270 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 Power  Speedup 
+
+50 100 300 qtweedie (n = 10) 946 1238 1302 1269 1245 1262 1166 1106 1118 1050 1055 992 956 918 817 818 773 803 860 1056 1120 1129 1106 1070 1007 984 1012 926 885 891 815 807 804 716 764 703 698 955 971 987 984 953 944 914 851 916 858 777 775 757 737 747 705 624 628 816 804 834 826 830 779 729 696 682 661 677 605 630 589 585 584 542 547 807 892 907 899 895 869 845 844 797 787 790 780 728 721 751 701 711 441 685 737 764 766 737 741 713 693 677 667 645 647 628 640 651 603 622 359 573 623 654 666 661 661 643 623 616 613 609 594 606 610 609 595 598 264 450 493 534 550 571 569 568 567 564 575 579 577 578 561 572 574 564 157 282 328 357 381 412 401 403 415 427 437 445 463 476 486 508 512 517 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 Power 0.2 0.6 1 1.4 1.8 2.2 2.6 3 3.4 3.8 4.2 4.6 5 5.4 5.8 6.2 6.6 7Dispersion Speedup 
+
+300 500 1000 Speedup of tweedieDistr vs tweedie Figure 3: Improvement of the running times of the core density ( dtweedie() ), cumulative (ptweedie() ) and quantile ( qtweedie() ) functions for different choices of ϕ and ρ. For addi-tional details on the setup of this evaluation, see Appendix C. 
+
+variable is e−λi with λ as in Eq. (3), setting e−λi = 1 − πi and solving for ϕi
+
+gives 
+
+ϕi = μ2−ρi
+
+(2 − ρ) ( − log(1 − πi)) .
+
+10 The parameters ( ρ, μ 0, α μ, θ μ, π 0, α π , θ π ) are estimated jointly by maximising the Tweedie log-likelihood implied by the recursions above, subject to θη ≥
+
+0, α η ≥ 0, and the usual smoothing constraints αη + θη < 1 for η ∈ { μ, π }.One-step-ahead forecasts are obtained directly from the fitted model, given the observed values; longer-horizon forecasts are generated by simulating both exponential smoothing processes forward in time. As in Damato et al. (2025), the series is rescaled by its median positive value before fitting; this operation is allowed as the distribution is absolutely continuous for y > 0. In TWEES we restrict the power parameter to ρ ∈
+
+(1 .2, 1.8): the upper bound limits the number of terms required to evaluate the density, while the lower bound ensures numerical stability. 
+
+5. Experiments 
+
+5.1. Setup 
+
+We evaluate the models introduced in Sec. 2.1 and 4 on the datasets intro-duced in Sec. 2.2. We use fable.intermittent (v. 0.3.0) and tweedieDistr (v. 0.2.0); our code is available in this anonymous GitHub repository 4. All models are run with default options; for those requiring sample paths, 10 5 are drawn. For each dataset, we perform forecast evaluation using an expanding window approach where we use the first T observations as a training set and the following 
+
+h observations as a holdout test set. In particular, we use two windows setting 
+
+T = L − jh for j = 1 , 2. The value of h is set to the dataset’s native forecast horizon: h = 6 for Auto, h = 12 for RAF, and h = 28 for Pasta and TinyM5. Writing the training set by y1, . . . , y T and the holdout test set by yT +1 , . . . , yT +h, we use the Root Mean Squared Scaled Error (Hyndman and Koehler, 2006) to evaluate point forecasts: RMSSE = 
+
+vuuuut
+
+1
+
+h
+
+PT +ht=T +1 (yt − ˆyt)2
+
+1
+
+T − 1
+
+PTt=2 (yt − yt−1)2
+
+.
+
+where ˆ yt denotes the mean of the forecast distribution at time t. We assess the predictive distribution using the quantile score (Gneiting and Raftery, 2007) QS τ (y, ˆyτ ) = 
+
+(
+
+τ (y − ˆyτ ) if y ≥ ˆyτ ,
+
+(1 − τ ) (ˆ yτ − y) if y < ˆyτ .
+
+Following Spiliotis et al. (2021), we evaluate the quantile levels τ = 0 .5, 0.75 ,
+
+0.835 , 0.975 , 0.995, and we scale the quantile scores by the Mean Absolute Error (MAE) of the naive forecast. We omit lower-tail levels ( τ = 0 .005 , 0.025 , 0.165 ,   
+
+> 4https://anonymous.4open.science/r/benchmarking_intermittent-DD78 ;note that in this repository, the name of our packages is no longer anonymous.
+
+11 0.25), as in the data sets considered their quantile forecast is zero for most time series and models. The resulting scaled quantile score sQS τ is defined as follows: sQS τ =
+
+PT +ht=T +1 QS τ (yt, ˆyt,τ )
+
+PTt=2 |yt − yt−1| ,
+
+where ˆ yt,τ is the quantile forecast of level τ at timestamp t. We note that sQS 0.5
+
+corresponds to the Mean Absolute Scaled Error (Hyndman and Koehler, 2006). The scoring rules we introduced are evaluated over the test set of each win-dow: subsequently, we compute a score for each time series by taking the mean over the two windows. Since the scoring rules are scale-independent, we eval-uate each method on each dataset by taking the mean across different time series; this practice has been shown to be more robust than the use of ranks with MCB test (Koning et al., 2005), especially when dealing with high quantile levels (Corani et al., 2026). To test the significance of our findings, we use, for each scoring rule, the Model Confidence Set (MCS, Hansen et al., 2011; confi-dence α = 0 .05), a procedure that identifies a set of statistically equivalent best methods by iteratively eliminating the worst one. 
+
+5.2. Results 
+
+Model RMSSE sQS 0.5 sQS 0.75 sQS 0.835 sQS 0.975 sQS 0.995 
+
+WSS 0.883 9th 0.448 8th 0.421 9th 0.356 9th 0.117 1st 0.044 2nd 
+
+VZ 0.839 3rd 0.435 4th 0.409 5th 0.349 5th 0.138 7th 0.097 10th 
+
+BETANBB 0.848 7th 0.440 5th 0.415 7th 0.352 7th 0.117 1st 0.041 1st 
+
+GAMPOISB 0.916 10th 0.478 10th 0.473 10th 0.410 10th 0.144 8th 0.055 6th 
+
+HSPES 0.840 5th 0.441 6th 0.404 2nd 0.347 4th 0.150 11th 0.084 9th 
+
+NEGBINES 0.840 5th 0.433 2nd 0.405 3rd 0.343 1st 0.117 1st 0.045 4th 
+
+TWEES 0.839 3rd 0.442 7th 0.408 4th 0.345 3rd 0.117 1st 0.044 2nd 
+
+EMPSD 0.838 1st 0.434 3rd 0.409 5th 0.350 6th 0.146 9th 0.100 11th 
+
+PARAMSD 0.838 1st 0.432 1st 0.403 1st 0.343 1st 0.123 5th 0.052 5th 
+
+MARWAL 0.852 8th 0.452 9th 0.417 8th 0.353 8th 0.134 6th 0.067 8th 
+
+NNARMA 1.611 11th 0.791 11th 0.584 11th 0.460 11th 0.146 9th 0.066 7th       
+
+> Table 3: Auto data set: RMSSE and sQS τ(τ= 0 .5,0.75 ,0.835 ,0.975 ,0.995).
+
+We report the average scores of each method in Tab. 3 (Auto), Tab. 4 (Pasta), Tab. 5 (RAF), and Tab. 6 (TinyM5). For each metric, we report in bold the methods with the lowest score (the best), we underline the scores of those meth-ods falling into the MCS, and we report the rank of each method in grey. Across all four datasets, no single method dominates uniformly, but two patterns can be observed. First: static, simple benchmarks like EMPSD and PARAMSD are hard to beat on RMSSE and on central quantiles. As already noted by Boylan and Babai (2022), static methods are particularly effective when the historical data is limited (Auto, Tab. 3) or very sparse (RAF, Tab. 5). 12 Model RMSSE sQS 0.5 sQS 0.75 sQS 0.835 sQS 0.975 sQS 0.995 
+
+WSS 0.762 9th 0.411 6th 0.425 7th 0.381 8th 0.153 8th 0.054 6th 
+
+VZ 0.741 7th 0.404 2nd 0.416 2nd 0.370 5th 0.147 7th 0.052 3rd 
+
+BETANBB 0.738 4th 0.411 6th 0.430 8th 0.380 7th 0.158 9th 0.066 9th 
+
+GAMPOISB 0.840 11th 0.537 11th 0.556 11th 0.493 11th 0.207 11th 0.085 10th 
+
+HSPES 0.733 3rd 0.436 8th 0.422 6th 0.365 1st 0.161 10th 0.091 11th 
+
+NEGBINES 0.730 1st 0.403 1st 0.416 2nd 0.366 2nd 0.135 1st 0.051 2nd 
+
+TWEES 0.731 2nd 0.407 5th 0.417 4th 0.367 3rd 0.136 2nd 0.053 5th 
+
+EMPSD 0.740 5th 0.404 2nd 0.415 1st 0.369 4th 0.146 6th 0.052 3rd 
+
+PARAMSD 0.740 5th 0.405 4th 0.421 5th 0.376 6th 0.141 3rd 0.050 1st 
+
+MARWAL 0.766 10th 0.473 10th 0.488 10th 0.415 10th 0.141 3rd 0.061 7th 
+
+NNARMA 0.753 8th 0.447 9th 0.466 9th 0.402 9th 0.143 5th 0.063 8th       
+
+> Table 4: Pasta data set: RMSSE and sQS τ(τ= 0 .5,0.75 ,0.835 ,0.975 ,0.995).
+
+Model RMSSE sQS 0.5 sQS 0.75 sQS 0.835 sQS 0.975 sQS 0.995 
+
+WSS 0.722 10th 0.316 1st 0.475 6th 0.533 4th 0.415 6th 0.209 1st 
+
+VZ 0.741 11th 0.317 8th 0.510 8th 0.592 9th 0.492 11th 0.364 10th 
+
+BETANBB 0.709 7th 0.316 1st 0.474 1st 0.532 1st 0.417 7th 0.225 5th 
+
+GAMPOISB 0.720 9th 0.383 9th 0.543 9th 0.590 8th 0.472 10th 0.375 11th 
+
+HSPES 0.703 2nd 0.316 1st 0.475 6th 0.539 7th 0.396 1st 0.241 7th 
+
+NEGBINES 0.704 6th 0.316 1st 0.474 1st 0.533 4th 0.407 5th 0.215 2nd 
+
+TWEES 0.702 1st 0.316 1st 0.474 1st 0.532 1st 0.406 4th 0.221 3rd 
+
+EMPSD 0.703 2nd 0.316 1st 0.474 1st 0.532 1st 0.400 3rd 0.234 6th 
+
+PARAMSD 0.703 2nd 0.316 1st 0.474 1st 0.535 6th 0.398 2nd 0.221 3rd 
+
+MARWAL 0.703 2nd 0.536 10th 0.798 10th 0.749 10th 0.429 8th 0.309 8th 
+
+NNARMA 0.715 8th 0.549 11th 0.805 11th 0.754 11th 0.429 8th 0.309 8th       
+
+> Table 5: RAF data set: RMSSE and sQS τ(τ= 0 .5,0.75 ,0.835 ,0.975 ,0.995).
+
+The difference between the two methods is often minimal, except on the Auto dataset, where the parametric model is better than the empirical distribution on all metrics. Second, we observe that two methods, TWEES and NEGBINES, have better scores and almost never fall outside the top five. For instance, on the TinyM5 dataset, Tab. 6, the two methods are always part of the MCS. TWEES, in particular, ranks in the top three on RMSSE and sQS 0.835 across all datasets. Our results show that exponential smoothing models generally perform bet-ter. For TWEES, in particular, the two-process approach for occurrence and demand size is key: using a single process that only controls the mean, as in NEGBINES, led to poorer results in preliminary experiments. The negative binomial method, however, remains very competitive, and almost always ranks better than TWEES on Pasta, Tab. 4. HSPES is the worst of the three ES methods: indeed, its modeling of the occurrence is effective, but the demand 13 Model RMSSE sQS 0.5 sQS 0.75 sQS 0.835 sQS 0.975 sQS 0.995 
+
+WSS 0.907 11th 0.620 7th 0.740 7th 0.693 7th 0.271 5th 0.082 4th 
+
+VZ 0.904 10th 0.605 6th 0.701 5th 0.646 5th 0.235 1st 0.071 1st 
+
+BETANBB 0.841 4th 0.568 1st 0.640 1st 0.613 3rd 0.289 8th 0.143 8th 
+
+GAMPOISB 0.882 7th 0.596 5th 0.701 5th 0.683 6th 0.364 11th 0.184 9th 
+
+HSPES 0.837 3rd 0.575 3rd 0.644 2nd 0.606 1st 0.254 3rd 0.116 7th 
+
+NEGBINES 0.835 2nd 0.575 3rd 0.651 3rd 0.617 4th 0.264 4th 0.101 6th 
+
+TWEES 0.830 1st 0.570 2nd 0.651 3rd 0.609 2nd 0.239 2nd 0.084 5th 
+
+EMPSD 0.899 8th 0.631 8th 0.769 9th 0.716 9th 0.276 6th 0.078 2nd 
+
+PARAMSD 0.899 8th 0.632 9th 0.768 8th 0.717 10th 0.284 7th 0.079 3rd 
+
+MARWAL 0.854 6th 0.668 11th 0.806 11th 0.730 11th 0.351 10th 0.207 11th 
+
+NNARMA 0.844 5th 0.653 10th 0.776 10th 0.703 8th 0.338 9th 0.200 10th       
+
+> Table 6: TinyM5 data set: RMSSE and sQS τ(τ= 0 .5,0.75 ,0.835 ,0.975 ,0.995).
+
+process is fit on comparatively few non-zero observations and the light right tail of its Poisson likelihood struggles to cover the highest quantiles. A related problem affects the GAMPOISB model: the Gamma distribution driving the mean of the Poisson often has low variance, constraining the model to behave similarly to a Poisson model, thus affecting its performance on high quantile levels. The other Bayesian model, BETANBB, is frequently effective: its results are particularly good on the extreme quantiles for Auto, and in the central ones for all data sets, confirming the suitability of the negative binomial distribution on intermittent demand. Bootstrapping methods sometimes rank in top positions, but they lack con-sistency across different metrics. VZ, for instance, performs well on high quan-tiles only when time series are long (Pasta, TinyM5). Its mean forecasts are accurate only on the Auto dataset, the one with the least sparse demand. Its main limitation is that, using Croston’s decomposition, the number of values to sample from is equal to the number of non-zero values in the time series. Simi-larly, the performance of WSS is unstable, probably because bootstrap demand values, after the jittering step, are then rounded to positive integers: this latter step biases the quantile forecasts of the demand size upwards. Instead in RAF, where the lowest quantiles are only driven by the occurrence Markov Chain, WSS has good scores. ARMA-based models are probably the class with the worst performance. NNARMA and MARWAL sometimes perform well on RMSSE, with the latter ranking second on RAF. Yet on probabilistic scores the two methods are at the bottom of the ranking, particularly at the central quantiles where they rank 8th to 11th on every dataset. This gap between a competitive mean forecast and poor-performing quantile forecasts can be traced back to the use of a Gaussian forecast distribution, whose symmetric tails fail to model frequent zeros and sporadic, possibly large, demand spikes. 14 6. A worked example of intermittent time series reconciliation TOTAL                   
+
+> B1B2B3B4
+> b1b2· · · b42 b43 b44 · · · b87 b88 b89 · · · b108 b109 b110 · · · b118
+> Figure 4: Hierarchy of the Pasta dataset.
+
+The integration of fable.intermittent in the fable framework automatically gives access to time series reconciliation tools. Within the fable framework, in particular, fable.bayesRecon provides methods for the reconciliation of prob-abilistic forecasts of smooth, intermittent and mixed time series hierarchies. Here, we show how to produce coherent probabilistic forecasts (Athanasopoulos et al., 2024) for a hierarchy of time series. We use the pasta dataset, which has a natural hierarchical structure, with 118 bottom-level time series (daily sales of pasta products) aggregated into 4 time series representing the sales of each brand, further aggregated into total sales. The hierarchy is represented in Fig. 4. The code snippet in Listing 3 shows the code for loading the data and creating the hierarchical structure and the train/test split. The experimental setup is the same as the one used in the previous section.  
+
+> 1
+
+library(fable)  
+
+> 2
+
+library(fable.intermittent)  
+
+> 3
+
+library(dplyr)  
+
+> 456
+
+# Total / brand / brand-product hierarchy (1 + 4 + 118 = 123 series)  
+
+> 7
+
+pasta_hts <- pasta |>  
+
+> 8
+
+aggregate_key(brand / product, value = sum(value))  
+
+> 910
+
+n_test <- 28  
+
+> 11 12
+
+train <- pasta_hts |> filter(index <= max(index) - n_test)  
+
+> 13
+
+test <- pasta_hts |> filter(index > max(index) - n_test)  
+
+> Listing 3: Loading the data and computing the aggregated series with aggregate key .
+
+The bottom time series are mostly non-smooth, as shown in Fig. 1; therefore we fit a TWEES model. On the other hand, the aggregated time series are 15 smooth, so we fit an ETS model (Hyndman and Athanasopoulos, 2021, Ch. 8). We reconcile these forecasts with the BUIS (Zambon et al., 2024a), MixCond and TDcond (Zambon et al., 2024b) algorithms, implemented by the functions 
+
+bayesRecon BUIS() , bayesRecon mixCond() and bayesRecon TDcond() of the package fable.bayesRecon . As a comparison, we fit an ETS model to all the series of the hierarchy, which we then reconcile with MinT (Wickramasuriya et al., 2019).  
+
+> 1
+
+# Fit base forecasting models  
+
+> 2
+
+# base_mix -> bottom TWEES, rest ETS  
+
+> 3
+
+fit <- train_hts |>  
+
+> 4
+
+model(ets = ETS(value), twees = TWEES(value)) |>  
+
+> 5
+
+mutate(base_mix = if_else(is_aggregated(product), ets, twees))  
+
+> 67
+
+# reconcile: BUIS, MixCond and TDcond on base_mix, MinT on ETS  
+
+> 8
+
+fit_rec <- fit |> reconcile(BUIS = bayesRecon_BUIS(base_mix),  
+
+> 9
+
+MixCond = bayesRecon_MixCond(base_mix),  
+
+> 10
+
+TDcond = bayesRecon_TDcond(base_mix),  
+
+> 11
+
+MinT = min_trace(ets))  
+
+> 12 13
+
+# Forecast 28 steps ahead  
+
+> 14
+
+fc <- fit_rec |> forecast(h = n_test) 
+
+> Listing 4: Fit and reconcile mixed forecasts.
+
+Model RMSSE sQS 0.5 sQS 0.75 sQS 0.835 sQS 0.975 sQS 0.995 
+
+Base (mixed) 0.741 3rd 0.421 3rd 0.433 3rd 0.380 3rd 0.138 1st 0.052 1st 
+
+Base (ETS) 0.803 6th 0.510 5th 0.568 5th 0.492 5th 0.159 5th 0.060 5th 
+
+BUIS 0.733 1st 0.413 1st 0.419 1st 0.367 1st 0.139 2nd 0.057 2nd 
+
+MixCond 0.735 2nd 0.413 1st 0.420 2nd 0.368 2nd 0.142 3rd 0.060 5th 
+
+TDcond 0.796 4th 0.432 4th 0.442 4th 0.396 4th 0.159 5th 0.058 3rd 
+
+MinT 0.799 5th 0.510 5th 0.572 6th 0.494 6th 0.158 4th 0.058 3rd   
+
+> Table 7: RMSSE and sQS τcomputed on the hierarchy of the Pasta dataset (Fig. 4). Base forecasts (grey background) are incoherent; mixed are computed with TWEES on the bottom series and ETS on the aggregated series.
+
+Listing 4 shows that we can easily fit all models and reconcile their fore-casts with very few lines of code and an intuitive syntax. Tab. 7 shows the RMSSE and sQS τ (τ ∈ { 0.5, 0.75 , 0.835 , 0.975 , 0.995 }) for the base forecasts (ETS and mixed) and the reconciled forecasts (BUIS, MixCond, TDcond and MinT). Among the base forecasts, mixed is consistently better than ETS, as TWEES is more effective than ETS on the intermittent bottom series. More-over, reconciliation via BUIS and MixCond improves the base forecasts on all the scores except for the two highest quantiles, while TDcond and MinT are less 16 effective. Indeed, BUIS and MixCond are tailored for hierarchies with count-valued bottom forecasts; conversely, MinT relies on Gaussian base forecasts, which often are not effective on intermittent time series. 
+
+7. Conclusion 
+
+We present fable.intermittent , an R package that implements a broad set of probabilistic methods for intermittent time series within the fable framework. Its purpose is to bring together, under one interface, methods that were pre-viously scattered across different packages and programming languages, or had no publicly available implementation at all. We also introduce TWEES, a new exponential smoothing model with a Tweedie predictive distribution. Finally, we provide an efficient implementation of the Tweedie distribution in the sep-arate R package tweedieDistr . Since the package adopts the tidy syntax of the 
+
+tidyverts ecosystem, every method is fitted, forecast, evaluated and visualized through the same concise pipeline, and can be applied to large collections of series with a single call. All the models are compatible with the rest of the ecosystem: they can be used together with other fable forecasting models, and their forecasts reconciled across a hierarchy using functions available in the same ecosystem. Several directions remain open for future work. The static distributions performed strongly and could be refined. For example, the models might account for seasonality or give more weight to recent observations. PARAMSD, which currently selects among candidate distributions with a log-likelihood criterion, could use a quantile score, since decisions typically rely on the upper tail of the predictive distribution. Another direction is to extend some of the models to incorporate exogenous variables, such as promotions, which strongly affect demand. Finally, we stress that our implementations are open-source and ready to be extended by users; we encourage contributions: the guide on the GitHub repository of the package 5 details how to build new models and integrate them in the package. 
+
+References 
+
+Alexandrov, A., Benidis, K., Bohlke-Schneider, M., Flunkert, V., Gasthaus, J., Januschowski, T., Maddix, D.C., Rangapuram, S., Salinas, D., Schulz, J., Stella, L., T¨ urkmen, A.C., Wang, Y., 2020. GluonTS: Probabilistic and Neu-ral Time Series Modeling in Python. Journal of Machine Learning Research 21, 1–6. Almeida, G., Vieira, M., 2024. fableCount: INGARCH and GLARMA Models for Count Time Series in Fable Framework. R package version 0.1.0. 
+
+> 5https://github.com/StefanoDamato/fable.intermittent/commit/ ee95d66947a49740dd0d0bac50ade369c6a572e3
+
+17 Athanasopoulos, G., Hyndman, R.J., Kourentzes, N., Panagiotelis, A., 2024. Forecast reconciliation: A review. International Journal of Forecasting 40, 430–456. Azzimonti, D., Damato, S., Zambon, L., Carrara, C., Corani, G., 2026. fa-ble.bayesRecon: Bayesian Reconciliation in the ’fable’ Framework. R package version 0.2.0. Babai, M., Chen, H., Syntetos, A., Lengu, D., 2021. A compound-Poisson Bayesian approach for spare parts inventory forecasting. International Journal of Production Economics 232, 107954. Box, G.E.P., Jenkins, G.M., 1970. Time Series Analysis: Forecasting and Con-trol. Holden-Day, San Francisco. Boylan, J., Syntetos, A., 2021. Intermittent Demand Forecasting: Context, methods and applications. 1 ed., Wiley. Boylan, J.E., Babai, M.Z., 2022. Estimating the cumulative distribution func-tion of lead-time demand using bootstrapping with and without replacement. International Journal of Production Economics 252, 108586. Brent, R.P., 1971. An algorithm with guaranteed convergence for finding a zero of a function. The Computer Journal 14, 422–425. Corani, G., Damato, S., Azzimonti, D., Zambon, L., 2026. Model selection with proper scoring rules on data sets of time series: prefer the mean scaled score. 
+
+arXiv:2606.24715 .Croston, J.D., 1972. Forecasting and stock control for intermittent demands. Operational Research Quarterly (1970-1977) 23, 289. Damato, S., Azzimonti, D., Corani, G., 2025. Forecasting intermittent time series with Gaussian Processes and Tweedie likelihood. International Journal of Forecasting , S0169207025000974. Damato, S., Rubattu, N., Azzimonti, D., Corani, G., 2026. Intermittent time series forecasting: local vs global models. arXiv:2601.14031 .Dunn, P.K., 2026. Tweedie: Evaluation of Tweedie Exponential Family Models. R package version 3.1.20. Dunn, P.K., Smyth, G.K., 2005. Series evaluation of Tweedie exponential dis-persion model densities. Statistics and Computing 15, 267–280. Dunn, P.K., Smyth, G.K., 2008. Evaluation of Tweedie exponential dispersion model densities by Fourier inversion. Statistics and Computing 18, 73–86. Eddelbuettel, D., Francois, R., 2011. Rcpp: Seamless R and C++ Integration. Journal of Statistical Software 40, 1–18. 18 Feng, C.X., 2021. A comparison of zero-inflated and hurdle models for modeling zero-inflated count data. Journal of Statistical distributions and applications 8, 8. Fildes, R., Ma, S., Kolassa, S., 2022. Retail forecasting: Research and prac-tice. International Journal of Forecasting 38, 1283–1318. Special Issue: M5 competition. Gneiting, T., Raftery, A.E., 2007. Strictly proper scoring rules, prediction, and estimation. Journal of the American Statistical Association 102, 359–378. Hansen, P.R., Lunde, A., Nason, J.M., 2011. The model confidence set. Econo-metrica 79, 453–497. Harvey, A.C., Fernandes, C., 1989. Time series models for count or qualitative observations. Journal of Business & Economic Statistics 7, 407–417. Hasni, M., Babai, M., Aguir, M., Jemai, Z., 2019. An investigation on bootstrap-ping forecasting methods for intermittent demands. International Journal of Production Economics 209, 20–29. Hyndman, R.J., Athanasopoulos, G., 2021. Forecasting: principles and practice. 3rd ed., OTexts, Melbourne, Australia. URL: https://OTexts.com/fpp3 .accessed on October 31, 2025. Hyndman, R.J., Koehler, A.B., 2006. Another look at measures of forecast accuracy. International Journal of Forecasting 22, 679–688. Januschowski, T., Gasthaus, J., Wang, Y., Salinas, D., Flunkert, V., Bohlke-Schneider, M., Callot, L., 2020. Criteria for classifying forecasting methods. International Journal of Forecasting 36, 167–177. Joachimiak, K., 2022. m5: ’M5 Forecasting’ Challenges Data. R package version 0.1.1. Jørgensen, B., 1987. Exponential dispersion models. Journal of the Royal Statistical Society Series B-Methodological 49, 127–145. Kolassa, S., 2016. Evaluating predictive count data distributions in retail sales forecasting. International Journal of Forecasting 32, 788–803. Koning, A.J., Franses, P.H., Hibon, M., Stekler, H., 2005. The M3 competition: Statistical tests of the results. International Journal of Forecasting 21, 397– 409. Lang, Y., Mao, W., He, J., Deng, X., Liu, W., Zuo, M., 2026. A comprehensive review on intermittent time series forecasting from the perspective of machine learning. Neurocomputing , 134783. 19 Makridakis, S., Spiliotis, E., Assimakopoulos, V., 2022. M5 accuracy competi-tion: Results, findings, and conclusions. International Journal of Forecasting 38, 1346–1364. Mancuso, P., Piccialli, V., Sudoso, A.M., 2021. A machine learning approach for forecasting hierarchical time series. Expert Systems with Applications 182, 115102. Mersmann, O., 2024. microbenchmark: Accurate Timing Functions. R package version 1.5.0. O’Hara-Wild, M., Hyndman, R., Wang, E., 2026a. fable: Forecasting Models for Tidy Time Series. R package version 0.5.0. O’Hara-Wild, M., Hyndman, R., Wang, E., 2026b. fabletools: Core Tools for Packages in the ’fable’ Framework. R package version 0.8.0. O’Hara-Wild, M., Kay, M., Hayes, A., Hyndman, R., 2026c. distributional: Vectorised Probability Distributions. R package version 0.7.1. Prak, D., Teunter, R., 2019. A general method for addressing forecasting uncer-tainty in inventory models. International Journal of Forecasting 35, 224–238. Special Section: Supply Chain Forecasting. R Core Team, 2026. R: A Language and Environment for Statistical Computing. R Foundation for Statistical Computing. Vienna, Austria. Salinas, D., Flunkert, V., Gasthaus, J., Januschowski, T., 2020. DeepAR: Proba-bilistic forecasting with autoregressive recurrent networks. International Jour-nal of Forecasting 36, 1181–1191. Sbrana, G., 2025. Markov Walk and Walmart sales prediction. Journal of the Operational Research Society , 1–12. Sbrana, G., Babai, M.Z., 2026. Non-negative autoregressive moving average models for intermittent demand: Forecast accuracy and inventory implica-tions. European Journal of Operational Research , S0377221726005412. Schwarz, G., 1978. Estimating the dimension of a model. The Annals of Statis-tics 6, 461–464. Snyder, R.D., Ord, J.K., Beaumont, A., 2012. Forecasting the intermittent demand for slow-moving inventories: A modelling approach. International Journal of Forecasting 28, 485–496. Spiliotis, E., Makridakis, S., Kaltsounis, A., Assimakopoulos, V., 2021. Product sales probabilistic forecasting: An empirical evaluation using the M5 compe-tition data. International Journal of Production Economics 240, 108237. 20 Svetunkov, I., 2026. smooth: Forecasting Using State Space Mod-els. URL: https://CRAN.R-project.org/package=smooth , doi: 10.32614/ CRAN.package.smooth . r package version 4.5.0. Svetunkov, I., Boylan, J.E., 2023. iETS: State space model for intermittent demand forecasting. International Journal of Production Economics 265, 109013. Syntetos, A.A., Babai, Z., Boylan, J.E., Kolassa, S., Nikolopoulos, K., 2016. Supply chain forecasting: Theory, practice, their gap and the future. Euro-pean Journal of Operational Research 252, 1–26. Syntetos, A.A., Boylan, J.E., 2005. The accuracy of intermittent demand esti-mates. International Journal of Forecasting 21, 303–314. Syntetos, A.A., Boylan, J.E., Croston, J.D., 2005. On the categorization of demand patterns. Journal of the Operational Research Society 56, 495–503. Teunter, R.H., Syntetos, A.A., Babai, M.Z., 2011. Intermittent demand: Link-ing forecasting to inventory obsolescence. European Journal of Operational Research 214, 606–615. T¨ urkmen, A.C., Januschowski, T., Wang, Y., Cemgil, A.T., 2021. Forecasting intermittent and sparse time series: A unified probabilistic framework via deep renewal processes. PLOS ONE 16, e0259764. Wang, E., Cook, D., Hyndman, R.J., 2020. A new tidy data structure to support exploration and modeling of temporal data. Journal of Computational and Graphical Statistics 29, 466–478. Wickramasuriya, S.L., Athanasopoulos, G., Hyndman, R.J., 2019. Optimal forecast reconciliation for hierarchical and grouped time series through trace minimization. Journal of the American Statistical Association 114, 804–819. Willemain, T.R., Smart, C.N., Schwarz, H.F., 2004. A new approach to forecast-ing intermittent demand for service parts inventories. International Journal of Forecasting 20, 375–387. Zambon, L., Azzimonti, D., Corani, G., 2024a. Efficient probabilistic recon-ciliation of forecasts for real-valued and count time series. Statistics and Computing 34, 21. Zambon, L., Azzimonti, D., Rubattu, N., Corani, G., 2024b. Probabilistic recon-ciliation of mixed-type hierarchical time series, in: Proceedings of the Fortieth Conference on Uncertainty in Artificial Intelligence, PMLR. p. 4078–4095. Zhou, C., Viswanathan, S., 2011. Comparison of a new bootstrapping method with parametric approaches for safety stock determination in service parts inventory systems. International Journal of Production Economics 133, 481–485. 21 Appendix A. Methods from the literature 
+
+We describe here the methods from the literature implemented in fable.intermittent .We denote by y1, . . . , y T the values of a time series with training set of length 
+
+T . We use h to denote the length of the forecast horizon. Forecasts are gener-ated for the variables YT +1 , . . . , Y T +h, where we use capital letters to denote a random variable. Several of the methods rely on Croston’s decomposition (Croston, 1972), which we review here. Let t1 < t 2 < · · · < t n be the n periods at which a positive value is observed, i.e. yti > 0. The demand sizes are the positive values themselves, di = yti for i = 1 , . . . , n ; the demand intervals ℓi = ti − ti−1
+
+(with ℓ0 = 0) are the number of periods between consecutive positive demands. Alternatively, the occurrence process is used, that is the binary time series 
+
+ot = 1{yt>0} for t = 1 , . . . , T .
+
+Appendix A.1. Bootstrapping methods WSS (Willemain et al., 2004). This bootstrapping method uses a Markov chain with states {0, 1} to model the occurrence. Denoting {Oi} the Bernoulli vari-ables of the Markov chain, the transition probabilities are estimated using the training set as 
+
+P(Oi+1 = j|Oi = k) = 
+
+PT −1 
+
+> i=1
+
+1{oi=k,o i+1 =j}
+
+PTi=1 1{oi=k}
+
+.
+
+The positive part of the forecast distribution is obtained sampling demand sizes 
+
+di and adding a Gaussian noise with variance √di; the demand size is then rounded and negative values are set to 0. Thus, the forecast distribution is a mixture of a mass in zero and a bootstrap distribution on positive integers. Forecasts are generated via autoregressive sampling. 
+
+VZ (Zhou and Viswanathan, 2011). This method is based on Croston’s de-composition. Predictions are generated with independent bootstrap samples of demand intervals and demand size: the former determine when positive values will appear, the latter determine their magnitude. Training times are almost immediate. 
+
+Appendix A.2. Bayesian models BETANBB (Harvey and Fernandes, 1989). A Bayesian model using a negative binomial forecast distribution, that is Yi ∼ NB( r, p i). The count parameter r
+
+is estimated globally across the time series, while the probability parameter pi
+
+follows a Beta distribution, pi ∼ Beta( ai, b i), whose parameters are updated following the equations 
+
+ai+1 = ω(ai + v) + (1 − ω), bi+1 = ω(bi + yi) (A.1) with ω ∈ (0 , 1] and v > 0. The parameters r, v, ω, a1, b1 are estimated to minimize the negative log-likelihood of the observations. Probabilistic forecasts are generated via autoregressive sampling. 22 GAMPOISB (Harvey and Fernandes, 1989). In this model, a hierarchical Gamma-Poisson structure is used: Yi ∼ Pois( λi) with λi ∼ Γ( ai, b i). Similarly to Eq. (A.1), the parameters of the distribution vary as 
+
+ai+1 = ωa i + yi, bi+1 = ωb i + 1 with ω ∈ (0 , 1]. Initial parameters, as a1 and b1, and the updating coefficient 
+
+ω are learned via an optimizer to minimize the negative log-likelihood, which takes the form of a negative binomial distribution. One step-ahead forecasts are computed in closed-form, while for longer horizons autoregressive sampling is needed. 
+
+Appendix A.3. Exponential smoothing models HSPES (Snyder et al., 2012). In this model, demand size and occurrence are forecast separately. To both, a simple exponential smoothing (Hyndman and Athanasopoulos, 2021, Ch. 8) is applied, such that respectively 
+
+πi = απ oi−1 + θπ ¯π + (1 − απ − θπ )πi−1
+
+and 
+
+λi = αλ(di−1 − 1) + θλ ¯λ + (1 − αλ − θλ)λi−1
+
+where for both η ∈ { π, λ }, αη ≥ 0, θ η ≥ 0, and αη + θη < 1. The exponential smoothing is called undamped or damped depending on whether θη is equal to 0 or not. Note that the shifted demand size time series di − 1 is potentially shorter than y1, . . . , y T and is only updated when yi > 0. The two processes are combined into a hurdle-shifted Poisson distribution (HSP) such that Yi ∼ Oi(1 + Zi) where Oi ∼ Ber( πi) and Zi ∼ Pois( λi). Thus 
+
+P(Yi = 0) = 1 − πi and P(Yi = k) = πie−λi λk−1 
+
+> i
+> (k−1)!
+
+.The parameters of the exponential smoothing process, αη and θη , and the ini-tial values η0 for η ∈ { π, λ } are learned to minimise the negative log-likelihood, while ¯ π and ¯λ are set as the sample mean of the occurrence and the shifted demand size respectively. 
+
+NEGBINES (Snyder et al., 2012). In this model, a damped or undamped simple exponential smoothing process determines the mean parameter of a negative binomial distribution, which is related to the parametrisation as μ = r 1−pp .Thus, Yi ∼ NB( μi p 
+
+> 1−p
+
+, p ), where the mean is computed with the recursion 
+
+μi = αy i−1 + θ ¯μ + (1 − α − θ)μi−1.
+
+The parameters p ∈ (0 , 1) and μ1 of the negative binomial distribution, and 
+
+α ≥ 0 and θ ≥ 0 such that α + θ < 1 are determined using an optimiser. ¯μ is the mean of the training set of the time series. The forecast distribution is available in closed form only for h = 1; for longer horizons, it is obtained via autoregressive sampling. Being the negative binomial overdispersed, this model can expand its right tail more than HSPES; however, it is necessarily unimodal. 23 Appendix A.4. Static methods EMPSD (Boylan and Babai, 2022). The empirical distribution is a widely used and simple probabilistic benchmark for intermittent time series (Spiliotis et al., 2021). The predictive distribution is P(Yi = k) = 1
+
+> T
+
+PTi=1 1{yi=k}.
+
+PARAMSD (Kolassa, 2016). Fitting static distributions has been shown to be a strong benchmark: Boylan and Babai (2022) show that, for slow-moving items, a well-chosen parametric distribution estimates the lead-time demand CDF as accurately as bootstrap resampling, particularly when the demand history is short. This model treats the series as i.i.d. draws from a count distribution: the predictive distribution is identical at every horizon, YT +j ∼ F ˆΘ for all j, where ˆΘ is a set of parameters learned via maximum likelihood. Five candidate distri-butions are fitted to the history y1, . . . , y T : Poisson (Pois( λ)), negative binomial (NB( r, p )), their hurdle-shifted counterparts (Feng, 2021), and Tweedie. Hurdle shifted models use a Croston-type decomposition into occurrence 
+
+ot = 1{yt>0} and positive demand sizes, placing an explicit mass ˆ π0 = 1 −
+
+> 1
+> T
+
+P 
+
+> t
+
+ot at zero and fitting the count distribution to the shifted sizes {yt − 1 |
+
+yt > 0}:
+
+P(Y = 0) = π0, P(Y = k) = (1 − π0)pΘ\{ π}(k − 1) , k ≥ 1.
+
+The choice of the distribution is driven by an information criterion (either the default BIC = −2ℓ( ˆΘ) + |Θ| log T , or AIC = −2ℓ( ˆΘ) + 2 |Θ|, where |Θ| is the number of parameters), and the minimiser is returned. To allow for a fair comparison with other distributions, we do not evaluate the log-density of the Tweedie distribution on count data, but discretise it by integrating it over the interval [ y − 1/2, y + 1 /2) for any y ∈ N.
+
+Appendix A.5. ARMA methods MARWAL (Sbrana, 2025). The model works as the interplay of an ARMA(1,1) process (Box and Jenkins, 1970), zi, and a Markov chain χi on the occurrence switching between 0 and 1, such that 
+
+yi = χiω + zi
+
+where zi = λz i−1 + νi + θν i−1 and ω is the mean of non-zero values of the training set. The model achieves fast training times, as the parameters λ and θ
+
+are estimated in closed form. Furthermore, a validation loop is performed to determine the starting value 
+
+t0 ∈ { 1, . . . , T } of the training set yt0 , . . . , y T .The mean forecast ˆ yT +h and its variance ˆ σ2  
+
+> T+h
+
+is computed in closed form for any horizon, and a Gaussian distribution is assumed for the forecasts such that 
+
+YT +h ∼ N  ˆyT +h, ˆσ2 
+
+> T+h
+
+ .
+
+Negative samples or quantiles, however, are set to zero by design. 24 NNARMA (Sbrana and Babai, 2026). This model drives the demand series through a Gaussian ARMA(1,1) process, whose forecast distribution is then constrained to remain non-negative. Writing νi for the one step-ahead innova-tion, the model is 
+
+yi − ω = ϕ(yi−1 − ω) + νi + θν i−1,
+
+with ϕ, ω > 0, θ ≤ 0 and ϕ + θ > 0. The three parameters are estimated by least squares on the innovations νi. The mean and variance of the forecast distribu-tion are computed in closed form for any horizon via the standard ARMA(1,1) recursion. Input time series undergo a multiplicative deseasonalisation, and seasonal factors, computed as the average ratio between the time series and its moving average, are then applied to the forecasts. Similarly to the Markov Walk model, the distribution has its negative part set to zero. However, we underline that this leads to an ill-posed distribution, as collapsing the negative mass to zero would also modify its mean. 
+
+Appendix B. Implementative differences between tweedieDistr and 
+
+tweedie 
+
+dtweedie() . In tweedieDistr , thanks to the fast C++ implementation, the den-sity function dtweedie() can be evaluated via its series expansion (Dunn and Smyth, 2005) for any choice of parameters ϕ and ρ ∈ (1 , 2) (the mean μ does not enter the series expansion). On the other hand, tweedie uses the series ex-pansion only in a few cases. In the other cases, an interpolation strategy with saddlepoint approximation is used on tabulated data embedded in the package. 
+
+ptweedie() . For the evaluation of the cumulative distribution function on pos-itive values, the tweedie package uses the Fourier inversion strategy described by Dunn and Smyth (2008). For the tweedieDistr implementation, on the other hand, we use the Compound-Poisson parametrisation to write the cumulative distribution function as 
+
+P(Y ≤ y) = e−λ +
+
+> +∞
+
+X
+
+> n=1
+
+Tn(y) with 
+
+Tn(y) = pPois (n | λ)FGamma (y | nα, β ),
+
+for y > 0, where pPois denotes the mass function of a Poisson distribution and 
+
+FGamma the cumulative distribution function of a Gamma distribution. We then identify the index of the largest term 
+
+M = arg max  
+
+> n≥1
+
+Tn(y)and we approximate the series P+∞ 
+
+> n=1
+
+Tn(y) as 
+
+X
+
+> n∈Λ
+
+Tn(y) with Λ := 
+
+
+
+n ∈ N : Tn(y)
+
+TM (y) ≥ e−37 
+
+
+
+.
+
+25 The threshold of e−37 ≃ 8 · 10 −17 has been chosen as it guarantees double precision in a 64-bit floating point arithmetic (Dunn and Smyth, 2005). 
+
+qtweedie() . The quantile function also differs among the two packages. The major reason for the speedup is that both packages exploit their implementation of cumulative distribution function, which is faster in tweedieDistr . However, the tweedie package relies only on Brent’s method (Brent, 1971), while tweed-ieDistr uses a C++ implementation of Newton-Raphson algorithm, where the bisection method kicks in where convergence is not reached in few steps ( ∼ 4% of the times). 
+
+rtweedie() . Sampling from a Tweedie distribution for ρ ∈ (1 , 2) easily lever-ages the expression in Eq. (2): first, draw N as a Pois( λ), then draw y from Gamma( nα, β ). Both packages use this strategy. 
+
+Appendix C. Benchmarking speed and accuracy of a Tweedie im-plementation 
+
+We benchmark tweedieDistr ’s dtweedie() , ptweedie() and qtweedie() 
+
+against their namesake functions in the reference tweedie package, on identical inputs, over a grid of dispersion ϕ ∈ { 0.2, 0.6, . . . , 7.0} (18 values), power ρ ∈{1.1, 1.2, . . . , 1.9} (9 values). For each ( ϕ, ρ ) pair, the experiment is repeated 200 times to average out sampling variability; this number is up to 54% smaller for the combinations of parameters where the quantile function gives errors. We do not iterate over different values of μ, always set to 1, as it does not enter the series expansion of the density Dunn and Smyth (2005). For the density and cumulative distribution function, for each repetition we draw a probability of a zero observation p0 ∼ Unif(0 .2, 0.8), then generate the test input of size n, x1, . . . , x n as independent draws from a zero-inflated Gamma distribution, that is, Xi
+
+> iid
+
+∼ O · Z, with O ∼ Ber( p0) and Z ∼ Gamma(1 , 1); this is supposed to mimic the properties of Tweedie-generated data. For the quantile function, we generate the input q1, . . . , q n from Qi
+
+> iid
+
+∼ Unif(0 , 1). Both packages are evaluated on this same input. Wall-clock time is measured with microbench-mark (Mersmann, 2024), running 10 replications per comparison; the reported speedup is the ratio of the reference package’s mean time to tweedieDistr ’s mean time. To account for the dependence of the computational speedup on the sam-ple size, we run these experiments for n = 2 , 10 , 50 , 200 , 500 , 2000; the results shown in Fig. 3 are generated using n = 200 for dtweedie() and ptweedie() ,and n = 10 for qtweedie() . We observe that the gap in the speedup increases with the sample size for the cumulative function and its inverse, with the new implementations being up to 1000 times faster than the original one. The dif-ference in speed between the two versions, on the contrary, decreases with n for the density; however, even for the largest sample size we use, 2000, our novel implementation remains from 1.5 to 20 times faster than the tweedie package implementation. 26 The correctness of fable.intermittent is verified by an automated test suite that checks its output against tweedie with a tolerance of 10 −8. In the exper-iments grid described above, the differences in the density evaluation between the two packages were below the machine epsilon used in the experiments. For the cumulative probability function and the quantile function, the median ab-solute difference is again smaller than the machine epsilon; but the maximum difference is respectively in the order of 5 × 10 −2 and 7 × 10 −4. In the few cases where there is a disagreement among the two packages, Monte Carlo simulations confirmed fable.intermittent to be more accurate. 27

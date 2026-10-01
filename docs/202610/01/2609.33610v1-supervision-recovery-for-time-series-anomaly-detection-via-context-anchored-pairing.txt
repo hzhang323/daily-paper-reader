@@ -1,0 +1,1844 @@
+Title: Supervision Recovery for Time Series Anomaly Detection via Context-Anchored Pairing
+
+URL Source: https://arxiv.org/pdf/2609.33610v1
+
+Published Time: Tue, 29 Sep 2026 02:12:53 GMT
+
+Number of Pages: 47
+
+Markdown Content:
+# Supervision Recovery for Time Series Anomaly Detection via Context-Anchored Pairing 
+
+Yifei Gao 1 Tian Lan 1 Yimeng Lu 1 Xuming An 1
+
+Meng Wang 2 Wenjun He 2 Yijie Li 2 Chen Zhang 1∗
+
+> 1
+
+Department of Industrial Engineering, Tsinghua University 
+
+> 2
+
+Huawei 
+
+gao-yf@mail.tsinghua.edu.cn {lant23,luym25,axm24}@mails.tsinghua.edu.cn {wangmeng71,hewenjun8,liyijie5}@huawei.com zhangchen01@tsinghua.edu.cn 
+
+# Abstract 
+
+Time series anomaly detection (TSAD) remains challenging not only because anomaly labels are scarce, but also because temporal anomalies are highly context-dependent. Existing methods often rely on unsupervised objectives or surrogate abnormal patterns, providing limited supervision for context-dependent normal– anomalous distinctions. We propose Context-Anchored Pair Supervision (CAPS), a supervision-recovery framework for TSAD. CAPS views ideal anomaly su-pervision as a matched comparison between normal and anomalous outcomes under the same temporal context, and seeks to recover such supervision without target-domain anomaly labels. Using simulated normal–anomalous pairs, CAPS learns structure and anomaly-semantic representations through reconstruction, background consistency, and within-pair counterfactual recombination. The re-sulting anomaly representations form a continuous semantic space with coarse modes and induce a sampleable multimodal prior. CAPS conditionally realizes sampled semantics as residual-form effects on target reference trajectories. The resulting context-anchored normal–anomalous counterparts provide temporal su-pervision for discriminative detector learning. Experiments on nine datasets show that CAPS achieves the strongest aggregate performance across all four evaluation metrics among the compared methods, while complementary ablations and transfer analyses support the roles of context anchoring, semantic disentanglement, and conditional realization. 
+
+# 1 Introduction 
+
+Time series anomaly detection (TSAD) aims to identify abnormal events in sequential data, with broad applications in industrial monitoring [1, 2], system operations [3, 4], and diverse sensor-driven systems [5–7]. Despite its importance, effective TSAD remains challenging not only because anomaly labels are scarce, but also because temporal anomalies are highly context-dependent [8, 9]. The same local pattern may be benign in one temporal regime but abnormal in another; for example, a sudden increase can be normal during system start-up but anomalous during steady operation. To address these challenges, existing TSAD methods often rely on indirect or surrogate training signals, including reconstruction [10], forecasting [11], density estimation [12], representation learning [13], self-supervised or contrastive learning, pseudo anomalies, synthetic labels, and anomaly injection [14, 15]. Although effective in many cases, these methods either infer anomaly evidence indirectly from proxy objectives or obtain abnormal supervision from surrogate patterns. The resulting training signal may not always align with the normal–anomalous distinction relevant to the target temporal 
+
+> ∗Corresponding author. Preprint. arXiv:2609.33610v1 [cs.AI] 27 Sep 2026
+
+context, particularly when surrogate abnormal patterns are constructed without accounting for that context. This raises a key question: can we recover better supervision for TSAD without target-domain anomaly labels? 
+
+Addressing this question first requires clarifying what such supervision should represent . Inspired by a causal perspective, we view an anomaly as the effect of an anomaly mechanism acting on temporal evolution. Let X(0) denote the normal outcome of a sequence under a given temporal context and X(α) the alternative outcome when anomaly mechanism α acts under the same context. Their observation-level difference R(α) := X(α) − X(0) represents the observable anomaly effect relative to the matched normal outcome. This contrast does not specify a structural model of how the anomaly is physically generated or assume that the underlying mechanism is additive. The desired supervision is therefore a matched normal–anomalous comparison under the same temporal context, such that the discriminative contrast is concentrated on anomaly-induced variation. Such paired outcomes, however, are not jointly observable in real target-domain data. Simulated source data provide a practical route because controllable normal–anomalous correspondences can be constructed by design, without assuming that target anomalies follow the same predefined categories. Yet directly using simulated anomalous observations as target positives may mix anomaly effects with source–target background differences, since these observations retain source-specific temporal structure. Moreover, the same anomaly semantics may manifest differently across temporal contexts, as their effects depend on the reference dynamics. We therefore need to extract transferable anomaly semantics from simulation and re-realize them under target temporal contexts. This raises the central methodological question: how can transferable anomaly semantics be learned from simulated correspondences and converted into matched target-domain supervision? 
+
+Building on this perspective, we propose Context-Anchored Pair Supervision (CAPS), a framework for recovering target-domain supervision in TSAD. CAPS first learns structure and anomaly-semantic representations from matched simulated pairs through reconstruction, background consistency, and counterfactual recombination. Specifically, the recombination objective requires an anomalous observation to remain reconstructible after replacing its structure code with that of its matched normal reference, while retaining its anomaly-semantic code and support. This encourages anomaly information to remain usable with structure extracted from a normal observation. The learned anomaly representations form a shared continuous semantic space and induce a sampleable multimodal prior. A context-conditioned residual generator then realizes sampled semantics as anomaly effects on target reference trajectories. Pairing each generated counterpart with its target reference yields context-anchored temporal supervision for discriminative detector learning. Our main contributions are summarized as follows: • We formulate TSAD as a supervision-recovery problem, seeking matched normal– anomalous supervision under a shared temporal context without target-domain anomaly labels. • We propose CAPS, which learns anomaly-semantic representations from simulated pairs through reconstruction, background consistency, and counterfactual recombination, orga-nizes them into a continuous semantic prior, and conditionally realizes sampled semantics on target references to construct context-anchored matched supervision. • We conduct extensive experiments on nine datasets, where CAPS achieves the strongest aggregate performance among the compared methods. Complementary ablations and transfer analyses support the components of supervision recovery, while theoretical results characterize the roles of background mismatch, semantic coverage, and contextual realization in supervision transfer. 
+
+# 2 Related Work 
+
+Time Series Anomaly Detection. In label-scarce TSAD, methods typically learn from unlabeled or normal-dominated data. A common paradigm is to model regular temporal behavior and identify anomalies as deviations from learned normality, including reconstruction-based [16, 17], forecasting-based [18], density-estimation [19], and one-class methods [20]. Self-supervised, contrastive, and representation-learning approaches further improve temporal representations through auxiliary objec-tives or transformed views [21, 22]. While effective, these methods primarily derive anomaly evidence indirectly from learned normality or surrogate objectives. To obtain more explicit anomaly-oriented 2supervision, recent studies exploit limited anomaly labels or contextual anomalies [23–26], construct pseudo anomalies or synthetic labels [15], apply degradation-based or contrastive transformations [27, 14], or introduce artificial anomalies into normal sequences [28]. Such approaches reduce dependence on anomaly annotations, but their induced abnormal patterns are often governed by pre-defined perturbations or transformation rules, which may limit diversity and adaptability to temporal contexts and do not explicitly learn transferable anomaly semantics from matched normal–anomalous correspondences. Beyond rule-based anomaly construction, learning-based generative approaches using GANs, dif-fusion models, and flow models [29–31] provide flexible mechanisms for modeling time-series distributions and generating time-series samples. However, directly modeling target-domain anoma-lous distributions typically requires observed anomaly examples, anomaly-conditioned data, or externally specified abnormal conditions, which may be unavailable in the target-label-scarce setting considered here. Using anomalous data from simulated or external domains reduces dependence on target anomaly examples, but transferring such observations or distributions may entangle anomaly characteristics with source-specific temporal structure rather than isolate transferable knowledge. In visual anomaly detection, mature vision-language and text-to-image models provide rich semantic priors for synthesizing unseen defects from normal images [32]. Constructing a comparable prior for temporal anomalies is challenging because their observable effects depend on temporal dynamics, operating states, and the surrounding reference context. Transferring anomaly knowledge therefore requires distinguishing reusable anomaly semantics from their context-dependent realization. This raises a more fundamental question for TSAD: what can provide an appropriate prior for temporal anomaly variation, and how can transferable anomaly knowledge be extracted from such a prior and adapted to target temporal contexts? 
+
+# 3 TSAD as Target-Domain Supervision Recovery 
+
+Setting and available information. Let x = ( x1, . . . , x T ) ∈ RT denote a time-series window. We consider target-domain TSAD where the training set Dtr tar = {xtar  
+
+> i
+
+}Nt 
+
+> i=1
+
+is unlabeled and normal-dominated, and the goal is to learn a detector Dθ without target-domain anomaly labels. We addition-ally assume access to simulated normal–anomalous data with controllable correspondences, including matched normal and anomalous outcomes, anomaly supports, and coarse simulated anomaly-family labels. Such data provide structured information about anomaly-induced variation, but constitute neither target-domain anomaly labels nor target-domain anomalous observations. The simulated family labels provide a coarse organization of anomaly variation without prescribing exhaustive anomaly categories in the target domain. Given our focus on temporal anomaly behavior, we primarily consider anomaly effects over time without explicitly modeling inter-variable dependencies. 
+
+Desired supervision under temporal context. To characterize the supervision missing in the target domain, let X(0)  
+
+> C
+
+denote the normal outcome under temporal context C, and X(α) 
+
+> C
+
+the outcome when a conceptual anomaly mechanism α ∈ A acts under the same context. Their observation-level contrast 
+
+R(α) 
+
+> C
+
+:= X(α) 
+
+> C
+
+− X(0)  
+
+> C
+
+describes the realized anomaly effect relative to the matched normal outcome. Here, α denotes the conceptual mechanism, whereas R(α) 
+
+> C
+
+is its observable manifestation under context C; hence, the same mechanism may manifest differently across contexts, with R(α)
+
+> C1
+
+̸ = R(α)
+
+> C2
+
+in general. This difference is an outcome-level representation of the matched contrast: it neither assumes an additive underlying mechanism nor requires causal identification of α. The desired anomaly-oriented supervision is therefore the matched comparison (X(0)  
+
+> C
+
+, X (α) 
+
+> C
+
+), whose shared temporal context isolates anomaly-induced variation from unrelated background differences. 
+
+Why simulated supervision is not directly transferable. Although simulation provides such matched correspondences, simulated anomalies are realized under simulated rather than target temporal contexts. For a simulated pair (xsim  
+
+> n,j
+
+, x sim  
+
+> a,j
+
+) and an unrelated target reference xtar  
+
+> i
+
+, xsim  
+
+> a,j
+
+−
+
+xtar  
+
+> i
+
+= ( xsim  
+
+> a,j
+
+− xsim  
+
+> n,j
+
+) + ( xsim  
+
+> n,j
+
+− xtar  
+
+> i
+
+), where the two terms correspond to the source-context anomaly effect and source–target background mismatch. Directly using a simulated anomaly as a target positive therefore confounds anomaly-induced variation with reference mismatch. Moreover, even xsim  
+
+> a,j
+
+− xsim  
+
+> n,j
+
+is a realization tied to its simulated context and need not match how the same anomaly knowledge manifests on a target trajectory. Thus, the transferable object is neither the source 3Shared TCN encoder 𝐸     
+
+> Expert 1 …Expert 2 Expert K
+> Simulation-induced semantic prior 𝚷 𝑨
+> Structured simulated correspondence
+> Hard -routed Conditional Generator
+
+𝐱 𝑛  𝐱 𝑎 
+
+𝑧 𝑛,𝑠 
+
+𝑧 𝑎    
+
+> sample ǁ𝑧 𝑎 (𝑘) ~𝑝 𝑘 (𝑧 𝑎 )
+> (a) Matched -supervision view of temporal anomalies (b) CAPS framework
+
+𝑥 𝑡𝑎𝑟   
+
+> Target -domain
+> counterpart generation Target
+> data
+> Temporal
+> context C
+> Anomaly
+> mechanism 𝛼
+> Abstracted as
+> Periodic
+> Illustrative
+> matched pair
+> Point Trend
+> 𝑋 𝐶 (𝛼)
+> 𝑋 𝐶 (0)
+
+𝑅 𝐶 (𝛼) = 𝑋 𝐶 (𝛼) − 𝑋 𝐶 (0) 
+
+𝑋 𝐶 (0) 
+
+> Normal outcome
+> Anomalous outcome
+> Matched
+> contrast
+> Observation -level effect
+
+𝑋 𝐶 (𝛼) 
+
+> Anomaly variations
+> (𝑚, 𝑘)
+
+… 𝑝 𝐾 (𝑧 𝑎 )𝑝 2(𝑧 𝑎 )𝑝 1(𝑧 𝑎 )Structure 𝐸 𝑠  Semantics 𝐸 𝑎           
+
+> Controlled disentanglement
+> temporal representation h fit by 𝑘
+> Base decoder Reverse denoising ො𝑥 𝑎 (𝑘) = 𝑥 𝑡𝑎𝑟 +Ƹ𝑟 (𝑘) 𝑟 = 𝑥 𝑎 −𝑥 𝑛
+> Ƹ𝑟 (𝑘)
+> Supervised by
+> Simulated
+> effect
+
+Figure 1: Overall illustration of CAPS. Panel (a) illustrates the matched-supervision view of temporal anomalies. Panel (b) presents the CAPS framework: black arrows denote learning from simulated correspondences, while purple arrows denote target-domain counterpart generation. anomalous observation nor its realized effect itself. CAPS instead extracts anomaly semantics that remain meaningful across contexts and re-realizes them according to target temporal dynamics. 
+
+Goal: target-domain supervision recovery. Given the simulated correspondences and Dtr tar , our goal is to construct target-matched pairs bPtar = {(xtar  
+
+> i
+
+, bxi,a , m i)}, where bxi,a preserves the temporal background of xtar  
+
+> i
+
+while realizing learned anomaly semantics on support mi. Under the normal-dominated assumption, target windows serve as nominal reference anchors rather than being assumed strictly anomaly-free. The reference and its constructed counterpart provide temporal supervision 
+
+0 and mi, respectively, where mi is known by construction rather than observed from the target domain; the resulting supervision is therefore temporal rather than merely window-level. Accordingly, 
+
+supervision recovery means constructing target-compatible normal–anomalous training supervision, not recovering unknown ground-truth labels, exact anomalous outcomes, or physical anomaly mecha-nisms. This formulation yields two complementary requirements: extracting transferable anomaly semantics from structured simulation and realizing them according to target temporal contexts. 
+
+# 4 Context-Anchored Pair Supervision 
+
+Sec. 3 formulates TSAD as target-domain supervision recovery, requiring transferable anomaly semantics and their realization under target temporal contexts. CAPS addresses these requirements in a unified framework. First, it learns structure and anomaly-semantic representations from simu-lated normal–anomalous pairs through reconstruction, background consistency, and counterfactual recombination. In particular, replacing the structure code of an anomalous sample with that of its matched normal reference encourages the anomaly-semantic code to remain usable with the normal structure. The resulting semantic representations induce a sampleable multimodal prior. Second, CAPS organizes this prior into coarse semantic modes and employs a hard-routed residual MoE to realize sampled semantics on target reference trajectories, allowing experts to specialize in heterogeneous modes. Given a target reference xtar  
+
+> i
+
+, the generator produces a context-dependent anomaly effect ˆr(k) 
+
+> i
+
+and constructs its matched counterpart as ˆx(k) 
+
+> i,a
+
+= xtar  
+
+> i
+
++ ˆ r(k) 
+
+> i
+
+. Together with the sampled anomaly support, each reference–counterpart pair provides recovered temporal supervision for discriminative detector learning. CAPS therefore transfers anomaly knowledge through learned semantic representations and target-conditioned realization. 
+
+4.1 Structured Disentanglement for Transferable Anomaly Semantics Learning from matched temporal contrasts. Sec. 3 distinguishes transferable anomaly semantics from their context-dependent observation-level effects. CAPS learns this factorization from simulated 4normal–anomalous pairs. Within each pair, the temporal reference is shared, while the anomaly introduces a controlled change. This correspondence provides a reference for learning which temporal structure should be preserved and which variation is associated with the anomaly. We exploit it through complementary constraints on reconstruction, background consistency, and recombination of the learned factors. Following the simulated anomaly generation procedure of [33], we construct correspondences 
+
+(xn, x a, m, k ), where xn is the normal reference, xa its anomalous counterpart, m ∈ { 0, 1}T denotes anomaly support, and k indexes a coarse simulated anomaly family. This procedure is used to construct the simulated source correspondences; CAPS subsequently learns representations for semantic transfer and target-conditioned realization. We learn two complementary representations: 
+
+zs captures temporal structure to be preserved, while za ∈ Z A captures anomaly information in a shared continuous semantic space. The family index k provides a coarse source-side organization of this space, allowing continuous variation within each family without prescribing exhaustive target anomaly categories. The observable realization of anomaly information is jointly determined by its semantic representation and the temporal structure on which it acts. We adopt a shared TCN-based encoder E to capture multi-scale temporal context through hierarchical receptive fields while retaining local anomaly-related patterns. As shown in Fig. 1(b), E is followed by a structure head Es and an anomaly-semantic head Ea. Auxiliary base and context-conditioned residual decoders provide reconstruction constraints. Given a matched pair, hn = E(xn) and ha =
+
+E(xa), from which we obtain zn,s = Es(hn), za,s = Es(ha), zn,a = Ea(hn), and za = Ea(ha).
+
+Reconstruction and background consistency. The base decoder reconstructs temporal structure, while the residual decoder reconstructs the anomaly effect conditioned on both structure and anomaly semantics. Let 
+
+ˆxn = base( zn,s ), ˆxa = base( za,s ) + res( za,s , z a, m ).
+
+The reconstruction loss is 
+
+Lrec = 12 [MSE(ˆ xn, x n) + MSE(ˆ xa, x a)] . (1) Conditioning residual reconstruction on temporal structure allows the observable effect to depend on the reference context. To constrain the role of the structure branch, we define 
+
+maskedL1( u, v, q ) = 
+
+P 
+
+> t
+
+qt|ut − vt|
+
+P 
+
+> t
+
+qt + η ,
+
+where η > 0 is a small constant, and use 
+
+Lbase = MSE(base( zn,s ), x n) + maskedL1  base( za,s ), x a, 1 − m. (2) This objective reconstructs the normal reference and preserves the observed background outside the anomaly support. Because the two members of a pair share the same temporal reference, their structure representations should remain consistent. We also suppress anomaly-semantic activation for the normal member: 
+
+Ldis = ∥zn,s − za,s ∥22 + ∥zn,a ∥22. (3) 
+
+Counterfactual recombination through structure swapping. To further constrain how the two representations are used, CAPS requires the anomalous outcome to remain reconstructible after swapping its structure code with that of the matched normal reference. Specifically, we replace za,s 
+
+with zn,s while retaining the anomaly-semantic code za and support m:
+
+Dec( zn,s , z a, m ) = base( zn,s ) + res( zn,s , z a, m ).
+
+The matched anomalous observation xa provides a reconstruction target for this swapped combination, yielding 
+
+Lcf = MSE  Dec( zn,s , z a, m ), x a
+
+. (4) This loss directly trains the decoder to combine structure extracted from a normal observation with anomaly information extracted from its matched anomalous counterpart. It complements Ldis : the latter encourages agreement between the paired structure codes, whereas Lcf requires the swapped factors to reconstruct the anomalous outcome. The recombination constraint thus encourages za to 5carry anomaly information that remains usable with the normal structure code, while zn,s supplies the context for its realization. This within-pair training provides a basis for the subsequent generation stage, where sampled anomaly semantics are combined with target-reference structure. The complete representation-learning objective is 
+
+Ldisen = Lrec + Lbase + Ldis + Lcf .
+
+Together, these objectives encourage accurate reconstruction, background consistency, and recompos-ability of the learned factors. The resulting anomaly-semantic representations form the basis of the sampleable prior used for target-conditioned anomaly-effect generation. 
+
+4.2 Context-Conditioned Anomaly-Effect Generation Simulation-induced semantic prior and expert specialization. The paired representation learning in Sec. 4.1 yields anomaly-semantic codes za in a shared continuous space ZA. To make these semantics sampleable without target anomaly codes, we fit a diagonal Gaussian pk(za) = N (μk, Σk)
+
+for each coarse simulated anomaly family k, yielding 
+
+ΠA(za) = 
+
+> K
+
+X
+
+> k=1
+
+πkpk(za), pk(za) = N (μk, Σk). (5) We use uniform weights πk = 1 /K . The K components provide a coarse multimodal approximation within the same semantic space rather than defining separate or exhaustive target anomaly categories. Continuous variation within each mode is represented by za, with samples ˜z(k) 
+
+> a
+
+∼ pk(za) serving as mode-specific semantic conditions. CAPS employs a hard-routed residual MoE: during simulated training, family index k routes each pair to expert Uk, while za conditions residual generation. A lightweight router, trained with the same family supervision, maps (zn,s , z a) from simulated correspondences to normalized expert-association scores for optional target-guided mode selection. Standard CAPS instead uses all modes (Sec. 4.3). 
+
+Context-conditioned residual realization. The semantic prior captures transferable anomaly vari-ation but does not determine its context-specific manifestation. For a simulated pair (xn, x a), we define its realized effect as r = xa − xn, an observation-level contrast rather than an additive assumption on the underlying anomaly mechanism. CAPS applies conditional diffusion directly in this observation-level residual space. At diffusion step τ , we form rτ = √¯ατ r + √1 − ¯ατ ϵ, where 
+
+ϵ ∼ N (0 , I ) and ¯ατ denotes the cumulative signal-retention coefficient of the forward diffusion process. Expert Uk predicts 
+
+ˆϵ(k) = Uk(rτ , τ, z n,s , z a, m ). (6) Here, za, zn,s , and m specify anomaly semantics, reference context, and intended support, re-spectively. Thus, za specifies what is transferred, while zn,s determines how it is realized un-der the reference dynamics. For Eq. 7, the corresponding clean-residual estimate is computed as 
+
+ˆr(k) = ( rτ − √1 − ¯ατ ˆϵ(k))/√¯ατ .
+
+For a target reference xtar  
+
+> i
+
+, CAPS extracts ztar  
+
+> i,s
+
+= Es(E(xtar  
+
+> i
+
+)) . For each selected mode k, it samples 
+
+˜z(k) 
+
+> a
+
+∼ pk(za) and mask guidance m from the corresponding empirical mask pool. Conditioned on 
+
+(ztar  
+
+> i,s
+
+, ˜z(k) 
+
+> a
+
+, m ), expert Uk produces ˆr(k) 
+
+> i
+
+through reverse denoising rather than transferring a source residual. Here, m specifies the intended support rather than an observed target label and subsequently provides point-wise supervision for the generated counterpart. Conditioning on ztar  
+
+> i,s
+
+allows the same semantics to realize differently across target temporal contexts. 
+
+Residual localization objective. Simulated pairs provide both r = xa − xn and support m. With 
+
+maskedMSE defined analogously to maskedL1 , we optimize 
+
+Lgen = maskedMSE  ˆϵ(k), ϵ, m | {z }
+
+> Lmain
+
++ maskedMSE  ˆr(k), 0, 1 − m| {z }
+
+> Lout
+
+. (7) Only expert Uk is optimized for a family-k sample. The first term supervises noise prediction within anomaly support, while the second suppresses the clean-residual estimate outside it, keeping unrelated regions anchored to the reference. Thus, Lgen learns localized, context-dependent realizations of sampled anomaly semantics. 64.3 Target-Reference Pairing for Detector Supervision Constructing target-matched counterparts. Given the target-conditioned effect ˆr(k) 
+
+> i
+
+, CAPS con-structs the anomalous counterpart 
+
+ˆx(k) 
+
+> i,a
+
+= xtar  
+
+> i
+
++ ˆ r(k) 
+
+> i
+
+. (8) The resulting pair shares the same target temporal background, with its controlled difference deter-mined by the generated effect. Without target anomaly-mode guidance, standard CAPS instantiates all K semantic modes for each reference, exposing the detector to diverse effects represented by the learned semantic prior. 
+
+Targeted mode selection with limited anomaly guidance. When a small amount of anoma-lous target data is available, CAPS(Diagnosis) uses it only to narrow the modes used for coun-terpart generation. For each known anomalous sequence x ∈ Dknown , the router input is constructed as (Es(E(x)) , E a(E(x))) , without requiring a matched normal counterpart, and the router produces normalized mode-association scores qk(x). We aggregate these scores as 
+
+¯qk = |D known |−1 P 
+
+> x∈D known
+
+qk(x) and rank the modes accordingly. Let k(1) , . . . , k (K) denote this ordering. We select the smallest subset 
+
+Kρ = {k(1) , . . . , k (Jρ)}, Jρ = min 
+
+J :
+
+> J
+
+X
+
+> j=1
+
+¯qk(j) ≥ ρ
+
+ , (9) where ρ ∈ (0 , 1] is a cumulative-association threshold. Accordingly, Ki = {1, . . . , K } for standard CAPS and Ki = Kρ for CAPS(Diagnosis). The known anomalies are used only for mode selection, not detector supervision, while cumulative selection avoids forcing the observed target anomaly variation into a single coarse mode. 
+
+Recovered temporal supervision. With m(k) 
+
+> i
+
+denoting the support sampled during generation, the recovered target pair set is 
+
+bPtar = {(xtar  
+
+> i
+
+, ˆx(k) 
+
+> i,a
+
+, m (k) 
+
+> i
+
+) : xtar  
+
+> i
+
+∈ D tr tar , k ∈ K i}.
+
+Because m(k) 
+
+> i
+
+is known by construction, CAPS provides temporal rather than window-level supervi-sion: xtar  
+
+> i
+
+is paired with label sequence 0, while ˆx(k) 
+
+> i,a
+
+is paired with m(k) 
+
+> i
+
+. We train an independent lightweight TCN detector Dθ : RT → [0 , 1] T ,
+
+Dθ (x) = σ(hθ (ED (x))) , (10) using point-wise binary cross-entropy over these constructed labels. They constitute target-compatible supervision by construction rather than recovered ground-truth annotations. We keep the detector lightweight so that performance gains primarily reflect the recovered supervision; the complete procedure is provided in Algorithm 1 of Appendix B.1. 
+
+4.4 Analysis of Supervision Transfer Reference matching. For a simulated pair, define its observation-level effect as rs := xsa − xsn.Relative to an unrelated target reference x,
+
+xsa − x = rs
+
+|{z} 
+
+> source-context effect
+
++ (xsn − x)
+
+| {z }
+
+> background mismatch
+
+. (11) This identity does not assume an additive anomaly mechanism. CAPS constructs ˆxa = x + ˆ r, remov-ing the cross-reference term from the matched contrast. Whether this provides useful supervision still depends on which effects are covered and how they are realized under the target context. 
+
+Contextual realization. Consider an idealized effect R = g(C, Z ), where C denotes temporal context and Z denotes anomaly semantics and support guidance. If E∥R∥22 < ∞, then 
+
+inf  
+
+> h
+
+E∥R − h(Z)∥22 = E[tr Cov( R | Z)] , (12) with optimum h∗(Z) = E[R | Z]. Thus, effect prediction without context incurs irreducible error when the same semantics produce different effects across contexts. The oracle predictor g(C, Z )
+
+7attains zero approximation error. This motivates target-conditioned realization, but does not establish a detection advantage or a distributional lower bound for stochastic residual transfer. 
+
+Detector risk. Let ξ = ( r, m ) ∈ Ξ and ℓD (x, ξ ) = ℓ(D(x + r), m ), where ℓ is the temporal classification loss. Given references x ∼ PX , denote ideal matched effect–support supervision by 
+
+P Ξtar (· | x) and CAPS supervision by QΞΠA (· | x). Define 
+
+Rν (D) = 12 Ex
+
+ℓ(D(x), 0) + Eξ∼ν(·| x)ℓD (x, ξ ) . (13) These distributions respectively induce Rideal and RCAPS , sharing the same reference component. Introduce QΞ,∗ 
+
+> ΠA
+
+, the analytical distribution obtained with CAPS’s semantic prior and support sampling but ideal contextual realization. Using a common metric dΞ, define 
+
+∆cov := ExW1
+
+
+
+P Ξtar (· | x), Q Ξ,∗ 
+
+> ΠA
+
+(· | x)
+
+
+
+,
+
+∆real := ExW1
+
+
+
+QΞ,∗ 
+
+> ΠA
+
+(· | x), Q ΞΠA (· | x)
+
+
+
+.
+
+(14) The first captures coverage and sampling mismatch; the second contextual realization error. 
+
+Proposition 1 (Supervision-transfer risk) . Assume the risks are finite, the conditional distributions have integrable first moments, and ℓD (x, ·) is L-Lipschitz under dΞ, uniformly over D ∈ H and almost every x. Set ∆ = ∆ cov + ∆ real . Then 
+
+sup 
+
+> D∈H
+
+|R CAPS (D) − R ideal (D)| ≤ L
+
+2 ∆. (15) 
+
+If ˆD ∈ H satisfies RCAPS ( ˆD) ≤ inf D∈H RCAPS (D) + ϵlearn , then 
+
+Rideal ( ˆD) − inf  
+
+> D∈H
+
+Rideal (D) ≤ L∆ + ϵlearn . (16) Reference matching removes the cross-reference contrast term, while coverage and realization govern the remaining supervision discrepancy. Their reduction by CAPS requires empirical validation. The bounds compare matched training risks with shared reference labels, so they do not account for contamination from anomalous references. Proofs, sufficient conditions for BCE, and the interpretation of ϵlearn are provided in Appendix A. 
+
+# 5 Experiments 
+
+We evaluate CAPS through benchmark comparisons, component ablations, and analyses of super-vision transfer. The main text summarizes overall detection performance, selected ablations and controlled comparisons, and qualitative observations of the learned representations and cross-context semantic recombination. Detailed per-dataset results are provided in Appendix C.5. Appendix D provides detailed analyses of these comparisons and additional investigations of semantic transfer, coverage, realization mechanisms, robustness, and efficiency. 
+
+5.1 Experimental Setup Datasets and evaluation. We evaluate CAPS on nine public TSAD datasets spanning diverse domains and anomaly characteristics: IOPS, MGAB, NAB, Power, SED, UCR, NEK, TODS, and YAHOO. Performance is reported using Affiliation-F, F1 T, Standard-F1, and VUS-PR, covering complementary event-level, point-wise, and range-aware evaluation perspectives. 
+
+Baselines. We compare CAPS with classical methods LOF [34] and IForest [35], and deep mod-els OmniAnomaly [5], USAD [3], TranAD [36], Anomaly Transformer [6], TimesNet [37], and FITS [38]. TCN-based references include TCN-AE, TCN-Forecast, TCN-Injection [28], and TCN-Supervised. Appendix C.5 additionally reports CAPS(Diagnosis), which uses limited known anoma-lies only for expert selection, without using them as detector-training labels. Baseline descriptions and experimental protocols are provided in Appendix C. 
+
+Implementation details. Unless otherwise specified, CAPS uses the TCN-based encoder–decoder and independent lightweight TCN detector described in Sec. 4, with sequence length 256 and 8Table 1: Overall performance across nine TSAD benchmarks. Score and Rank denote the unweighted mean score and average dataset-wise rank, respectively. Avg.R averages the ranks across all four metrics. T1 and T2 count first-place and top-two results across the 36 dataset–metric pairs. Best and second-best aggregate results are bold and underlined. Detailed per-dataset results are reported in Appendix C.5.                                                                                                                                                              
+
+> Method Aff.-F F1 TStd.-F1 VUS-PR Avg.R T1 T2 Score ↑Rank ↓Score ↑Rank ↓Score ↑Rank ↓Score ↑Rank ↓
+> Unsupervised TSAD baselines
+> LOF 72.26 8.94 28.19 7.44 23.11 8.33 23.19 8.06 8.19 02IForest 47.86 10.67 14.15 10.94 15.65 9.72 18.72 8.67 10.00 00OmniAnomaly 73.48 7.78 28.35 5.56 23.82 6.67 25.04 6.28 6.57 16TranAD 73.39 8.67 21.46 7.67 19.00 8.44 22.54 7.28 8.01 00USAD 67.84 8.89 26.64 5.28 25.23 4.44 25.92 6.22 6.21 35AnomTrans. 69.10 9.00 7.60 11.56 11.76 11.11 12.53 11.78 10.86 00TimesNet 77.90 6.22 16.77 10.72 15.99 10.33 20.05 9.72 9.25 11FITS 77.02 6.22 15.64 10.94 15.53 9.67 18.68 10.22 9.26 01
+> TCN-based references
+> TCN-AE 78.19 6.00 30.63 5.22 25.10 5.78 23.96 5.89 5.72 01TCN-Injection 80.30 3.89 36.66 4.00 32.36 4.00 33.87 3.11 3.75 516 TCN-Supervised 78.72 6.00 31.34 4.33 27.50 4.67 30.72 4.44 4.86 03TCN-Forecast 77.07 7.44 29.02 5.89 24.43 6.61 23.05 8.00 6.99 02
+> CAPS 85.33 1.28 46.53 1.44 42.91 1.22 46.82 1.33 1.32 26 35
+
+Table 2: Ablations and controlled comparisons across nine datasets. Each entry is the unweighted average of the corresponding dataset-level scores. Higher is better; the best results are bolded. Detailed analyses are provided in Appendix D.                         
+
+> Variant Affiliation-F F1 TStandard-F1 VUS-PR Shuffled residuals 79.27 41.21 37.78 41.30 w/o residual parameterization 82.76 40.96 38.35 42.27 Direct source-residual injection 81.58 43.16 39.96 42.58 w/o counterfactual loss 83.65 42.76 39.11 43.11
+> CAPS 85.33 46.53 42.91 46.82
+
+structure/anomaly latent dimensions of 128/48. We use K = 3 coarse semantic modes organized by simulated point, periodic, and trend anomaly families. Alternative mode constructions and different choices of K are examined in Appendix D. Implementation details are provided in Appendix C. 
+
+Ablations and Controlled Comparisons. Table 2 summarizes four comparisons using the same TCN detector and evaluation protocol: (1) Shuffled residuals applies each generated residual to a different target reference, shuffling its anomaly support together with it while preserving the generator and number of generated counterparts; (2) Without residual parameterization replaces residual-form construction with direct anomalous-sequence generation while retaining background-preservation supervision outside the intended anomaly support; (3) Direct source-residual injection 
+
+adds the observation-level differences of the same simulated normal–anomalous pairs directly to target references, jointly bypassing semantic learning and target-conditioned realization; (4) Without counterfactual loss removes Lcf in Eq. 4 while retaining Lrec , Lbase , and Ldis , examining the contribution of within-pair counterfactual recomposition. Detailed analyses of these comparisons are provided in Appendix D. 
+
+5.2 Experimental Results Overall detection performance. Table 1 shows that CAPS achieves the strongest aggregate perfor-mance across all four evaluation metrics among the compared methods. Its gains over conventional unsupervised methods support the value of explicitly learning normal–anomalous distinctions through recovered supervision. The controlled TCN comparisons further examine this benefit while keeping the detector backbone consistent. In particular, the improvement over TCN-Injection highlights the importance of how synthetic supervision is constructed. By pairing each generated counterpart with 9Figure 2: Learned representations and cross-context semantic recombination. (a) Projections of zs
+
+and za. (b) Each column reuses a fixed anomaly-semantic code across different references; colored diagonal cells indicate the original pairings. its target reference, CAPS provides a shared temporal background against which the detector can learn anomaly-induced differences. CAPS also outperforms the label-supervised TCN reference in aggregate under the evaluated protocol. Although this reference does not represent an upper bound on supervised detection performance, the comparison illustrates the practical value of recovering useful training supervision from simulated anomaly knowledge when target anomaly labels are unavailable. 
+
+Contributions of the supervision-recovery components. Table 2 shows that disrupting context– effect matching, removing residual parameterization, or omitting the counterfactual loss reduces aggregate detection performance. These comparisons support matching generated effects to their reference contexts, explicitly retaining the reference during counterpart construction, and using within-pair recomposition to learn representations for transfer. The improvement over direct source-residual injection further supports the combined value of semantic learning and target-conditioned realization under the same simulated anomaly source. Fig. 2 provides complementary qualitative observations. Panel (a) shows substantial overlap between normal and anomalous structure representations zs,together with organization by anomaly family in the anomaly-semantic representations za. Panel (b) illustrates how a fixed anomaly-semantic code can be recombined with different reference structures, producing counterparts that preserve the reference background while exhibiting context-dependent anomaly effects. These examples illustrate the intended distinction between transferable anomaly semantics and their realization under a particular temporal context. 
+
+# 6 Conclusion 
+
+We proposed CAPS, a supervision-recovery framework for time series anomaly detection without target-domain anomaly labels. CAPS learns transferable anomaly semantics from simulated normal– anomalous pairs, using within-pair counterfactual recomposition to encourage their separation from temporal structure. It conditionally realizes these semantics as residual effects on target references, constructing context-anchored pairs for discriminative detector learning. Experiments on nine benchmarks and controlled comparisons support the effectiveness of this approach and the contributions of its core components. Performance depends on how well the simulated semantic prior covers target-relevant anomaly variation, motivating richer and adaptive priors. The current framework focuses on temporal anomaly effects; explicit modeling of cross-variable dependencies remains an important direction for future work. 10 Acknowledgments and Disclosure of Funding 
+
+This work was supported by NSFC Grant 72271138, the Tsinghua University Initiative Scientific Research Program 20243080039, and the Tsinghua–Huawei Collaboration Project 20252001894. We also acknowledge computing support from the Tsinghua High-Performance Computing Center and the KaiTuo 1000 supercomputer system. 
+
+# References 
+
+[1] Hussain Nizam, Samra Zafar, Zefeng Lv, Fan Wang, and Xiaopeng Hu. Real-time deep anomaly detection framework for multivariate time-series data in industrial iot. IEEE Sensors Journal , 22(23):22836–22849, 2022. [2] Wenchao Chen, Long Tian, Bo Chen, Liang Dai, Zhibin Duan, and Mingyuan Zhou. Deep variational graph convolutional recurrent network for multivariate time series anomaly detection. In International conference on machine learning , pages 3621–3633. PMLR, 2022. [3] Julien Audibert, Pietro Michiardi, Frédéric Guyard, Sébastien Marti, and Maria A Zuluaga. Usad: Unsupervised anomaly detection on multivariate time series. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining , pages 3395–3404, 2020. [4] Hongcheng Guo, Jian Yang, Jiaheng Liu, Jiaqi Bai, Boyang Wang, Zhoujun Li, Tieqiao Zheng, Bo Zhang, Junran Peng, and Qi Tian. Logformer: A pre-train and tuning pipeline for log anomaly detection. In 
+
+Proceedings of the AAAI conference on artificial intelligence , volume 38, pages 135–143, 2024. [5] Ya Su, Youjian Zhao, Chenhao Niu, Rong Liu, Wei Sun, and Dan Pei. Robust anomaly detection for multivariate time series through stochastic recurrent neural network. In Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining , pages 2828–2837, 2019. [6] Jiehui Xu, Haixu Wu, Jianmin Wang, and Mingsheng Long. Anomaly transformer: Time series anomaly detection with association discrepancy. In International Conference on Learning Representations , 2022. [7] Ailin Deng and Bryan Hooi. Graph neural network-based anomaly detection in multivariate time series. In 
+
+Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 4027–4035, 2021. [8] Andreas Mueller. Open challenges in time series anomaly detection: An industry perspective. arXiv preprint arXiv:2502.05392 , 2025. [9] Fengling Wang, Yiyue Jiang, Rongjie Zhang, Aimin Wei, Jingming Xie, and Xiongwen Pang. A survey of deep anomaly detection in multivariate time series: Taxonomy, applications, and directions. Sensors , 25 (1):190, 2025. [10] Lifeng Shen, Zhongzhong Yu, Qianli Ma, and James T Kwok. Time series anomaly detection with multiresolution ensemble decoding. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 35, pages 9567–9575, 2021. [11] Quan Zhou, Changhua Pei, Fei Sun, Han Jing, Zhengwei Gao, Haiming Zhang, Gaogang Xie, Dan Pei, and Jianhui Li. Kan-ad: Time series anomaly detection with kolmogorov–arnold networks. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 79136–79149. PMLR, 2025. [12] Qihang Zhou, Jiming Chen, Haoyu Liu, Shibo He, and Wenchao Meng. Detecting multivariate time series anomalies with zero known label. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 37, pages 4963–4971, 2023. [13] Jinju Park and Seokho Kang. Paano: Patch-based representation learning for time-series anomaly detection. In International Conference on Learning Representations , 2026. [14] Zahra Zamanzadeh Darban, Geoffrey I Webb, Shirui Pan, Charu C Aggarwal, and Mahsa Salehi. Carla: Self-supervised contrastive representation learning for time series anomaly detection. Pattern Recognition ,157:110874, 2025. [15] Kohei Obata, Yasuko Matsubara, and Yasushi Sakurai. Robust and explainable detector of time se-ries anomaly via augmenting multiclass pseudo-anomalies. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pages 2198–2209, 2025. 
+
+11 [16] Pankaj Malhotra, Anusha Ramakrishnan, Gaurangi Anand, Lovekesh Vig, Puneet Agarwal, and Gautam Shroff. Lstm-based encoder-decoder for multi-sensor anomaly detection. arXiv preprint arXiv:1607.00148 ,2016. [17] Dongmin Kim, Sunghyun Park, and Jaegul Choo. When model meets new normals: Test-time adaptation for unsupervised time-series anomaly detection. In Proceedings of the AAAI conference on artificial intelligence , volume 38, pages 13113–13121, 2024. [18] Mohsin Munir, Shoaib Ahmed Siddiqui, Andreas Dengel, and Sheraz Ahmed. Deepant: A deep learning approach for unsupervised anomaly detection in time series. IEEE access , 7:1991–2005, 2018. [19] Bo Zong, Qi Song, Martin Renqiang Min, Wei Cheng, Cristian Lumezanu, Daeki Cho, and Haifeng Chen. Deep autoencoding gaussian mixture model for unsupervised anomaly detection. In International conference on learning representations , 2018. [20] Bernhard Schölkopf, Robert C Williamson, Alex Smola, John Shawe-Taylor, and John Platt. Support vector method for novelty detection. Advances in neural information processing systems , 12, 1999. [21] Aitor Sánchez-Ferrera, Borja Calvo, and Jose A Lozano. A review on self-supervised learning in time series anomaly detection: Recent advances and open challenges. ACM Computing Surveys , 58(5):1–35, 2025. [22] Zhihan Yue, Yujing Wang, Juanyong Duan, Tianmeng Yang, Congrui Huang, Yunhai Tong, and Bixiong Xu. Ts2vec: Towards universal representation of time series. In Proceedings of the AAAI conference on artificial intelligence , volume 36, pages 8980–8987, 2022. [23] Guansong Pang, Chunhua Shen, and Anton Van Den Hengel. Deep anomaly detection with deviation networks. In Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining , pages 353–362, 2019. [24] Lukas Ruff, Robert A Vandermeulen, Nico Görnitz, Alexander Binder, Emmanuel Müller, Klaus-Robert Müller, and Marius Kloft. Deep semi-supervised anomaly detection. In International Conference on Learning Representations , 2020. [25] Chris U Carmona, François-Xavier Aubet, Valentin Flunkert, and Jan Gasthaus. Neural contextual anomaly detection for time series. In Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence , pages 2843–2851, 2022. [26] Yixin Liu, Shiyuan Li, Yu Zheng, Qingfeng Chen, Chengqi Zhang, and Shirui Pan. Arc: A generalist graph anomaly detector with in-context learning. Advances in Neural Information Processing Systems , 37: 50772–50804, 2024. [27] Yungi Jeong, Eunseok Yang, Jung Hyun Ryu, Imseong Park, and Myungjoo Kang. Anomalybert: Self-supervised transformer for time series anomaly detection using data degradation scheme. arXiv preprint arXiv:2305.04468 , 2023. [28] Qichao Shentu, Beibu Li, Kai Zhao, Yang Shu, Zhongwen Rao, Lujia Pan, Bin Yang, and Chenjuan Guo. Towards a general time series anomaly detector with adaptive bottlenecks and dual adversarial decoders. In International Conference on Learning Representations , 2025. [29] Dan Li, Dacheng Chen, Baihong Jin, Lei Shi, Jonathan Goh, and See-Kiong Ng. Mad-gan: Multivariate anomaly detection for time series data with generative adversarial networks. In International conference on artificial neural networks , pages 703–716. Springer, 2019. [30] Xinyu Yuan and Yan Qiao. Diffusion-ts: Interpretable diffusion for general time series generation. In 
+
+International Conference on Learning Representations , 2024. [31] Yang Hu, Xiao Wang, Zezhen Ding, Lirong Wu, Huatian Zhang, Stan Z Li, Sheng Wang, Jiheng Zhang, Ziyun Li, and Tianlong Chen. Flowts: Time series generation via rectified flow. arXiv preprint arXiv:2411.07506 , 2024. [32] Han Sun, Yunkang Cao, Hao Dong, and Olga Fink. Unseen visual anomaly generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 25508–25517, 2025. [33] Tian Lan, Hao Duong Le, Jinbo Li, Wenjun He, Meng Wang, Chenghao Liu, and Chen Zhang. Towards foundation models for zero-shot time series anomaly detection: Leveraging synthetic data and relative context discrepancy. In Proceedings of the 43rd International Conference on Machine Learning , 2026. 
+
+12 [34] Markus M Breunig, Hans-Peter Kriegel, Raymond T Ng, and Jörg Sander. Lof: identifying density-based local outliers. In Proceedings of the 2000 ACM SIGMOD international conference on Management of data , pages 93–104, 2000. [35] Fei Tony Liu, Kai Ming Ting, and Zhi-Hua Zhou. Isolation forest. In 2008 eighth ieee international conference on data mining , pages 413–422. IEEE, 2008. [36] Shreshth Tuli, Giuliano Casale, and Nicholas R Jennings. Tranad: Deep transformer networks for anomaly detection in multivariate time series data. Proceedings of the VLDB Endowment , 15(6):1201–1214, 2022. [37] Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. Timesnet: Tem-poral 2d-variation modeling for general time series analysis. In International Conference on Learning Representations , 2023. [38] Zhijian Xu, Ailing Zeng, and Qiang Xu. Fits: Modeling time series with 10 k parameters. In International Conference on Learning Representations , 2024. [39] Qinghua Liu and John Paparrizos. The elephant in the room: Towards a reliable time-series anomaly detection benchmark. Advances in Neural Information Processing Systems , 37:108231–108261, 2024. [40] M. Saquib Sarfraz, Mei-Yen Chen, Lukas Layer, Kunyu Peng, and Marios Koulakis. Position: Quo vadis, unsupervised time series anomaly detection? In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 43461–43476. PMLR, 2024. [41] Alexis Huet, Jose Manuel Navarro, and Dario Rossi. Local evaluation of time series anomaly detection algorithms. In Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , pages 635–645, 2022. [42] John Paparrizos, Paul Boniol, Themis Palpanas, Ruey S Tsay, Aaron J Elmore, and Michael J Franklin. Volume under the surface: A new accuracy evaluation measure for time-series anomaly detection. Proc. VLDB Endow. , 15(11):2774–2787, 2022. 
+
+13 A Theoretical Details and Proofs 
+
+This section provides additional details for the theoretical analysis in the main text. We first formalize the limitation of predicting anomaly effects without temporal context, then prove Proposition 1, and finally clarify the regularity conditions, learning-error term, and scope of the resulting bound. 
+
+A.1 Contextual Realization Gap 
+
+We first elaborate on why transferable anomaly semantics alone are generally insufficient to determine their observable effects. Let C denote temporal context, Z denote transferable anomaly information including semantic identity and support, and R denote the corresponding observation-level anomaly effect. Consider predictors h(Z) that predict the effect from transferable anomaly information without observing the temporal context. Assuming finite second moments, the conditional mean 
+
+h∗(Z) = E[R | Z]
+
+minimizes the mean squared prediction error. By the conditional-variance decomposition, 
+
+E∥R − h(Z)∥22
+
+ = E∥R − E[R | Z]∥22
+
+
+
++ E∥E[R | Z] − h(Z)∥22
+
+ . (17) Therefore, 
+
+inf  
+
+> h
+
+E∥R − h(Z)∥22
+
+ = E[tr Cov( R | Z)] . (18) Eq. (18) characterizes the minimum squared error of predicting the corresponding effect from Z
+
+alone. In particular, when the same transferable anomaly information admits different conditional mean effects under different temporal contexts, context-independent prediction cannot fully recover the corresponding realized effect. Allowing the predictor to additionally observe C, the optimal predictor becomes 
+
+f ∗(C, Z ) = E[R | C, Z ],
+
+with minimum error 
+
+inf  
+
+> f
+
+E∥R − f (C, Z )∥22
+
+ = E[tr Cov( R | C, Z )] .
+
+The reduction in optimal squared error is 
+
+inf  
+
+> h
+
+E∥R − h(Z)∥22
+
+ − inf  
+
+> f
+
+E∥R − f (C, Z )∥22
+
+
+
+= E
+
+h
+
+∥E[R | C, Z ] − E[R | Z]∥22
+
+i
+
+≥ 0. (19) Hence, contextual conditioning improves the optimal squared-error prediction whenever temporal context changes the conditional mean realization of the same transferable anomaly information. In the deterministic idealization used for intuition in the main text, where 
+
+R = g(C, Z ),
+
+a predictor with access to both C and Z can recover the corresponding effect exactly: 
+
+E∥R − g(C, Z )∥22
+
+ = 0 .
+
+This motivates realizing sampled anomaly semantics conditionally on the target reference trajectory rather than treating semantic identity as a context-independent residual template. This analysis concerns matched-effect prediction under squared loss. It does not establish a distribu-tional lower bound for stochastic residual transfer or, by itself, imply an advantage in downstream anomaly detection. 14 A.2 Proof of Proposition 1 
+
+Let PX denote the target-reference distribution and let 
+
+ξ = ( r, m ) ∈ Ξ
+
+represent an anomaly-effect instance consisting of an observation-level residual r and its temporal support m. For a target reference x, define 
+
+ℓD (x, ξ ) = ℓ(D(x + r), m ) , D ∈ H ,
+
+where H is the detector hypothesis class and ℓ is the temporal detection loss. Let P Ξtar (· | x) denote the ideal target-domain conditional distribution of anomaly effects and supports under reference x, and let QΞΠA (· | x) denote the conditional distribution induced by CAPS. We additionally introduce an analytical intermediate distribution QΞ,∗ 
+
+> ΠA
+
+(· | x), which uses the same simulation-induced semantic prior and support sampling as CAPS but realizes them through an ideal target-context realization mechanism. Define 
+
+∆cov = Ex∼PX
+
+h
+
+W1
+
+
+
+P Ξtar (· | x), Q Ξ,∗ 
+
+> ΠA
+
+(· | x)
+
+i 
+
+, (20) 
+
+∆real = Ex∼PX
+
+h
+
+W1
+
+
+
+QΞ,∗ 
+
+> ΠA
+
+(· | x), Q ΞΠA (· | x)
+
+i 
+
+. (21) The first measures semantic-coverage and sampling mismatch relative to the ideal target effect distribution, while the second measures realization discrepancy relative to this ideal mechanism. This decomposition is analytical and depends on the chosen intermediate distribution QΞ,∗ 
+
+> ΠA
+
+; it is not intended as an identifiable decomposition of the two error sources from observed data. For any conditional effect distribution ν(· | x), define the matched training risk 
+
+Rν (D) = 12 Ex∼PX
+
+ℓ(D(x), 0) + Eξ∼ν(·| x)ℓD (x, ξ ) . (22) We write 
+
+Rideal = RP Ξtar , RCAPS = RQΞΠA
+
+.
+
+Assume that, for PX -almost every x, the mapping 
+
+ξ 7 → ℓD (x, ξ )
+
+is L-Lipschitz on (Ξ , d Ξ), uniformly over D ∈ H . Since the nominal reference term ℓ(D(x), 0) is identical in the two risks, 
+
+|R CAPS (D) − R ideal (D)|≤ 12 Ex∼PX Eξ∼QΞΠA (·| x)ℓD (x, ξ ) − Eξ∼P Ξtar (·| x)ℓD (x, ξ ) . (23) By the Kantorovich–Rubinstein inequality, 
+
+|R CAPS (D) − R ideal (D)| ≤ L
+
+2 Ex∼PX W1
+
+ P Ξtar (· | x), Q ΞΠA (· | x) . (24) For PX -almost every x, the triangle inequality for W1 gives 
+
+W1
+
+ P Ξtar (· | x), Q ΞΠA (· | x)
+
+≤ W1
+
+
+
+P Ξtar (· | x), Q Ξ,∗ 
+
+> ΠA
+
+(· | x)
+
+
+
++ W1
+
+
+
+QΞ,∗ 
+
+> ΠA
+
+(· | x), Q ΞΠA (· | x)
+
+
+
+. (25) Taking expectation over x ∼ PX therefore yields 
+
+Ex∼PX W1
+
+ P Ξtar (· | x), Q ΞΠA (· | x) ≤ ∆cov + ∆ real .
+
+Consequently, 
+
+sup 
+
+> D∈H
+
+|R CAPS (D) − R ideal (D)| ≤ L
+
+2 (∆ cov + ∆ real ) . (26) 15 Let 
+
+∆ = ∆ cov + ∆ real ,
+
+and suppose that the learned detector ˆD ∈ H satisfies 
+
+RCAPS ( ˆD) ≤ inf  
+
+> D∈H
+
+RCAPS (D) + ϵlearn . (27) Using Eq.( 26), 
+
+Rideal ( ˆD) ≤ R CAPS ( ˆD) + L
+
+2 ∆
+
+≤ inf  
+
+> D∈H
+
+RCAPS (D) + ϵlearn + L
+
+2 ∆
+
+≤ inf  
+
+> D∈H
+
+Rideal (D) + L∆ + ϵlearn . (28) Hence, 
+
+Rideal ( ˆD) − inf  
+
+> D∈H
+
+Rideal (D) ≤ L (∆ cov + ∆ real ) + ϵlearn , (29) which proves Proposition 1. 
+
+A.3 Additional Assumptions and Learning Error 
+
+We finally clarify the regularity conditions and scope of the preceding analysis. 
+
+Wasserstein regularity. The conditional distributions P Ξtar (· | x), QΞ,∗ 
+
+> ΠA
+
+(· | x), and QΞΠA (· | x) are assumed to be measurable probability kernels with finite first moments under dΞ. We additionally assume that 
+
+∆cov + ∆ real < ∞
+
+and that the matched risks in Eq. (22) are finite. These conditions are sufficient for the Wasserstein quantities and expectations used in the proof to be well defined. 
+
+A sufficient Lipschitz condition for binary cross-entropy. The proposition requires the composed loss 
+
+ξ 7 → ℓ(D(x + r), m )
+
+to admit a common Lipschitz constant uniformly over D ∈ H . Binary cross-entropy is not globally Lipschitz when predicted probabilities approach 0 or 1. A sufficient condition is that, uniformly over 
+
+D ∈ H , detector outputs on all relevant inputs satisfy 
+
+D(u) ∈ [δ, 1 − δ]T , 0 < δ < 12 ,
+
+and that there exists a common constant KD < ∞ such that 
+
+1
+
+T ∥D(u) − D(v)∥1 ≤ KD ∥u − v∥2 (30) for all relevant inputs u and v.Consider the averaged binary cross-entropy 
+
+ℓBCE (p, m ) = − 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+[mt log pt + (1 − mt) log(1 − pt)] .
+
+On pt ∈ [δ, 1 − δ], its variation with respect to prediction satisfies 
+
+∂ℓ BCE 
+
+∂p t
+
+≤ 1
+
+T δ ,
+
+while changing the binary label at a fixed prediction is bounded by 
+
+1
+
+T log 1 − pt
+
+pt
+
+≤ 1
+
+T log 1 − δδ .
+
+16 Under the product metric 
+
+dΞ(( r, m ), (r′, m ′)) = ∥r − r′∥2 + 1
+
+T ∥m − m′∥1, (31) Eq. (30) therefore implies 
+
+|ℓBCE (D(x + r), m ) − ℓBCE (D(x + r′), m ′)|≤ KD
+
+δ ∥r − r′∥2 + log 1 − δδ
+
+1
+
+T ∥m − m′∥1
+
+≤ L d Ξ(( r, m ), (r′, m ′)) , (32) where one valid common constant is 
+
+L = max 
+
+ KD
+
+δ , log 1 − δδ
+
+
+
+. (33) These conditions are only sufficient conditions for the theoretical bound; they need not be interpreted as additional constraints imposed by the CAPS training procedure. 
+
+Interpretation of ϵlearn . The term ϵlearn represents ordinary detector-learning error under the CAPS-induced population risk rather than semantic-transfer discrepancy. To make this interpretation explicit, let bRCAPS denote the empirical risk on the recovered training set, and suppose that 
+
+bRCAPS ( ˆD) ≤ inf 
+
+> D∈H
+
+bRCAPS (D) + ϵopt .
+
+Then 
+
+RCAPS ( ˆD) − inf  
+
+> D∈H
+
+RCAPS (D)
+
+≤ 2 sup 
+
+> D∈H
+
+bRCAPS (D) − R CAPS (D) + ϵopt . (34) Thus, the right-hand side of Eq. (34) can be taken as ϵlearn , separating finite-sample estimation error from optimization error. This deterministic decomposition does not itself specify a finite-sample convergence rate. Establishing such a rate would additionally require assumptions accounting for temporal dependence and for dependence among generated counterparts constructed from shared references. Moreover, because Proposition 1 compares detectors within the same hypothesis class H, approximation error relative to an unrestricted Bayes-optimal detector is not included in ϵlearn .
+
+Reference contamination. The bound compares ideal and CAPS matched-training risks under the same target-reference distribution and the same nominal reference label 0. It therefore isolates discrepancy associated with semantic coverage, sampling, and contextual realization. If a nominal target reference already contains an unobserved anomaly, assigning it the reference label 0 may introduce an additional supervision bias. Such contamination is not represented by ∆cov or ∆real and is outside the scope of Proposition 1; its empirical effect is examined separately in Appendix D.1. 
+
+# B Training and Implementation Details 
+
+B.1 Overall Training and Inference Procedure 
+
+Algorithm 1 summarizes the training, supervision-recovery, and inference procedure of CAPS. CAPS first learns structure and anomaly-semantic representations from matched simulated normal– anomalous pairs using the objective in Sec. 4.1. Within-pair counterfactual recomposition reconstructs each anomalous sample from its anomaly-semantic code and its matched normal reference’s structure code. The representation modules are then fixed, mode-wise semantic priors are estimated, and residual experts are trained. During target-domain supervision recovery, sampled anomaly semantics are conditionally realized on target references to construct matched reference–counterpart pairs. The detector is then trained with point-wise supervision on these pairs and directly applied at inference. In the standard setting, all modes are used without target anomaly labels. With Diagnosis, limited known anomalies are used only to select associated modes for targeted counterpart generation. 17 Algorithm 1 Overall Training, Supervision Recovery, and Inference Procedure of CAPS 
+
+Require: Simulated correspondences Dsim containing (xn, x a, m, k ), unlabeled target training data 
+
+Dtr tar , optional known anomalies Dknown , Diagnosis threshold ρ = 0 .8 if enabled 
+
+Ensure: Semantic priors {pk}Kk=1 , residual experts {Uk}Kk=1 , detector Dθ 
+
+> 1:
+
+Paired representation learning  
+
+> 2:
+
+for each training batch sampled from Dsim do  
+
+> 3:
+
+Encode simulated normal–anomalous pairs to obtain zn,s , z a,s , z n,a , z a 
+
+> 4:
+
+Compute the within-pair recomposition loss Lcf = MSE(Dec( zn,s , z a, m ), x a) 
+
+> 5:
+
+Update the encoder, representation heads, and auxiliary decoders using Ldisen = Lrec +
+
+Lbase + Ldis + Lcf  
+
+> 6:
+
+end for  
+
+> 7:
+
+Freeze the trained encoder E and representation heads Es, E a 
+
+> 8:
+
+Mode organization and semantic-prior estimation  
+
+> 9:
+
+Establish mode assignments using the selected knowledge-based or data-driven organization  
+
+> 10:
+
+for each mode k = 1 , . . . , K do  
+
+> 11:
+
+Encode anomaly samples assigned to mode k and fit the diagonal Gaussian pk(za) = 
+
+N (μk, Σk) 
+
+> 12:
+
+Build the empirical mask pool Mk from correspondences assigned to mode k 
+
+> 13:
+
+end for  
+
+> 14:
+
+Form ΠA(za) = PKk=1 πkpk(za) with πk = 1 /K  
+
+> 15:
+
+Residual-expert training  
+
+> 16:
+
+if Diagnosis is enabled then  
+
+> 17:
+
+Train the lightweight router on paired representations (zn,s , z a) using the established simu-lated mode assignments to produce normalized mode-association scores  
+
+> 18:
+
+end if  
+
+> 19:
+
+for each simulated training batch do  
+
+> 20:
+
+Compute zn,s = Es(E(xn)) and za = Ea(E(xa))  
+
+> 21:
+
+Form the observation-level effect r = xa − xn 
+
+> 22:
+
+Hard-route each sample according to its established mode assignment k 
+
+> 23:
+
+Update the selected expert using Lgen conditioned on (zn,s , z a, m ) 
+
+> 24:
+
+end for  
+
+> 25:
+
+Mode selection for target generation  
+
+> 26:
+
+if Diagnosis is enabled and Dknown ̸ = ∅ then  
+
+> 27:
+
+Evaluate the router on (Es(E(x)) , E a(E(x))) for each x ∈ D known to obtain qk(x) 
+
+> 28:
+
+Compute ¯qk ← 1
+
+> |D known |
+
+P 
+
+> x∈D known
+
+qk(x) for k = 1 , . . . , K  
+
+> 29:
+
+Sort modes such that ¯qk(1) ≥ · · · ≥ ¯qk(K) 
+
+> 30:
+
+Set Jρ ← min 
+
+n
+
+J : PJj=1 ¯qk(j) ≥ ρ
+
+o 
+
+> 31:
+
+Set K ← { k(1) , . . . , k (Jρ)} 
+
+> 32:
+
+else  
+
+> 33:
+
+Set K ← { 1, . . . , K } 
+
+> 34:
+
+end if  
+
+> 35:
+
+Target-domain supervision recovery  
+
+> 36:
+
+Initialize an empty pair list bPtar  
+
+> 37:
+
+for each target reference xtar  
+
+> i
+
+∈ D tr tar do  
+
+> 38:
+
+Extract ztar  
+
+> i,s
+
+= Es(E(xtar  
+
+> i
+
+))  
+
+> 39:
+
+for each k ∈ K do  
+
+> 40:
+
+Sample ˜z(k) 
+
+> a
+
+∼ pk(za) and m ∼ M k 
+
+> 41:
+
+Generate ˆr(k) 
+
+> i
+
+with Uk conditioned on (ztar  
+
+> i,s
+
+, ˜z(k) 
+
+> a
+
+, m ) 
+
+> 42:
+
+Construct ˆx(k) 
+
+> i,a
+
+= xtar  
+
+> i
+
++ ˆ r(k) 
+
+> i
+> 43:
+
+Append  (xtar  
+
+> i
+
+, 0), (ˆ x(k) 
+
+> i,a
+
+, m ) to bPtar  
+
+> 44:
+
+end for  
+
+> 45:
+
+end for  
+
+> 46:
+
+Detector training  
+
+> 47:
+
+Train Dθ : RT → [0 , 1] T on bPtar using averaged point-wise BCE with equal weight on the reference and generated branches  
+
+> 48:
+
+Test-time scoring: Output Dθ (x) for each test sequence x.18 B.2 Paired Representation Learning and Counterfactual Recomposition 
+
+Representation learning uses simulated correspondences (xn, x a, m, k ), where xn is the normal reference, xa is its matched anomalous counterpart, m specifies the anomaly support, and k denotes a coarse simulated anomaly family. Each pair shares a temporal reference while exposing an anomaly-induced change. The family label k provides the default organization for subsequent prior estimation and expert training, while the representation-learning objective operates on the matched observations and their support. As described in Sec. 4.1, the shared encoder and two representation heads produce zn,s , za,s , zn,a ,and za. The reconstruction and background objectives constrain the representations to explain the observations and preserve their shared temporal background. The disentanglement objective Ldis 
+
+encourages agreement between zn,s and za,s , while suppressing anomaly-semantic activation zn,a 
+
+for the normal reference. Within-pair counterfactual recomposition further constrains how the learned factors are used. The ordinary anomalous reconstruction uses the structure code za,s extracted from xa. For recomposition, we replace this code with zn,s from its matched normal reference, while retaining za and m:
+
+Dec( zn,s , z a, m ) = base( zn,s ) + res( zn,s , z a, m ).
+
+The reconstruction target remains the same matched anomalous observation xa, giving 
+
+Lcf = MSE  Dec( zn,s , z a, m ), x a
+
+.
+
+Both representations originate from the same simulated pair. This constraint encourages anomaly information to remain usable with structure extracted from a normal observation. The residual decoder is conditioned on both factors, allowing the reconstructed effect to depend on the reference context. The complete representation-learning objective is 
+
+Ldisen = Lrec + Lbase + Ldis + Lcf .
+
+All four terms are evaluated on matched-pair minibatches, and the encoder, representation heads, and auxiliary decoders are optimized jointly. After representation learning, the encoder and heads are fixed for semantic-prior estimation and residual-expert training. 
+
+B.3 Semantic Prior, Mode Organization, and Diagnosis 
+
+After paired representation learning, the encoder and representation heads are fixed, yielding a shared continuous anomaly-semantic space ZA. The mode index k provides a coarse organization of heterogeneous simulated anomaly semantics within this common space; it does not define separate latent spaces or an exhaustive taxonomy of target-domain anomalies. Continuous semantic variation is retained within each mode through za, while mode organization provides a coarse specialization structure for prior estimation and context-conditioned realization. 
+
+Mode organization. We consider two strategies for organizing the learned anomaly-semantic space. The default strategy is knowledge-based . Based on the temporal characteristics of the simulated anomaly operations, we organize them into three coarse modes, 
+
+K = 3 : trend , periodic , point .
+
+Here, K = 3 follows from this source-side organization rather than being selected through target-domain supervision or latent-space clustering. Each mode still contains continuous variation in its operation-specific configuration parameters. As an alternative, we consider a fully data-driven organization that does not use the predefined trend–periodic–point assignments. After representation learning, the frozen anomaly-semantic codes 
+
+za are organized directly in ZA. We evaluate 
+
+K ∈ { 1, 3, 5, 7},
+
+where K = 1 treats the semantic space as a single mode and K > 1 uses K-means clustering to obtain the corresponding mode assignments. These assignments replace the simulator-defined mode 19 labels throughout subsequent prior estimation and expert specialization. For the clustering-based variants, the same assignments also define the mode-specific mask pools and, when applicable, the supervision labels for the Diagnosis router. The two strategies therefore examine different sources of semantic organization: the knowledge-based construction introduces a coarse inductive bias derived from temporal anomaly structure, whereas the data-driven construction derives the organization directly from the learned semantic representations. As evaluated in Appendix D.3, the knowledge-based three-mode organization achieves the strongest overall performance and is therefore adopted as the default setting. Changing K in the data-driven variants changes not only the specialization granularity but, under our default generation protocol, also the total number of residual experts and the number of generated counterparts per target reference. Comparisons across different values of K should therefore be interpreted as end-to-end mode-organization configurations rather than as an isolated measure of specialization granularity. In contrast, the knowledge-based and data-driven configurations with 
+
+K = 3 use the same number of modes and provide a more direct comparison of the two organization strategies. 
+
+Mode-wise semantic prior. For a given mode organization, let 
+
+Zk =
+
+n
+
+z(j) 
+
+> a
+
+: kj = k
+
+o
+
+denote the anomaly-semantic codes assigned to mode k. We estimate a diagonal Gaussian 
+
+pk(za) = N (μk, Σk),
+
+where 
+
+μk = 1
+
+|Z k|
+
+X
+
+> z∈Z k
+
+z, 
+
+and Σk is the diagonal empirical covariance of the corresponding semantic codes. The resulting simulation-induced semantic prior is 
+
+ΠA(za) = 
+
+> K
+
+X
+
+> k=1
+
+πkpk(za), πk = 1
+
+K .
+
+The Gaussian components provide a coarse multimodal approximation within the same continuous semantic space rather than defining independent anomaly spaces. Under the standard generation procedure, each target reference receives one generated counterpart from each mode, consistent with the uniform mixture weights. 
+
+Expert specialization. During simulated-domain expert training, each sample is hard-routed according to its established mode assignment k. Under the knowledge-based organization, k is determined by the simulated anomaly family; under the data-driven organization, it is determined by the semantic-space clustering. The corresponding residual expert Uk is optimized only with samples assigned to that mode. Such coarse specialization is intended to reduce interference among heterogeneous semantic regions during context-conditioned realization. The lightweight router used for Diagnosis neither determines the mode organization nor serves as the training gate for the residual experts. Mode assignments are established before expert train-ing, whereas the router is used only to associate limited known target anomalies with the already constructed modes. 
+
+Diagnosis with limited known anomalies. The standard CAPS setting requires no target-domain anomaly labels and uses all available modes, 
+
+K = {1, . . . , K }.
+
+When limited known target anomalies are available, CAPS(Diagnosis) uses a lightweight router to estimate their associations with the simulation-derived modes. During simulated training, the router takes (zn,s , z a) from matched correspondences and is supervised by their established mode 20 assignments. For a known target anomaly x, its input is (Es(E(x)) , E a(E(x))) , so no matched normal counterpart is required. It outputs normalized mode-association scores 
+
+qk(x) ≥ 0,
+
+> K
+
+X
+
+> k=1
+
+qk(x) = 1 .
+
+Given a small known-anomaly set Dknown , we compute 
+
+¯qk = 1
+
+|D known |
+
+X
+
+> x∈D known
+
+qk(x).
+
+Let 
+
+¯qk(1) ≥ ¯qk(2) ≥ · · · ≥ ¯qk(K)
+
+denote the sorted associations. We use a cumulative-association threshold 
+
+ρ = 0 .8
+
+and define 
+
+Jρ = min 
+
+J :
+
+> J
+
+X
+
+> j=1
+
+¯qk(j) ≥ ρ
+
+ ,
+
+with the retained mode set 
+
+Kρ = k(1) , . . . , k (Jρ) .
+
+The selected modes are used equally for counterpart generation, corresponding to 
+
+ΠA, Kρ (za) = 1
+
+|K ρ|
+
+X
+
+> k∈K ρ
+
+pk(za).
+
+The known anomalies are used only for mode association and targeted counterpart generation rather than as detector-training labels. The router is unnecessary in the standard CAPS setting and is not used by the final detector at inference. 
+
+B.4 Architecture and Optimization Details 
+
+Table 3 summarizes the main architectural and optimization configurations used in CAPS. Unless otherwise specified, all reported results use an input length of 256 and the knowledge-based three-mode organization described in Appendix B.3. The representation and generation modules are trained in two stages. We first optimize the paired representation-learning objective and then freeze the encoder and representation heads. The fixed representations are subsequently used to estimate the semantic priors and train the hard-routed residual experts. The detector is trained independently on the recovered target-domain reference–counterpart pairs. 
+
+Two-stage representation and generation training. In the first stage, the shared encoder E,structure head Es, anomaly-semantic head Ea, and auxiliary decoders are jointly optimized on minibatches of matched simulated normal–anomalous pairs using 
+
+Ldisen = Lrec + Lbase + Ldis + Lcf .
+
+We use Adam with a learning rate of 10 −3, a batch size of 32, and train the representation modules for 60 epochs. After this stage, E, Es, and Ea are frozen, thereby fixing the learned structure and anomaly-semantic spaces. In the second stage, the frozen representation modules are used to extract zn,s and za from the simulated correspondences. The mode-wise diagonal Gaussian priors {pk}Kk=1 are estimated from these fixed semantic codes, and the residual experts are optimized using Lgen . Each simulated sample is hard-routed according to its established mode assignment. The residual-generation stage is trained for 100 epochs using Adam with the same learning rate and batch size. We use a diffusion horizon of 200 steps and run the full 200-step reverse process for counterpart generation. The lightweight router is trained only when CAPS(Diagnosis) is evaluated and does not participate in standard expert routing. The base and residual decoders in Table 3 are auxiliary reconstruction modules used during 21 representation learning. The diffusion experts operate directly in observation-level residual space; the clean-residual estimate defined in Sec. 4.2 is used to evaluate Lout during training, whereas counterpart generation uses the full reverse diffusion process. Table 3: Main architectural and optimization configurations of CAPS.                                                   
+
+> Component Setting
+> Input shape [B, 1,256]
+> Default mode organization K= 3 (trend / periodic / point) Latent dimensions dim( zs) = 128 ,dim( za) = 48
+> Encoder hidden dims [64 ,128 ,256] , dropout 0.1
+> Multi-scale extractor 4 branches; kernels (3 ,5,7,9) ; dilations (1 ,2,3,4)
+> Residual experts Khard-routed experts ( K= 3 by default) Diagnosis router hidden dim 128 ,ρ= 0 .8(optional) Location embedding 64 Diffusion process 200 training timesteps; 200 reverse sampling steps Diffusion U-Net channels [64 ,128 ,256 ,256]
+> Base decoder width 256 Residual decoder width 192 Detector independent TCN with point-wise sigmoid output Optimizer Adam Learning rate 1×10 −3
+> Batch size 32 Representation-learning epochs 60 Residual-generation epochs 100 Detector-training epochs 20
+
+After residual-generator training, the representation and generation modules remain fixed while target-domain counterparts are constructed. The detector Dθ is then optimized independently for 20 epochs using Adam with the same learning rate and batch size. Training uses averaged point-wise binary cross-entropy on the recovered pair list, with equal weight assigned to the reference and generated branches. This balances the two branches of each recovered pair but does not imply balanced positive and negative labels across individual time points. No representation, generator, or semantic-prior parameters are updated during detector training. 
+
+Reproducibility. To facilitate reproducibility, we provide an anonymized repository containing the CAPS implementation, training and evaluation scripts, configuration files for the main experiments, and instructions for preparing the benchmark datasets: https://github.com/gyf-0623/caps .The configuration files specify the remaining implementation details, including the diffusion noise schedule. We additionally release the simulated normal–anomalous correspondences, including their mode assignments, anomaly supports, and reference identifiers, to support reproduction of paired representation learning and subsequent supervision construction. 
+
+# C Experimental Setup and Detailed Results 
+
+C.1 Benchmark Datasets 
+
+We follow the TSB-AD benchmark [39] and conduct the main evaluation on nine public TSAD datasets: IOPS, MGAB, NAB, NEK, Power, SED, TODS, UCR, and YAHOO. We use the benchmark-defined training and test partitions throughout. For standard CAPS, the training portion serves as the unlabeled target-reference pool, with its anomaly labels unused, while the test portion is reserved for evaluation. These datasets span diverse application domains, including operations, sensors, web services, traffic, weather, and energy, and exhibit heterogeneous anomaly frequencies and temporal characteristics. Their basic statistics are summarized in Table 4, where AR denotes the anomaly ratio. 
+
+C.2 Baseline Methods 
+
+We compare CAPS with representative TSAD methods and controlled TCN-based training variants. 22 Table 4: Benchmark datasets used in the main experiments.                                         
+
+> Name Domain #TS Avg. Length AR (%) UCR Misc. 228 67818.7 0.6 NAB Web 28 5099.7 10.6 YAHOO Web 259 1560.2 0.6 IOPS Operations 17 72792.3 1.3 MGAB Sensor 997777.8 0.2 SED Energy 323332.3 4.1 TODS Traffic 15 5000.0 6.3 NEK Weather 91073.0 8.0 Power Power Grid 135040.0 8.5
+
+Conventional TSAD baselines. The external baselines include classical methods LOF [34] and IForest [35], together with deep TSAD models OmniAnomaly [5], USAD [3], TranAD [36], Anomaly Transformer [6], TimesNet [37], and FITS [38]. We follow the benchmark-recommended configura-tions whenever available. In particular, the input window is set to 10 for TranAD, 100 for USAD, and 100 for OmniAnomaly; LOF uses 50 neighbors, and IForest uses 200 estimators. The remaining benchmark baselines use their corresponding benchmark configurations. 
+
+Controlled TCN-based variants. To separate the effect of supervision construction from detector-backbone differences, we additionally construct four TCN-based variants using the same input length, preprocessing pipeline, and TCN detector backbone as CAPS. TCN-AE and TCN-Forecast use reconstruction and forecasting objectives, respectively. TCN-Injection employs perturbation-based synthetic anomaly training [28]. TCN-Supervised serves as a same-backbone label-supervised reference. It is trained on the labeled target-domain training split using point-wise binary cross-entropy, with the original temporal labels preserved; test labels are used only for evaluation. Unlike CAPS, which constructs matched reference– counterpart pairs and explicitly balances the reference and generated branches during detector training, TCN-Supervised follows the empirical anomaly frequency of the labeled training data and may therefore be affected by the severe class imbalance common in TSAD. We consequently treat it as a controlled supervised reference rather than as an optimized upper bound on supervised performance. Additional imbalance-aware supervised variants are examined separately in Appendix D.1. These controlled variants allow us to distinguish the contribution of recovered supervision from gains attributable solely to the TCN architecture or exposure to synthetic anomalous samples. In particular, TCN-Injection examines whether the construction of synthetic supervision matters beyond synthetic anomaly exposure, while TCN-Supervised provides a reference for learning from factual target-domain labels under the same detector architecture. We also report CAPS(Diagnosis). In this variant, 10% of anomalous windows from the target test partition are treated as limited known anomalies and are used only for mode association and targeted counterpart generation through the Diagnosis mechanism described in Appendix B.3. They are not used as detector-training labels. Evaluation is performed on the full test partition, including these known-anomaly windows; therefore, CAPS(Diagnosis) is treated as a target-guided diagnostic extension rather than part of the standard label-free setting. 
+
+C.3 Evaluation Metrics 
+
+We evaluate detection performance using Affiliation-F, F1 T, Standard-F1, and VUS-PR. Following TSB-AD [39], we use Affiliation-F, Standard-F1, and VUS-PR, and follow [40] for F1 T. Together, these metrics provide complementary point-wise, temporal, event-level, and range-aware perspectives on detection quality. • Standard-F1. Standard-F1 is the conventional point-wise F1 score computed from precision and recall over individual timestamps. • F1 T. F1 T evaluates temporal anomaly detection while accounting for the correspondence between predicted and ground-truth anomaly regions, making it less dependent on exact point-wise alignment than Standard-F1. 23 • Affiliation-F. Affiliation-F evaluates predicted and ground-truth anomaly events through affiliation-based temporal matching [41], providing an event-oriented measure that is tolerant to moderate temporal misalignment. • VUS-PR. VUS-PR is a threshold-independent and range-aware metric that integrates precision–recall performance over varying temporal tolerances [42], thereby accounting for uncertainty in anomaly boundaries and detection delay. 
+
+Threshold selection and VUS configuration. Following the TSB-AD evaluation protocol, Standard-F1, F1 T, and Affiliation-F are evaluated using metric-specific oracle thresholds. For each test sequence and metric, we search over 1,500 equally spaced anomaly-score quantile lev-els and report the best value obtained using the test labels. VUS-PR is computed directly from continuous anomaly scores without selecting a single operating threshold. Its window length is automatically determined from the dominant period estimated using the autocorrelation function of the test sequence. 
+
+C.4 Implementation Settings 
+
+Unless otherwise specified, CAPS uses an input length of 256 and the knowledge-based three-mode organization described in Appendix B.3. The representation-learning, residual-generation, and detector-training stages are trained for 60, 100, and 20 epochs, respectively, using Adam with a learning rate of 10 −3 and batch size 32. The diffusion model uses 200 training timesteps and the full 200-step reverse process for counterpart generation. CAPS-specific architectural, semantic-prior, mode-organization, and Diagnosis settings are provided in Appendix B.4. For all controlled TCN variants, the target-domain input construction, preprocessing procedure, and detector backbone are kept consistent with CAPS wherever applicable. Their differences therefore arise primarily from the training objective and the form of supervision provided to the detector. External benchmark methods retain their benchmark-specific model configurations rather than being forced into the CAPS input protocol. 
+
+C.5 Detailed Per-Dataset Results 
+
+Table 5 reports the complete per-dataset results corresponding to the aggregate comparison in the main text. We report Affiliation-F, F1 T, Standard-F1, and VUS-PR on all nine benchmark datasets. CAPS and CAPS(Diagnosis) results are averaged over five runs. Table 22 reports the mean and standard deviation over five independent runs for CAPS and the controlled TCN references. To keep the comparison with the standard label-free setting clear, CAPS(Diagnosis) is excluded when determining the best and second-best methods; we separately mark whether Diagnosis improves over standard CAPS for each dataset–metric pair. The detailed results show that the aggregate advantage of CAPS is not driven by a single dataset or evaluation criterion. Standard CAPS remains particularly strong under both event-oriented and point-/range-aware metrics, while the controlled comparisons indicate that neither the shared TCN backbone nor synthetic anomaly exposure alone explains the observed gains. The results also illustrate substantial variation across datasets, reinforcing the value of reporting complementary metrics rather than relying on a single evaluation protocol. CAPS(Diagnosis) improves over standard CAPS on many dataset–metric pairs, showing that limited known anomalies can provide useful information for targeted mode selection. The improvement is not universal, however. In particular, restricting generation to modes associated with a small known-anomaly subset can discard useful semantic coverage when that subset is not fully representative of the target anomaly distribution. We therefore treat Diagnosis as an optional target-guided extension rather than part of the standard label-free CAPS setting. 24 Table 5: Performance on nine datasets under four metrics (higher is better). CAPS variants are averaged over five runs. Best and second-best results excluding CAPS(Diagnosis) are shown in bold and underline, respectively; a star marks the better result between CAPS and CAPS(Diagnosis) for each dataset–metric pair. 
+
+Metric Method IOPS MGAB NAB Power SED UCR NEK TODS YAHOO Affiliation-F LOF 81.06 68.44 75.75 66.76 63.85 73.53 84.74 60.58 75.63 IForest 52.81 68.82 39.84 0.00 70.09 50.56 71.15 44.17 33.30 OmniAnomaly 80.32 67.35 92.35 78.16 61.26 73.53 86.30 50.73 71.31 TranAD 83.19 67.28 90.28 71.56 61.03 73.31 85.02 52.76 76.08 USAD 71.08 67.81 91.54 76.48 55.60 76.00 71.13 47.90 53.05 AnomTrans. 70.79 67.65 79.03 71.57 68.21 80.03 75.32 44.57 64.75 TimesNet 85.04 66.93 89.24 69.08 66.98 80.55 89.79 70.36 83.13 FITS 86.36 67.77 89.03 67.96 66.99 74.36 87.76 71.77 81.19 TCN-AE 83.91 67.61 85.74 83.34 67.75 74.54 85.74 72.61 82.47 TCN-Injection 87.58 69.13 88.89 85.04 70.94 84.32 81.52 72.05 83.22 TCN-Supervised 84.35 67.59 89.62 85.96 68.47 72.40 85.24 71.75 83.11 TCN-Forecast 76.05 67.27 84.06 84.80 67.68 72.81 85.83 72.48 82.64 CAPS 89.24 69.22 93.25 85.98 74.09 88.41 86.30 86.85 * 94.63 *
+
+CAPS(Diagnosis) 89.83 * 69.61 * 93.81 * 86.35 * 75.82 * 89.72 * 86.52 * 81.32 94.57 
+
+F1 T
+
+LOF 27.97 1.15 35.76 19.80 9.60 8.31 63.57 31.63 55.93 IForest 7.64 0.84 21.44 0.00 9.54 6.36 65.56 11.06 4.90 OmniAnomaly 51.17 1.61 40.09 23.48 9.68 8.47 82.20 14.33 24.16 TranAD 22.63 1.65 37.28 22.36 9.57 7.75 69.97 13.51 8.41 USAD 20.99 4.07 61.46 28.23 9.54 14.63 70.64 20.85 9.35 AnomTrans. 2.56 0.56 8.13 7.81 15.07 4.09 22.62 6.18 1.39 TimesNet 25.12 0.50 28.80 15.77 7.90 4.69 42.68 17.97 7.52 FITS 15.38 0.54 31.98 15.77 7.95 4.95 42.90 16.39 4.86 TCN-AE 39.38 3.25 36.63 19.92 10.23 13.87 68.58 24.85 58.94 TCN-Injection 48.37 23.89 46.91 27.04 21.59 44.79 64.45 17.26 35.68 TCN-Supervised 41.92 1.94 42.50 20.13 11.01 9.56 72.93 22.54 59.52 TCN-Forecast 30.24 1.56 37.01 19.82 10.15 8.50 68.89 23.42 61.61 CAPS 60.62 7.58 57.90 29.20 24.27 * 41.53 80.15 46.17 * 71.35 
+
+CAPS(Diagnosis) 61.90 * 7.99 * 59.21 * 30.36 * 15.76 45.26 * 83.33 * 40.77 75.23 *
+
+Standard-F1 LOF 30.28 1.05 24.04 12.18 4.11 4.70 56.92 25.77 48.95 IForest 8.37 0.73 29.41 19.77 3.81 4.09 58.10 13.35 3.20 OmniAnomaly 47.05 1.44 28.81 23.50 0.43 5.11 74.03 12.65 21.40 TranAD 34.85 1.46 27.33 22.36 2.63 4.40 60.36 11.94 5.70 USAD 30.66 3.89 56.15 28.24 3.41 10.74 62.91 23.87 7.21 AnomTrans. 3.74 0.58 19.35 15.77 16.87 3.44 30.23 13.58 2.31 TimesNet 22.52 0.45 24.98 15.77 7.90 3.84 43.90 17.58 6.97 FITS 15.81 0.49 29.00 15.77 7.95 3.86 44.27 18.08 4.58 TCN-AE 27.15 2.26 28.53 20.08 10.22 9.06 58.61 20.72 49.27 TCN-Injection 46.37 14.61 38.00 27.00 21.42 35.65 60.35 16.60 31.21 TCN-Supervised 42.38 1.56 34.35 20.03 10.92 5.24 62.58 19.23 51.24 TCN-Forecast 18.65 1.30 28.56 19.77 10.16 4.94 61.32 20.56 54.63 CAPS 51.63 4.54 51.78 29.37 24.11 * 37.70 76.23 41.24 * 69.58 
+
+CAPS(Diagnosis) 52.14 * 6.84 * 51.82 * 30.30 * 15.78 41.24 * 76.78 * 37.22 73.55 *
+
+VUS-PR LOF 19.43 0.57 21.18 9.31 6.81 2.39 58.52 49.14 41.37 IForest 8.59 0.62 23.57 11.56 7.71 2.88 56.50 46.62 10.47 OmniAnomaly 25.35 0.64 27.17 14.32 6.20 2.40 74.51 45.55 29.26 TranAD 21.61 0.64 24.82 13.04 5.75 2.25 61.63 47.33 25.78 USAD 16.58 0.75 55.03 18.68 4.37 8.85 58.53 56.36 14.15 AnomTrans. 4.60 0.43 13.11 8.84 8.29 2.12 22.67 44.74 8.00 TimesNet 17.94 0.42 20.45 7.73 4.70 2.37 44.73 57.06 25.08 FITS 13.94 0.40 25.43 7.46 5.08 2.20 38.77 56.00 18.81 TCN-AE 17.27 0.87 21.56 14.95 8.99 3.63 61.04 46.30 41.03 TCN-Injection 48.69 3.27 34.97 21.87 17.50 26.07 60.76 49.35 42.35 TCN-Supervised 33.62 0.61 30.66 11.85 8.50 2.87 67.52 76.61 44.28 TCN-Forecast 11.19 0.57 20.85 11.25 8.92 2.37 63.35 45.72 43.27 CAPS 49.00 1.55 52.35 19.42 20.09 * 28.47 80.52 86.26 * 83.70 
+
+CAPS(Diagnosis) 50.45 * 1.68 * 52.73 * 21.00 * 13.69 31.40 * 81.91 * 81.92 84.32 *
+
+25 D Extended Experiments and Analyses 
+
+D.1 Supervision Construction and Controlled Comparisons 
+
+This section provides detailed results and analyses for the supervision-construction comparisons summarized in Table 2. We examine three complementary aspects: matching generated effects to their target references, constructing counterparts through residual parameterization, and comparing with direct source-residual injection under the same simulated anomaly source. These comparisons assess how the construction of synthetic supervision contributes to detection performance. We additionally examine imbalance-aware label-supervised training and robustness to contaminated target references. 
+
+D.1.1 Effect of Context–Effect Matching 
+
+A central design of CAPS is that each anomaly effect is conditionally realized under the same target context on which its counterpart is constructed. To examine the contribution of this correspondence, we construct a shuffled variant that preserves the learned generator and the amount of generated supervision but mismatches each realized effect with its target reference. Specifically, for a target reference xtar  
+
+> i
+
+, standard CAPS constructs ˆx(k) 
+
+> i,a
+
+= xtar  
+
+> i
+
++ ˆ r(k) 
+
+> i
+
+, where ˆr(k) 
+
+> i
+
+is generated conditionally on the structure representation of xtar  
+
+> i
+
+. In the shuffled variant, we instead use an effect generated for another randomly selected reference within the same mode, yielding 
+
+ˆx(k),shuffle  
+
+> i,a
+
+= xtar  
+
+> i
+
++ ˆ r(k)
+
+> π(i)
+
+, π(i)̸ = i. 
+
+The corresponding anomaly support is shuffled together with the residual, so each generated counter-part receives the mask associated with the applied effect. The number of generated counterparts and the underlying residual generator are otherwise unchanged. This is the Shuffled residuals variant in Table 2. Table 6: Effect of disrupting context–effect matching in CAPS. Higher is better. The better result for each dataset–metric pair is bolded.                                                                                       
+
+> Metric Method IOPS MGAB NAB Power SED UCR NEK TODS YAHOO Affiliation-F CAPS 89.24 69.22 93.25 85.98 74.09 88.41 86.30 86.85 94.63
+> Shuffled residuals 83.41 68.04 86.84 78.81 70.16 81.99 81.11 75.03 88.06
+> F1 TCAPS 60.62 7.58 57.90 29.20 24.27 41.53 80.15 46.17 71.35
+> Shuffled residuals 53.32 1.76 52.75 20.38 22.88 37.18 74.98 38.15 69.50 Standard-F1 CAPS 51.63 4.54 51.78 29.37 24.11 37.70 76.23 41.24 69.58
+> Shuffled residuals 46.85 1.62 46.31 20.38 22.81 32.29 68.40 34.12 67.26 VUS-PR CAPS 49.00 1.55 52.35 19.42 20.09 28.47 80.52 86.26 83.70
+> Shuffled residuals 44.78 0.61 45.33 17.22 20.88 23.17 72.68 72.60 74.46
+
+Table 6 provides the per-dataset results underlying the aggregate comparison in the main text. Disrupting context–effect matching reduces the average Affiliation-F, F1 T, Standard-F1, and VUS-PR from 85 .33 /46 .53 /42 .91 /46 .82 to 79 .27 /41 .21 /37 .78 /41 .30 , respectively. The degradation occurs on nearly all dataset–metric pairs. The generator and number of generated counterparts are preserved, and moving each residual together with its mask maintains their support correspondence. These results support the importance of realizing an anomaly effect for the particular reference on which it is applied: effects generated under a different temporal context provide less effective supervision on average, even when the same learned generator is used. 
+
+D.1.2 Effect of Residual-Form Construction 
+
+We next examine the role of constructing counterparts through an observation-level residual effect. Standard CAPS generates ˆr(k) 
+
+> i
+
+conditioned on the target reference representation and constructs the counterpart as ˆx(k) 
+
+> i,a
+
+= xtar  
+
+> i
+
++ ˆ r(k) 
+
+> i
+
+. As an ablation, we replace this residual formulation with direct anomalous-sequence generation while keeping the remaining framework as unchanged as 26 possible. Background-preservation supervision outside the intended anomaly support is retained in the direct-generation variant, so the comparison primarily changes how the anomalous counterpart is parameterized. This corresponds to w/o residual parameterization in Table 2. Table 7: Effect of removing residual-form counterpart construction in CAPS. Higher is better. The better result for each dataset–metric pair is bolded.                                                                                       
+
+> Metric Method IOPS MGAB NAB Power SED UCR NEK TODS YAHOO Affiliation-F CAPS 89.24 69.22 93.25 85.98 74.09 88.41 86.30 86.85 94.63
+> w/o residual parameterization 84.91 68.07 90.61 85.11 77.54 87.26 81.16 77.92 92.27
+> F1 TCAPS 60.62 7.58 57.90 29.20 24.27 41.53 80.15 46.17 71.35
+> w/o residual parameterization 44.06 1.26 54.96 24.03 19.96 39.59 76.53 39.91 68.37 Standard-F1 CAPS 51.63 4.54 51.78 29.37 24.11 37.70 76.23 41.24 69.58
+> w/o residual parameterization 37.98 1.15 48.91 24.02 19.87 35.67 72.43 35.78 69.34 VUS-PR CAPS 49.00 1.55 52.35 19.42 20.09 28.47 80.52 86.26 83.70
+> w/o residual parameterization 37.39 0.57 46.35 19.31 24.94 26.80 72.90 74.85 77.32
+
+Table 7 shows that direct anomalous-sequence generation reduces the four average metrics from 
+
+85 .33 /46 .53 /42 .91 /46 .82 to 82 .76 /40 .96 /38 .35 /42 .27 . The degradation occurs on most dataset– metric pairs, although direct generation performs better on Affiliation-F and VUS-PR for SED. These results support residual-form construction as a useful reference-preserving parameterization. By retaining the observed reference explicitly, CAPS allows the generator to focus on the anomaly-induced observation-level change while preserving the surrounding temporal background. This comparison concerns the parameterization of generated counterparts; it does not assume that the underlying physical anomaly mechanism is additive. 
+
+D.1.3 Alternative Synthetic Supervision 
+
+We further examine whether the improvement of CAPS can be explained simply by access to a favorable simulated anomaly source or by exposure to synthetic anomalous samples. We compare alternative supervision construction strategies under the same TCN detector backbone, complementing the aggregate results in Tables 1 and 2. 
+
+Direct source-residual injection. We first construct a controlled baseline using the same simulated anomaly source as CAPS. Given a simulated normal–anomalous correspondence, its observation-level residual is directly applied to a target reference to construct a synthetic counterpart. This variant bypasses both anomaly-semantic learning and target-conditioned realization: it transfers an effect already realized under a source context, rather than generating an effect according to the target reference. We refer to this variant as Direct source-residual injection , consistent with Table 2. Table 8: Comparison with synthetic supervision constructed from the same simulated anomaly source. Results are averaged over the nine benchmark datasets. Higher is better. 
+
+## Method Affiliation-F F1 T Standard-F1 VUS-PR Direct source-residual injection 81.58 43.16 39.96 42.58 CAPS 85.33 46.53 42.91 46.82 
+
+As shown in Table 8, CAPS outperforms direct source-residual injection on all four aggregate metrics. Because the simulated anomaly source and detector backbone are shared, the improvement supports the value of learning transferable anomaly semantics and realizing them under target temporal contexts, beyond directly reusing source-context effects. This comparison evaluates the combined contribution of semantic learning and target-conditioned realization, since both stages are bypassed together. The context–effect matching and residual-form comparisons above provide complementary evidence for individual construction choices. The same 27 Table 9: Comparison with label-supervised TCN training under different class-imbalance treatments. All methods use the same TCN detector backbone. Higher is better.                                                                  
+
+> Dataset Method Affiliation-F F1 TStandard-F1 VUS-PR YAHOO TCN-Supervised (BCE) 83.11 59.52 51.24 44.28 Weighted BCE 85.10 59.90 56.90 45.70 Balanced Window Sampling 83.10 37.30 34.50 39.30 Focal Loss 83.70 38.50 35.70 40.30 CAPS 94.63 71.35 69.58 83.70
+> NEK TCN-Supervised (BCE) 85.24 72.93 62.58 67.52 Weighted BCE 77.30 47.10 36.10 30.70 Balanced Window Sampling 76.50 43.50 31.80 26.80 Focal Loss 76.40 44.20 31.70 26.50 CAPS 86.30 80.15 76.23 80.52
+> TODS TCN-Supervised (BCE) 71.75 22.54 19.23 76.61 Weighted BCE 74.00 23.80 21.40 76.20 Balanced Window Sampling 73.60 27.00 22.60 75.90 Focal Loss 73.50 24.90 21.90 75.90 CAPS 86.85 46.17 41.24 86.26
+
+direct source-residual injection baseline is also reported in Sec. D.4 to contextualize the comparison of residual-generation mechanisms. 
+
+Perturbation-based injection. We additionally compare with TCN-Injection in Table 5, an independent perturbation-based synthetic-training strategy using the same TCN detector back-bone. TCN-Injection achieves average Affiliation-F, F1 T, Standard-F1, and VUS-PR scores of 
+
+80 .30 /36 .66 /32 .36 /33 .87 , compared with 85 .33 /46 .53 /42 .91 /46 .82 for CAPS. These results sup-port the importance of how synthetic anomalous supervision is constructed. Perturbation-based injection also constructs anomalous samples on target backgrounds, so this comparison does not isolate context–effect matching. Together with direct source-residual injection and the preceding controlled comparisons, the results support the central design of CAPS: learning reusable anomaly semantics and adapting their realization to each target reference provides useful supervision beyond the synthetic constructions evaluated here. 
+
+D.1.4 Recovered versus Label-Supervised Training 
+
+TCN-Supervised serves as a supervised reference with the same detector backbone, rather than an optimized upper bound on supervised TSAD. It is trained directly on observed target-domain labels using point-wise BCE and therefore inherits the naturally sparse anomaly frequency of the training data. CAPS instead constructs matched reference–counterpart pairs and assigns equal training weight to the reference and generated branches. This construction provides controlled exposure to generated anomalous counterparts without requiring target anomaly labels. Equal branch weights, however, do not imply balanced point-wise classes: the anomaly support m generally occupies only part of each generated counterpart, and the remaining timestamps retain nominal labels. Any benefit from this training structure should therefore be distinguished from explicit balancing of anomalous and nominal timestamps. To examine whether standard class-imbalance treatments account for the gap to the supervised reference, we evaluate additional supervised strategies using the same TCN backbone. This analysis covers YAHOO, NEK, and TODS, which together contain 283 time-series files and have training anomaly ratios of 0.299% , 3.17% , and 3.66% , respectively. Alongside standard BCE, we consider Weighted BCE, Balanced Window Sampling, and Focal Loss. Table 9 shows that the effects of imbalance-aware training vary across datasets and metrics. Weighted BCE improves the YAHOO results over standard BCE, whereas the standard supervised configuration remains stronger than the tested alternatives on NEK. On TODS, all three treatments improve the F1-based metrics, while slightly reducing VUS-PR. Thus, these treatments do not uniformly improve supervised detection performance. 28 CAPS remains stronger across the reported metrics on all three datasets under the evaluated protocol. The tested imbalance-aware strategies therefore do not close the gap to CAPS, suggesting that the comparison with standard BCE reflects more than the absence of these particular treatments. This observation does not establish that recovered supervision is generally superior to ground-truth labels: a more extensively optimized supervised pipeline may benefit from different objectives, sampling policies, or dataset-specific tuning. The comparison highlights the practical value of the supervision constructed by CAPS. Each generated counterpart is contrasted with its own nominal reference, concentrating the training distinction on an anomaly-induced change under a shared temporal background. Pair construction also controls the exposure to generated anomalous sequences through equal reference and generated branch weights. These properties support matched supervision as a useful approach in label-scarce settings, although the present comparison does not isolate their individual contributions. 
+
+D.1.5 Robustness to Reference Contamination 
+
+CAPS assumes that target-domain training data are normal-dominated rather than strictly anomaly-free. Reference contamination can therefore introduce supervision noise: an existing anomaly in a reference receives the nominal label 0, and any such anomaly retained outside the generated support 
+
+m is also unmarked in the counterpart. This reference-label noise is not explicitly modeled by the coverage and realization terms in Proposition 1, motivating an empirical robustness analysis. 
+
+Natural contamination in benchmark data. Several benchmarks contain anomalies in their target training segments. In YAHOO, 122 of the 259 time-series files contain training-segment anomalies. TODS presents a more demanding case, with an average contaminated training-window ratio of approximately 74% . This window-level ratio measures how frequently reference windows contain anomalies; it should be distinguished from the proportion of anomalous timestamps reported above. A high contaminated-window ratio can coexist with a relatively low point-wise anomaly ratio. CAPS achieves strong results on both datasets in Table 5, indicating that contaminated references do not necessarily prevent effective detector learning. These benchmark observations nevertheless combine contamination with other dataset characteristics and do not isolate its effect. 
+
+Controlled contamination on IOPS. We conduct a controlled experiment on IOPS to examine reference contamination more directly. Its 17 time-series files provide approximately 21,184 clean training windows, with a natural training contamination ratio close to zero, while the test portions provide approximately 26,953 anomalous candidate windows. For each file, we sample 100 target training windows of length 256 and replace 0% , 1% , 2% , 5% ,
+
+10% , 20% , or 30% of them with real anomalous windows drawn from the test portions of other IOPS files. Anomaly labels are used only to construct this controlled contamination experiment; the selected windows are treated as nominal references during CAPS training. This is a diagnostic stress test, separate from the standard training protocol without target anomaly labels. The total number of reference windows remains fixed at 100 per file across contamination levels, and all remaining representation, generation, detector-training, and evaluation settings are unchanged. Each level is repeated five times, with results averaged over the 17 files and five runs. Because this experiment uses a restricted reference set, its zero-contamination result differs from the main IOPS result. Table 10: Robustness of CAPS to controlled target-reference contamination on IOPS using 100 reference windows per file. Results are averaged over 17 time-series files and five runs. Higher is better.                                 
+
+> Contamination Affiliation-F F1 TStandard-F1 VUS-PR 0% 85.74 34.17 37.54 34.05
+> 1% 84.29 33.08 34.98 31.19 2% 83.94 33.05 35.48 30.77 5% 84.48 31.06 32.69 29.44 10% 84.53 30.83 31.65 29.46 20% 84.20 30.61 29.22 26.52 30% 82.55 28.70 33.31 26.66
+
+29 Table 10 shows an overall decline as contamination increases, although individual metrics are not strictly monotonic. Affiliation-F remains comparatively stable under mild contamination, while 
+
+F1 T, Standard-F1, and VUS-PR show larger reductions relative to the clean-reference setting. At 
+
+20% –30% contamination, CAPS continues to produce useful detection results, but the degradation is more apparent, particularly for VUS-PR. These results suggest some tolerance to reference-label noise under the tested contamination protocol, while also demonstrating its cost. Clean windows remain the majority at every tested level, so the experiment does not establish robustness when contaminated references dominate. The findings support the use of normal-dominated target data and identify reference quality as a practical factor affecting recovered supervision. 
+
+D.2 Disentanglement and Semantic Recombination 
+
+We next examine how paired representation learning supports the separation of temporal structure and transferable anomaly semantics. We first evaluate the contribution of within-pair counterfactual recomposition, and then inspect the learned representations and their recombination across different reference trajectories. These analyses complement the aggregate ablation results in Table 2 and the qualitative examples in Fig. 2. 
+
+D.2.1 Effect of Counterfactual Recomposition 
+
+The representation-learning objective combines reconstruction, background preservation, paired disentanglement, and within-pair counterfactual recomposition. In particular, Lcf reconstructs an anomalous sample using its anomaly-semantic code and the structure code of its matched normal reference: 
+
+Lcf = MSE  Dec( zn,s , z a, m ), x a
+
+.
+
+Compared with reconstructing xa from its own structure code za,s , this operation substitutes the matched normal structure zn,s while retaining the anomaly-semantic code za and support m. It encourages the two branches to jointly explain the observed anomalous change: the normal structure provides the reference context, while the anomaly-semantic code supplies the information needed to reconstruct its anomalous counterpart. To assess this contribution, we remove Lcf while retaining Lrec , Lbase , and Ldis , with the remaining training procedure unchanged. This corresponds to the counterfactual-loss ablation summarized in Table 2. Table 11: Effect of within-pair counterfactual recomposition. Results are averaged over the nine benchmark datasets. Higher is better.              
+
+> Variant Affiliation-F F1 TStandard-F1 VUS-PR w/o Lcf 83.65 42.76 39.11 43.11 CAPS 85.33 46.53 42.91 46.82
+
+Table 11 shows that removing Lcf reduces performance across all four aggregate metrics. The result supports the value of explicitly training the representations to reconstruct the anomalous outcome after substituting its matched normal structure. This requirement goes beyond reconstructing each observation from its own codes and encourages a representation organization suited to subsequent semantic transfer. The training constraint operates within matched simulated pairs; cross-context recombination is examined separately below. 
+
+D.2.2 Latent Representation Analysis 
+
+We inspect the learned representations using two-dimensional UMAP projections of the structure codes zs and anomaly-semantic codes za. Figure 3 provides a complementary visualization to Fig. 2(a). The two visualizations use the same trained model but independently sampled simu-lated anomaly realizations, resulting in different projection inputs. Both exhibit similar qualitative organization of the learned representations. 30 5 0 5 10 15 20 25      
+
+> Dim 1
+> 0510 15 20 25 30
+> Dim 2
+> zs: Normal vs. Anomalous
+> Normal Anomalous
+> 420246
+> Dim 1
+> 4
+> 3
+> 2
+> 1
+> 01234
+> Dim 2
+> za: Anomaly Families
+> Point Periodic Trend
+
+Figure 3: Learned representation spaces. Left : structure codes zs colored by normal/anomalous status. 
+
+Right : anomaly-semantic codes za colored by simulated anomaly family. Normal and anomalous samples largely overlap in the projected structure space zs, consistent with reduced sensitivity to anomaly presence in the structure branch. The anomaly-semantic space za, in contrast, exhibits clearer organization across the point, periodic, and trend families. This organization is consistent with the use of simulated families as coarse modes within a shared semantic space, supporting mode-wise prior estimation and expert specialization. These projections provide qualitative evidence consistent with the intended division of representation roles. They do not by themselves establish statistical independence between zs and za or semantic invariance across contexts. The recombination analysis below further examines how the learned semantic codes interact with different reference structures during counterpart construction. 
+
+D.2.3 Cross-Context Semantic Recombination 
+
+We further examine the use of learned anomaly semantics by recombining fixed semantic codes with different reference trajectories. Figure 4, corresponding to Fig. 2(b), presents a 3 × 3 set of generated counterparts. Each row uses a different reference trajectory, while each column reuses one fixed anomaly-semantic code za. The Point, Periodic, and Trend column labels identify the coarse simulated families associated with these codes. Colored diagonal cells indicate the original reference–semantic pairings, and off-diagonal cells show cross-context recombinations. 
+
+Figure 4: Cross-context semantic recombination. Rows use different references, and each column reuses a fixed anomaly-semantic code za. Colored diagonal cells mark the original pairings. Dashed curves denote references, solid curves denote generated counterparts, and shaded regions indicate anomaly supports. Across the displayed references, each fixed semantic code produces a recognizable anomaly pattern, while the resulting counterparts exhibit different observation-level effects. These examples illustrate 31 the intended distinction between reusing anomaly semantics and reusing an already realized source residual. In CAPS, the semantic code supplies transferable anomaly information, while the generator also receives the reference structure and intended support to construct the counterpart. The generated trajectories also largely preserve the reference background outside the intended anomaly support. Together with the counterfactual-loss ablation and latent visualization, these observations support the central role of paired representation learning in supervision recovery: learning anomaly information that can be recombined with reference structure and subsequently realized as context-anchored training counterparts. The cross-context examples are qualitative diagnostics of the learned model, rather than additional training constraints. 
+
+D.3 Semantic Coverage and Mode Organization 
+
+We next examine the coverage and organization of the simulation-induced semantic prior. CAPS uses coarse source-side modes to organize a shared continuous anomaly-semantic space and support expert specialization. These modes do not constitute an exhaustive taxonomy of target anomalies, which may exhibit mixed, context-dependent, or previously unseen patterns. The transferable representation is the continuous semantic code, while the mode index provides a coarse organization for prior estimation and generation. We study three aspects of this design: sensitivity to reduced coverage, alternative mode organizations, and targeted mode selection with limited target anomaly guidance. 
+
+D.3.1 Coverage Stress Test 
+
+The usefulness of simulation-derived supervision depends partly on whether the semantic prior captures anomaly variation relevant to the target domain. We examine this dependence by removing the source-side mode most strongly associated with each target dataset. Given a small known-anomaly set used only for this diagnostic analysis, the router produces normal-ized mode-association scores qk(x). We compute 
+
+¯qk = 1
+
+|D known |
+
+X
+
+> x∈D known
+
+qk(x), k⋆ = arg max  
+
+> k
+
+¯qk.
+
+During target counterpart construction, we exclude the prior component and residual expert associated with k⋆. Additional counterparts are sampled from the remaining modes so that the total number of generated counterparts per reference is unchanged. The known anomalies identify the mode to exclude; they are not supplied as labeled examples for detector training. Table 12: Semantic-coverage stress test. The source-side mode with the highest target association is excluded during counterpart generation while the total number of counterparts is preserved. Results are averaged over the nine benchmark datasets. Higher is better. 
+
+Method Affiliation-F F1 T Standard-F1 VUS-PR CAPS w/o highest-associated mode 79.31 38.42 37.81 39.87 CAPS 85.33 46.53 42.91 46.82 
+
+Table 12 shows lower aggregate performance after removing the highest-associated mode. Because the number of generated counterparts is preserved, the degradation supports the importance of the anomaly variation available for supervision construction beyond the amount of synthetic training data. The remaining modes still provide useful supervision, although this does not establish coverage of arbitrary unseen anomaly patterns. The excluded mode is defined by router association, rather than a ground-truth anomaly category for the target dataset. Real datasets may contain heterogeneous patterns that are only partially represented by any single source-side family. The stress test therefore examines the consequence of restricting an associated region of the source prior. Its results are consistent with the role of coverage discussed in Sec. 4.4, without treating router associations as a direct measurement of the theoretical coverage discrepancy. 32 D.3.2 Mode Construction and Granularity 
+
+We next examine the dependence of CAPS on its default knowledge-based mode organization. This organization uses K = 3 coarse modes corresponding to point, periodic, and trend variations in the simulated anomaly operations. All anomaly-semantic codes remain in the shared continuous space 
+
+ZA. The modes organize prior estimation and expert specialization; they do not define separate latent spaces or assume an additive physical decomposition of target anomalies. As a data-driven alternative, we freeze the learned representation modules and organize the simulated anomaly-semantic codes za directly in the latent space. We evaluate K ∈ { 1, 3, 5, 7}, where K = 1 
+
+uses a single mode and K > 1 uses K-means clustering. The resulting assignments replace the predefined source-family labels in prior estimation, expert training, and mask-pool construction. When Diagnosis is used, they also provide the corresponding router supervision, as described in Appendix B.3. Table 13: Comparison of semantic-mode organization and granularity. Results are averaged over the nine benchmark datasets. Higher is better.                               
+
+> Organization KAffiliation-F F1 TStandard-F1 VUS-PR Data-driven 182.34 39.92 37.23 41.36 Data-driven 384.98 43.75 40.12 45.76 Data-driven 583.10 44.04 40.43 44.76 Data-driven 781.61 42.38 38.78 43.38 Knowledge-based 385.33 46.53 42.91 46.82
+
+Table 13 shows that data-driven organizations also yield effective detectors. In particular, clustering with K = 3 provides a competitive alternative, indicating that the learned semantic space supports mode organization without retaining the predefined family assignments in the subsequent generation stage. At the same K = 3 , the knowledge-based organization achieves higher aggregate performance across all four metrics. This comparison holds the number of experts and generated counterparts per reference constant, providing a more direct assessment of the organization strategy. The result supports the usefulness of coarse temporal characteristics as an inductive bias for specialization. One possible explanation is that these assignments group compatible simulated variations for residual generation, although the present comparison does not directly measure interference between experts. Among the data-driven variants, increasing K does not produce uniform improvements. Relative to K = 3 , K = 5 slightly improves F1 T and Standard-F1 but reduces Affiliation-F and VUS-PR, while K = 7 performs worse on all four. Changing K also changes the number of residual experts and, under the standard generation protocol, the number of generated counterparts per reference. These results therefore compare complete mode-organization configurations rather than isolating specialization granularity. The findings support a coarse organization of continuous anomaly semantics without requiring target anomalies to be assigned to predefined categories. They do not imply that continuous latent variation alone guarantees coverage of anomaly patterns absent from simulation. The coverage stress test above highlights this remaining dependence on the source prior. 
+
+D.3.3 Diagnosis and Targeted Mode Selection 
+
+The mode organization also provides an optional interface for incorporating limited target anomaly guidance. Standard CAPS uses all source-side modes without target anomaly labels, preserving broad semantic coverage when the relevant target variation is unknown. CAPS(Diagnosis) uses known target anomalies to select associated source-side modes for counterpart generation. In this diagnostic experiment, we randomly sample 10% of anomalous windows from the target test partition to form Dknown . The router produces normalized association scores qk(x), which 33 are averaged as 
+
+¯qk = 1
+
+|D known |
+
+X
+
+> x∈D known
+
+qk(x).
+
+We sort the modes such that 
+
+¯qk(1) ≥ · · · ≥ ¯qk(K)
+
+and retain the smallest subset whose cumulative association reaches ρ:
+
+Jρ = min 
+
+J :
+
+> J
+
+X
+
+> j=1
+
+¯qk(j) ≥ ρ
+
+ , Kρ = {k(1) , . . . , k (Jρ)}.
+
+We use ρ = 0 .8. Counterparts are generated uniformly from the retained modes; the association scores determine mode inclusion rather than generation mixture weights. The known anomalies guide supervision construction through mode selection but are not directly included as labeled examples in detector training. Evaluation uses the full test partition, including the sampled known-anomaly windows. Accordingly, these results describe a diagnostic extension under partial test-set guidance, rather than the standard setting without target anomaly labels or an independent evaluation entirely on unseen test windows. Point Periodic Trend 
+
+> Predicted class
+> Point Periodic Trend
+> True class
+> 99.0%
+> (1611)
+> 0.7%
+> (11)
+> 0.4%
+> (6)
+> 1.0%
+> (21)
+> 99.0%
+> (2114)
+> 0.0%
+> (1)
+> 0.3%
+> (3)
+> 0.2%
+> (2)
+> 99.5%
+> (1031)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Row-normalized
+
+Figure 5: Router associations on simulated samples. Rows denote source-side modes and columns denote router-associated modes. Values are row-normalized percentages, with sample counts in parentheses. Figure 5 shows that the reported router associations largely agree with the simulated mode assign-ments, with most entries concentrated on the diagonal. This supports consistency with the source-side organization on the displayed samples. It does not establish that real target anomalies belong to the same discrete categories. For target data, the scores serve as relative associations with the available source modes. The detailed results in Table 5 show that CAPS(Diagnosis) improves over standard CAPS on many dataset–metric pairs, but not universally. Representative known anomalies may help focus generation on relevant semantic variation. Conversely, a small known subset may omit anomaly patterns present elsewhere in a heterogeneous dataset, causing mode selection to discard useful coverage. Under the one-counterpart-per-selected-mode protocol, selection also changes the amount of generated supervision, so the comparison evaluates the targeted-generation procedure as a whole. Diagnosis therefore provides a way to adapt generation when limited target guidance is available, without guaranteeing a performance improvement. Standard CAPS retains all modes to preserve broader coverage when such guidance is unavailable. 34 D.4 Context-Conditioned Realization 
+
+Having examined semantic representation and coverage, we next study how anomaly semantics are realized on target references. In CAPS, za provides anomaly-semantic information, while the reference structure zs and intended support m also condition the generated observation-level effect. This stage connects the simulation-induced semantic prior to context-anchored target supervision. We examine alternative residual-generation mechanisms and compare generated counterparts with real target anomalies. 
+
+D.4.1 Alternative Realization Mechanisms 
+
+We examine how the choice of realization mechanism affects the supervision constructed for detector learning. Standard CAPS uses conditional diffusion to generate residual effects from anomaly semantics, reference structure, and anomaly support. We compare this implementation with a VAE-style conditional residual generator. We additionally report Direct source-residual injection , the same baseline used in Table 8, which applies simulated source residuals directly to target references. The VAE comparison replaces the conditional generation mechanism, whereas direct source-residual injection bypasses both semantic learning and target-conditioned realization. The latter therefore provides a reference for the complete transfer procedure rather than an isolated generator ablation. All variants use the same TCN detector backbone and evaluation protocol. Table 14: Comparison of anomaly-effect construction strategies. Results are averaged over the nine benchmark datasets. Higher is better. 
+
+## Strategy Affiliation-F F1 T Standard-F1 VUS-PR Direct source-residual injection 81.58 43.16 39.96 42.58 VAE residual generator 83.28 42.32 38.82 42.63 CAPS (diffusion) 85.33 46.53 42.91 46.82 
+
+Table 14 shows that conditional diffusion achieves the highest aggregate performance across all four metrics. The two alternatives exhibit mixed relative performance: the VAE generator performs better on Affiliation-F and slightly better on VUS-PR, while direct source-residual injection performs better on F1 T and Standard-F1. Thus, introducing a learned conditional generator alone does not uniformly improve over direct injection; its implementation also matters for the resulting detector supervision. The comparison with the VAE supports the diffusion implementation used in CAPS, while the comparison with direct source-residual injection supports the combined semantic-learning and target-conditioned realization procedure. These results do not establish diffusion as a necessary component of supervision recovery. Among the evaluated implementations, however, it provides the most effective residual generator for downstream detection. Its computational cost is examined in the efficiency analysis below; generation is used for offline supervision construction, while inference requires only the trained detector. 
+
+D.4.2 Generated-Counterpart Diagnostics against Real Anomalies 
+
+Downstream detection results do not directly characterize the relationship between generated counter-parts and observed target anomalies. We therefore complement the detector comparisons with two diagnostics in detector-score and feature spaces. We first train a detector using standard CAPS supervision. For held-out normal references not used in detector training, we construct equal numbers of counterparts using rule-based injection, direct source-residual injection, and CAPS. The three strategies share the same reference windows, anomaly supports, and sample counts. We then pass the generated counterparts and held-out real target anomalies through the same fixed detector. 
+
+Score measures the Wasserstein distance between the detector-score distributions of generated and real anomalies. Feature measures the average distance from each generated counterpart to its five nearest real-anomaly neighbors in the penultimate-layer feature space. Lower values indicate greater 35 proximity under the corresponding detector-derived representation. Real anomaly labels are used for this diagnostic evaluation, not for standard CAPS detector training. Table 15: Detector-oriented diagnostics against real target anomalies, averaged over the nine bench-mark datasets. Score measures Wasserstein distance between anomaly-score distributions; Feature measures average generated-to-real 5-NN distance in the penultimate-layer feature space. Lower is better.           
+
+> Positive source Score ↓Feature ↓
+> Rule-based injection 0.4531 0.6218 Direct source-residual injection 0.4783 0.6712 CAPS 0.3990 0.6123
+
+Table 15 shows that CAPS has the lowest average discrepancy under both diagnostics. Its generated counterparts are closer to real anomalies in detector-score distribution and in the selected feature-space measure. The feature-distance improvement over rule-based injection is modest, so these averages should not be interpreted as establishing a large or uniform advantage across datasets. These observations complement the supervision-construction comparisons in Appendix D.1. Direct source-residual injection reuses effects already realized under simulated contexts, while rule-based injection constructs effects through predefined perturbations. CAPS instead learns anomaly-semantic representations and conditions their realization on the target reference. The smaller reported distances are consistent with this procedure producing supervision relevant to the real anomalies encountered by the detector. The interpretation remains specific to the diagnostic setting. Because the detector is trained on CAPS-generated supervision, its scores and features are not independent of the method being evaluated and may favor aspects of CAPS counterparts. Moreover, generated-to-real nearest-neighbor distance measures local proximity rather than coverage of the full real-anomaly distribution. These diagnostics therefore provide complementary observations in a downstream representation space; they do not establish recovery of true counterfactual outcomes or complete agreement with the distribution of real target anomalies. 
+
+D.5 Robustness, Scalability, and Efficiency 
+
+We finally examine the sensitivity of CAPS to detector architecture and semantic-prior choices, its behavior under different amounts of simulated training data, and its computational cost. These analyses assess the flexibility of recovered supervision and distinguish the cost of offline representation learning and counterpart generation from that of detector inference. 
+
+D.5.1 Detector Architecture Variants 
+
+The main experiments use a lightweight TCN detector. To examine the applicability of recovered supervision to a different architecture, we replace the TCN with a Transformer while retaining the supervision-construction procedure and training protocol. Table 16: Comparison of CAPS under different detector architectures. Results are averaged over the nine benchmark datasets. Higher is better.           
+
+> Metric CAPS (TCN) CAPS (Transformer) Affiliation-F 85.33 81.10
+> F1 T46.53 42.12 Standard-F1 42.91 40.37 VUS-PR 46.82 43.28
+
+Table 16 shows that the recovered pairs can also support training a Transformer detector, extending their use beyond the default TCN. The TCN achieves higher aggregate performance across all four metrics under the evaluated protocol and is retained as the default. The comparison supports flexibility 36 in detector choice, while also showing that the downstream architecture affects how effectively the recovered supervision is used. 
+
+D.5.2 Prior Sensitivity 
+
+CAPS uses a parametric prior to sample learned anomaly semantics during target-domain counterpart generation. The default implementation fits a diagonal Gaussian within each coarse mode. We com-pare this choice with an isotropic Gaussian, a full-covariance Gaussian, and a Student-t distribution, while keeping the mode organization and remaining settings unchanged. Table 17: Sensitivity to the parametric form of the mode-wise anomaly-semantic prior. Results are averaged over the nine benchmark datasets. Higher is better.                     
+
+> Prior Affiliation-F F1 TStandard-F1 VUS-PR Isotropic Gaussian 84.97 45.88 42.36 46.21 Diagonal Gaussian 85.33 46.53 42.91 46.82 Full-covariance Gaussian 85.40 47.11 42.74 46.70 Student-t85.21 46.47 42.68 46.95
+
+Table 17 shows similar aggregate performance across the tested prior families, with no single choice achieving the best result on every metric. The full-covariance Gaussian performs best on Affiliation-F and F1 T, the diagonal Gaussian on Standard-F1, and the Student-t prior on VUS-PR. The diagonal Gaussian therefore offers a competitive default using only per-dimension means and variances. These results suggest limited sensitivity to the tested within-mode parameterizations under the current semantic organization. They concern how the learned codes are approximated for sampling; they do not establish that changing the prior family can compensate for anomaly variation absent from the simulated source. 
+
+D.5.3 Different Amounts of Simulated Data 
+
+The representation and generation stages are trained using simulated normal–anomalous correspon-dences. To examine their dependence on the amount of source supervision, we compare the default 48,000 simulated pairs with smaller sets of 5,000, 10,000, and 20,000 pairs, keeping the remaining settings unchanged. Table 18: Performance under different amounts of simulated training data, averaged over the nine benchmark datasets. Higher is better.                     
+
+> Metric 5,000 10,000 20,000 48,000 Affiliation-F 77.66 78.93 82.15 85.33
+> F1 T44.36 47.24 46.21 46.53 Standard-F1 41.05 43.52 42.78 42.91 VUS-PR 39.68 42.40 44.79 46.82
+
+Table 18 shows different responses across metrics. Affiliation-F and VUS-PR improve consistently as the number of simulated pairs increases. In contrast, F1 T and Standard-F1 reach their highest values at 10,000 pairs and remain comparatively close at the larger scales. Thus, additional simulation benefits some aspects of detection more clearly than others. Smaller simulated sets already support useful detector training. We retain 48,000 pairs as the default because this configuration achieves the strongest Affiliation-F and VUS-PR while maintaining comparable F1 performance. The results also identify smaller source sets as practical alternatives when offline training resources are limited. Because the epoch counts and batch size remain fixed, larger source sets also entail more optimization updates. The comparison therefore measures the effect of increasing simulation scale under the adopted training schedule, rather than isolating data quantity at a fixed optimization budget. The associated training costs are reported below. 37 D.5.4 Computational Efficiency 
+
+The representation and generation modules are trained offline. Afterward, they are reused to construct counterparts for target references, and a separate detector is trained on the recovered supervision. At deployment, anomaly scoring requires only this detector; the representation encoder, semantic prior, and diffusion generator are not part of the inference path. Table 19 reports simulated-domain training time at different source-data scales, together with per-pair generation and test-time detection costs. These measurements distinguish the cost of constructing supervision from the cost of scoring unseen sequences. Target-domain detector fitting is a separate stage and is not itemized in this table. Table 19: Computational cost under different amounts of simulated training data. Pair generation is performed offline; test-time detection uses only the trained TCN. 
+
+Number of simulated pairs Simulated-domain training Pair generation Test-time detection 5,000 23.6 min 50 ms / pair 2 ms / sequence 10,000 48.5 min 50 ms / pair 2 ms / sequence 20,000 95.1 min 50 ms / pair 2 ms / sequence 48,000 180.5 min 50 ms / pair 2 ms / sequence 
+
+Simulated-domain training time increases with the amount of source supervision. Under the fixed model and sampling configuration, the reported generation cost remains approximately 50 ms per pair, while the deployed detector takes approximately 2 ms per test sequence. The total cost of counterpart construction additionally depends on the number of target references and generated counterparts. These measurements illustrate the computational separation between supervision recovery and deployment. CAPS incurs representation-learning and generation costs before detector deployment, allowing the conditional generator to support training without adding diffusion sampling to test-time scoring. 
+
+# E Multivariate Extension 
+
+The main formulation of CAPS focuses on temporal anomaly effects without explicitly modeling dependencies among variables. We examine its extension to multivariate series through a variable-wise supervision-recovery procedure. This supplementary experiment evaluates the usefulness of the temporal supervision across variables, while leaving explicit dependency modeling for future work. We evaluate on MSL, PSM, SMAP, and SMD. Table 20 summarizes the multivariate sequences included in these experiments. Table 20: Multivariate datasets used in the supplementary experiments. #TS denotes the number of evaluated multivariate sequences, #Dim the number of input variables per sequence, and AR the anomaly ratio.                          
+
+> Name Domain #TS #Dim Avg. Length AR (%) MSL Space 16 55 3119.4 5.1 PSM Sensor 125 217624.0 11.2 SMAP Space 27 25 7855.9 2.9 SMD Server 22 38 25466.4 3.8
+
+For CAPS, we apply the univariate pipeline independently to each variable. The pretrained represen-tation and generation modules are shared across variables, while a separate TCN detector is trained for each variable without detector parameter sharing. The resulting variable-wise anomaly scores are aggregated at each timestamp to obtain a multivariate score. We evaluate two aggregation strategies. CAPS (Max) takes the maximum variable-wise score, whereas CAPS (Top5-mean) averages the five largest scores. Neither strategy introduces a module 38 for learning cross-variable interactions. Because the extension uses one detector per variable, its parameter count and computational cost differ from those of the single-detector univariate setting. We compare with the multivariate implementations of LOF, IForest, OmniAnomaly, TranAD, USAD, Anomaly Transformer, TimesNet, and FITS under the same data splits and evaluation protocol. Table 21: Results on multivariate anomaly detection benchmarks. Higher is better. Best and second-best results within each dataset–metric pair are shown in bold and underline, respectively. 
+
+Metric Model MSL PSM SMAP SMD Affiliation-F LOF 84.35 61.98 63.32 64.13 IForest 63.36 63.78 59.96 69.71 OmniAnomaly 83.15 58.17 91.38 85.82 TranAD 79.91 73.83 87.39 92.20 
+
+USAD 81.86 57.86 87.25 85.09 AnomTrans. 74.38 66.04 74.82 73.44 TimesNet 84.38 69.43 86.69 86.90 FITS 82.32 75.55 81.41 89.53 CAPS (Max) 86.64 82.71 92.87 89.37 CAPS (Top5-mean) 88.51 79.68 91.78 88.62 
+
+F1 T
+
+LOF 38.97 25.58 21.81 10.13 IForest 20.73 25.39 14.32 16.20 OmniAnomaly 49.36 30.42 46.63 51.84 TranAD 39.42 25.49 29.12 37.98 USAD 48.71 28.96 43.94 50.41 AnomTrans. 5.91 19.55 7.18 4.82 TimesNet 26.95 20.55 23.47 34.91 FITS 23.86 20.15 21.47 29.92 CAPS (Max) 55.07 34.09 47.61 54.23 CAPS (Top5-mean) 54.27 32.22 44.37 57.11 
+
+Standard-F1 LOF 30.65 18.80 18.70 8.41 IForest 14.68 24.15 13.61 16.89 OmniAnomaly 39.10 30.43 40.50 57.06 TranAD 29.60 25.63 25.11 43.99 USAD 38.71 28.41 38.66 53.06 AnomTrans. 10.65 23.37 8.02 9.86 TimesNet 20.13 20.15 23.37 39.48 FITS 16.96 20.15 19.99 34.18 CAPS (Max) 46.04 31.18 43.33 52.39 CAPS (Top5-mean) 40.04 25.40 40.84 57.83 
+
+VUS-PR LOF 24.67 13.58 10.59 4.40 IForest 11.29 15.85 7.55 8.88 OmniAnomaly 31.57 18.58 28.07 37.44 TranAD 14.78 16.49 13.37 28.34 USAD 29.95 17.59 26.37 34.53 AnomTrans. 8.15 16.90 4.39 5.68 TimesNet 14.23 15.22 15.38 34.58 FITS 13.98 14.02 14.85 30.32 CAPS (Max) 40.15 20.37 39.46 50.06 CAPS (Top5-mean) 31.93 19.54 35.04 54.63 
+
+Table 21 shows strong performance from the variable-wise extension despite its lack of explicit cross-variable modeling. CAPS (Max) achieves the best result on 11 of the 16 dataset–metric pairs, while CAPS (Top5-mean) achieves the best result on four. TranAD achieves the highest Affiliation-F on SMD. 39 Max aggregation performs better on most metrics for MSL, PSM, and SMAP, whereas Top5-mean is stronger on three of the four metrics for SMD. These differences illustrate the effect of score aggregation: Max emphasizes the strongest individual response, while Top5-mean combines evidence from several variables. Neither strategy is uniformly preferable across the evaluated datasets and metrics. The results support the usefulness of recovered temporal supervision in a variable-wise multivariate pipeline. Each detector learns from reference-anchored pairs for its corresponding variable, and aggregation combines the resulting anomaly evidence at the decision level. This construction cannot explicitly model anomalies expressed only through changing correlations or conditional relationships among otherwise plausible individual trajectories. The experiment therefore establishes a practical extension of the temporal supervision-recovery procedure, while leaving cross-variable anomaly structure unmodeled. Incorporating such dependencies into representation learning and counterpart construction remains a direction for future work. 40 Table 22: Performance variability of CAPS and controlled TCN references across nine datasets. Per-dataset results are reported as mean  ± standard deviation over five independent runs. Avg. is the unweighted average of the nine dataset means. Higher is better. The best mean among the methods listed in each dataset–metric group is shown in bold. 
+
+> Metric  Method  IOPS  MGAB  NAB  Power  SED  UCR  NEK  TODS  YAHOO  Avg. Affiliation-F TCN-AE  83 .91  ± 0.80  67 .61  ± 1.69  85 .74  ± 1.66  83 .34  ± 0.91  67 .75  ± 1.08  74 .54  ± 0.43  85 .74  ± 1.43  72 .61  ± 0.42  82 .47  ± 0.43  78.19 TCN-Injection  87 .58  ± 0.72  69 .13  ± 1.56  88 .89  ± 1.37  85 .04  ± 0.41  70 .94  ± 0.46  84 .32  ± 1.40  81 .52  ± 0.84  72 .05  ± 0.20  83 .22  ± 1.66  80.30 TCN-Supervised  84 .35  ± 0.70  67 .59  ± 0.98  89 .62  ± 0.97  85 .96  ± 1.36  68 .47  ± 1.71  72 .40  ± 1.12  85 .24  ± 1.40  71 .75  ± 0.67  83 .11  ± 1.05  78.72 TCN-Forecast  76 .05  ± 1.47  67 .27  ± 0.95  84 .06  ± 1.09  84 .80  ± 1.51  67 .68  ± 0.55  72 .81  ± 0.92  85 .83  ± 0.81  72 .48  ± 0.24  82 .64  ± 1.18  77.07 CAPS  89 .24  ± 0.29  69 .22  ± 0.70  93 .25  ± 0.62  85 .98  ± 0.97  74 .09  ± 0.88  88 .41  ± 0.66  86 .30  ± 0.28  86 .85  ± 0.97  94 .63  ± 0.60  85.33
+> F1 T
+> TCN-AE  39 .38  ± 1.02  3.25  ± 0.19  36 .63  ± 1.23  19 .92  ± 0.52  10 .23  ± 0.28  13 .87  ± 0.26  68 .58  ± 1.43  24 .85  ± 0.21  58 .94  ± 0.97  30.63 TCN-Injection  48 .37  ± 0.92  23 .89  ± 0.84  46 .91  ± 0.43  27 .04  ± 0.35  21 .59  ± 0.76  44 .79  ± 0.57  64 .45  ± 1.00  17 .26  ± 0.20  35 .68  ± 0.50  36.66 TCN-Supervised  41 .92  ± 0.35  1.94  ± 0.17  42 .50  ± 0.39  20 .13  ± 0.35  11 .01  ± 0.49  9.56  ± 0.55  72 .93  ± 0.80  22 .54  ± 0.38  59 .52  ± 0.97  31.34 TCN-Forecast  30 .24  ± 0.44  1.56  ± 0.05  37 .01  ± 0.68  19 .82  ± 0.82  10 .15  ± 0.21  8.50  ± 0.28  68 .89  ± 0.75  23 .42  ± 0.22  61 .61  ± 1.29  29.02 CAPS  60 .62  ± 1.04  7.58  ± 0.45  57 .90  ± 0.26  29 .20  ± 1.03  24 .27  ± 0.31  41 .53  ± 0.22  80 .15  ± 0.08  46 .17  ± 0.78  71 .35  ± 1.02  46.53
+> Standard-F1 TCN-AE  27 .15  ± 0.60  2.26  ± 0.61  28 .53  ± 0.72  20 .08  ± 0.53  10 .22  ± 0.39  9.06  ± 0.50  58 .61  ± 0.50  20 .72  ± 0.18  49 .27  ± 1.09  25.10 TCN-Injection  46 .37  ± 0.68  14 .61  ± 0.66  38 .00  ± 0.89  27 .00  ± 0.40  21 .42  ± 0.74  35 .65  ± 0.84  60 .35  ± 1.36  16 .60  ± 0.30  31 .21  ± 0.50  32.36 TCN-Supervised  42 .38  ± 0.93  1.56  ± 0.05  34 .35  ± 0.74  20 .03  ± 0.51  10 .92  ± 0.33  5.24  ± 0.29  62 .58  ± 1.29  19 .23  ± 0.43  51 .24  ± 1.26  27.50 TCN-Forecast  18 .65  ± 0.53  1.30  ± 0.13  28 .56  ± 0.53  19 .77  ± 0.67  10 .16  ± 0.36  4.94  ± 0.39  61 .32  ± 1.02  20 .56  ± 0.26  54 .63  ± 1.31  24.43 CAPS  51 .63  ± 0.59  4.54  ± 0.45  51 .78  ± 0.22  29 .37  ± 1.71  24 .11  ± 0.21  37 .70  ± 0.18  76 .23  ± 0.56  41 .24  ± 0.45  69 .58  ± 1.02  42.91
+> VUS-PR TCN-AE  17 .27  ± 0.59  0.87  ± 0.07  21 .56  ± 0.55  14 .95  ± 0.23  8.99  ± 0.53  3.63  ± 0.30  61 .04  ± 1.04  46 .30  ± 0.23  41 .03  ± 0.60  23.96 TCN-Injection  48 .69  ± 1.16  3.27  ± 0.18  34 .97  ± 1.02  21 .87  ± 0.68  17 .50  ± 0.30  26 .07  ± 0.86  60 .76  ± 0.77  49 .35  ± 0.25  42 .35  ± 0.82  33.87 TCN-Supervised  33 .62  ± 0.99  0.61  ± 0.06  30 .66  ± 0.82  11 .85  ± 0.28  8.50  ± 0.35  2.87  ± 0.16  67 .52  ± 0.98  76 .61  ± 0.23  44 .28  ± 0.76  30.72 TCN-Forecast  11 .19  ± 0.35  0.57  ± 0.05  20 .85  ± 0.48  11 .25  ± 0.25  8.92  ± 0.34  2.37  ± 0.15  63 .35  ± 0.62  45 .72  ± 0.39  43 .27  ± 0.73  23.05 CAPS  49 .00  ± 0.60  1.55  ± 0.23  52 .35  ± 0.66  19 .42  ± 1.45  20 .09  ± 0.19  28 .47  ± 0.14  80 .52  ± 0.76  86 .26  ± 1.17  83 .70  ± 1.21  46.82
+
+41 NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: The abstract and introduction describe CAPS as a supervision-recovery frame-work based on transferable anomaly semantics, target-conditioned realization, and context-anchored detector supervision. The problem formulation and experiments clarify the as-sumptions, scope, and distinction between standard CAPS and the optional Diagnosis setting. Guidelines: • The answer [N/A] means that the abstract and introduction do not include the claims made in the paper. • The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A [No] or [N/A] answer to this question will not be perceived well by the reviewers. • The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. • It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: The conclusion and supplementary analyses discuss dependence on simulated semantic coverage, sensitivity to contaminated target references, and the lack of explicit cross-variable dependency modeling. Additional experiments examine these limitations and the computational cost of supervision recovery. Guidelines: • The answer [N/A] means that the paper has no limitation while the answer [No] means that the paper has limitations, but those are not discussed in the paper. • The authors are encouraged to create a separate “Limitations” section in their paper. • The paper should point out any strong assumptions and how robust the results are to violations of these assumptions. • The authors should reflect on the scope of the claims made. • The authors should reflect on the factors that influence the performance of the approach. • The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size. • If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness. • The authors should use their best judgment and recognize that individual actions in favor of transparency play an important role in developing norms that preserve the integrity of the community. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [Yes] Justification: Section 4.4 states Proposition 1 with its finite-risk, integrability, and uniform Lipschitz assumptions. Appendix A provides the proof, the derivation of the contextual realization gap, and additional discussion of the regularity conditions, learning-error term, and scope of the analysis. Guidelines: 42 • The answer [N/A] means that the paper does not include theoretical results. • All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced. • All assumptions should be clearly stated or referenced in the statement of any theorems. • The proofs can either appear in the main paper or the supplemental material. • Any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material. • Theorems and Lemmas that the proof relies upon should be properly referenced. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main ex-perimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)? Answer: [Yes] Justification: The method sections and Algorithm 1 describe representation learning, semantic-prior estimation, residual-expert training, counterpart construction, detector train-ing, and inference. Appendices B.4 and C provide implementation and evaluation details, complemented by the released code and experiment configurations. Guidelines: • The answer [N/A] means that the paper does not include experiments. • If the paper includes experiments, a [No] answer to this question will not be perceived well by the reviewers. • If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. • Reproducibility can be accomplished in various ways, including code release, detailed implementation instructions, model checkpoints, or other appropriate means. • If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm. • If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully. • If the contribution is a new model, there should either be a way to access this model for reproducing the results or a way to reproduce the model. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instruc-tions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [Yes] Justification: Appendix B.4 links the repository containing the CAPS implementation, train-ing and evaluation scripts, experiment configurations, and data-preparation instructions. The released simulated normal–anomalous pairs include mode assignments, anomaly supports, and reference identifiers. Guidelines: • The answer [N/A] means that paper does not include experiments requiring code. • Please see the NeurIPS code and data submission guidelines for more details. • While we encourage the release of code and data, we understand that this might not be possible, so [No] is an acceptable answer. • The instructions should contain the exact command and environment needed to run to reproduce the results. • The authors should provide instructions on data access and preparation. • The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. • At submission time, to preserve anonymity, the authors should release anonymized versions if applicable. 43 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-rameters, how they were chosen, type of optimizer) necessary to understand the results? Answer: [Yes] Justification: Section 5 and Appendices B.4 and C specify the data splits, preprocessing, metrics, threshold selection, architecture, and optimization settings. Mode organization and Diagnosis are described in Appendix B.3, with additional comparison protocols provided in the corresponding experimental subsections. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them. • The full details can be provided either with the code, in appendix, or as supplemental material. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments? Answer: [Yes] Justification: The appendix reports per-dataset means and standard deviations over five independent runs for CAPS and the controlled TCN references. These statistics quantify variability across repeated runs. The reported uncertainty is the standard deviation, and the comparisons are not presented as formal significance tests. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The authors should answer [Yes] if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper. • The factors of variability that the error bars are capturing should be clearly stated. • The method for calculating the error bars should be explained. • The assumptions made should be given. • It should be clear whether the error bar is the standard deviation or the standard error of the mean. • If error bars are reported in tables or plots, the authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text. 8. Experiments compute resources 
+
+Question: For each experiment, does the paper provide sufficient information on the com-puter resources (type of compute workers, memory, time of execution) needed to reproduce the experiments? Answer: [Yes] Justification: Implementation settings and computational costs are provided in Appen-dices B.4 and D.5.4, covering simulated-domain training, counterpart generation, and detector inference. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage. • The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. • The paper should disclose whether the full research project required more compute than the experiments reported in the paper. 9. Code of ethics 
+
+44 Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines ?Answer: [Yes] Justification: The research uses public time-series anomaly detection benchmarks and simulated normal–anomalous pairs. It does not involve human-subject experiments or private personal-data collection, and is intended for methodological evaluation under the stated benchmark protocols. Guidelines: • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of Ethics. • If the authors answer [No], they should explain the special circumstances that require a deviation from the Code of Ethics. • The authors should make sure to preserve anonymity. 10. Broader impacts 
+
+Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? Answer: [Yes] Justification: The paper discusses potential benefits for monitoring applications and potential risks associated with false alarms and missed anomalies. Guidelines: • The answer [N/A] means that there is no societal impact of the work performed. • If the authors answer [N/A] or [No], they should explain why their work has no societal impact or why the paper does not address societal impact. • Examples of negative societal impacts include potential malicious or unintended uses, fairness considerations, privacy considerations, and security considerations. • The conference expects that many papers will be foundational research and not tied to particular applications, let alone deployments. • The authors should consider possible harms that could arise when the technology is used as intended and functioning correctly, when it gives incorrect results, and through misuse. • If there are negative societal impacts, the authors could also discuss possible mitigation strategies. 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)? Answer: [N/A] Justification: The released assets concern time-series anomaly detection code and simulated anomaly pairs. The work does not introduce high-risk general-purpose models or datasets containing scraped personal information. Guidelines: • The answer [N/A] means that the paper poses no such risks. • Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model. • Datasets that have been scraped from the Internet could pose safety risks. • We recognize that providing effective safeguards is challenging, and many papers do not require this. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected? 45 Answer: [Yes] Justification: The datasets and baseline implementations are credited to their original sources and used in accordance with their respective licenses and terms of use. Guidelines: • The answer [N/A] means that the paper does not use existing assets. • The authors should cite the original paper that produced the code package or dataset. • The authors should state which version of the asset is used and, if possible, include a URL. • The name of the license should be included for each asset. • For scraped data from a particular source, the copyright and terms of service of that source should be provided. • If assets are released, the license, copyright information, and terms of use in the package should be provided. • For existing datasets that are re-packaged, both the original license and the license of the derived asset should be provided. • If this information is not available online, the authors are encouraged to reach out to the asset’s creators. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [Yes] Justification: The repository linked in Appendix B.4 documents the CAPS implementation and released simulated pairs, including their mode assignments, anomaly supports, and reference identifiers. Training, evaluation, and data-preparation instructions accompany these assets. Guidelines: • The answer [N/A] means that the paper does not release new assets. • Researchers should communicate the details of the dataset/code/model as part of their submissions via structured templates. • The paper should discuss whether and how consent was obtained from people whose asset is used. • At submission time, remember to anonymize your assets if applicable. 14. Crowdsourcing and research with human subjects 
+
+Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? Answer: [N/A] Justification: The paper does not involve crowdsourcing, user studies, or research with human subjects. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Including this information in the supplemental material is fine. • According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained? 46 Answer: [N/A] Justification: The paper does not involve crowdsourcing or research with human subjects, so institutional human-subject review is not applicable. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Depending on the country in which research is conducted, IRB approval or equivalent may be required for human subjects research. • We expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. • For initial submissions, do not include any information that would break anonymity. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigor, or originality of the research, declaration is not required. Answer: [N/A] Justification: LLMs are not an important, original, or non-standard component of the proposed method. Language-tool assistance is limited to writing, editing, or formatting and does not determine the method, experimental results, or theoretical analysis. Guidelines: • The answer [N/A] means that the core method development in this research does not involve LLMs as any important, original, or non-standard components. • Please refer to the LLM policy in the NeurIPS handbook for what should or should not be described. 47

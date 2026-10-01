@@ -1,0 +1,345 @@
+Title: Time-Series Foundation Models That Understand Data Revisions
+
+URL Source: https://arxiv.org/pdf/2609.28576v1
+
+Published Time: Fri, 25 Sep 2026 00:04:54 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Time-Series Foundation Models That Understand Data Revisions 
+
+## Taimoor Ahmed ∗
+
+## September 25, 2026 
+
+# Abstract 
+
+Historical observations are not always fixed: statistical agencies revise previously published values as new evi-dence arrives. Forecasting from a contemporary download can therefore expose a model to information unavailable at the date it purportedly made a prediction. We pro-pose VINTAGE-TS, a revision-aware adaptation of a time-series foundation model that distinguishes observa-tion time from information-availability time. Its targets are the next period’s first-published value and the value available a fixed number of days after that publication; neither is declared final truth. A joint predictive distri-bution preserves dependence between these targets and exposes uncertainty about their difference. We specify an ALFRED-based rolling evaluation, a matched Chronos-2 comparison, conventional and revision-aware baselines, and a separate audit of pretraining overlap. The accom-panying software implements validity-interval reconstruc-tion, delayed-label filtering, a frozen-backbone adapter interface, and reproducible diagnostics. An executed syn-thetic demonstration and a 25-configuration sensitivity suite verify the workflow, expose variation across seeds and revision regimes, and illustrate how hindsight con-tamination changes measured performance. Thirty-one automated tests check temporal and integration contracts. Real ALFRED and Chronos-2 experiments have not been executed; no empirical foundation-model advantage is claimed. 
+
+# 1 Introduction 
+
+A forecaster operates on the information available at the time a decision is made. Many forecasting benchmarks implicitly identify that information with the historical part of a series downloaded today. This identification fails when old observations are revised. An employment estimate for January can have one value in February, another in March, and a substantially different value after an annual benchmark revision. All describe the same observation period, but they become usable at different dates [20, 19]. ALFRED preserves historical vintages and supports reconstruction of previously available data [23]. This 
+
+> ∗Superior University Lahore, Pakistan
+
+makes revisions an observable forecasting problem rather than a synthetic perturbation of an otherwise fixed series. Two questions then arise: what will the next release report, and what will that reported observation become after a specified maturation interval? These questions serve different users and need not favor the same model; forecast assessment can depend on which vintage defines the outcome [35]. Chronos-2 provides a pretrained starting point with multivariate and covariate-informed forecasting support [7]. Those capabilities make it feasible to supply release-age and revision features alongside a current vintage. They do not, on their own, define the target vintage, enforce historical availability, or prove that pretraining avoided later revisions. The proposed contribution is the integration of explicit information timing, separate release targets, and a joint uncertainty model with that backbone. This manuscript provides three concrete components. First, it defines an operational data and target contract with no assumption of a final value. Second, it spec-ifies a revision-aware frozen-backbone adaptation and an extension to joint neural training. Third, it supplies an executable reference package with rolling evaluation, information audits, and a synthetic smoke experiment. The empirical research claim remains a hypothesis: ac-cess to revision histories may improve mature-vintage forecasts or their calibration beyond a matched latest-vintage model. The protocol is designed to reject that hypothesis if the evidence does not support it. 
+
+# 2 Positioning and Research Ques-tions 
+
+Real-time forecasting and data revisions have a substan-tial econometric history. Croushore and Stark construct a real-time macroeconomic data set [20], and Stark and Croushore examine forecasting with it [35]. Koenig, Dol-mas, and Piger show that the vintage strategy used to estimate a forecasting equation can affect its out-of-sample performance [31]. Aruoba documents departures from commonly imposed assumptions about revision be-havior [9], while Croushore surveys the wider real-time data literature [19]. Jacobs and van Norden develop state-space representations of revisions that accommo-1arXiv:2609.28576v1 [cs.LG] 23 Sep 2026 date richer measurement-error dynamics and do not re-quire an observed vintage to equal an ultimate true value [29]. Consequently, two time coordinates and revision modeling alone are not novel contributions. A related literature studies information arriving at dif-ferent publication dates. Giannone, Reichlin, and Small develop a framework for real-time macroeconomic now-casting [26, 5]. Bańbura and Modugno address factor-model estimation with arbitrary missing-data patterns, including those associated with different release delays [17, 16]. These contributions motivate attention to asyn-chronous availability. Here, the additional object of in-terest is the changing sequence of published values for the same observation period. Neural forecasting provides several relevant model-ing ingredients. DeepAR learns probabilistic forecasts across related series [34, 4]; Temporal Fusion Transform-ers combine multiple input types for multi-horizon pre-diction [32, 1, 14]; and PatchTST studies patch-based Transformer representations [33, 38]. Published work on Chronos, TimesFM, and Moirai further establishes pretrained and universal forecasting as an active research direction [8, 21, 37, 12]. These papers motivate the back-bone and representation choices; they do not establish that our proposed revision-aware adaptation improves forecasting. The evaluation also draws on established methodol-ogy. Proper scoring rules assess predictive distributions [28, 11], and calibration must be considered together with sharpness [27, 13]. Rolling-origin testing and predictive-accuracy comparison have a substantial forecasting liter-ature [36, 22, 3]. Validation assumptions matter for de-pendent observations: results permitting ordinary cross-validation for some autoregressive settings do not by themselves authorize access to future vintages [18, 15]. More broadly, leakage can make machine-learning results appear stronger than they are [30, 2]. This motivates an explicit information audit; it is not evidence that any particular Chronos checkpoint has seen the evaluation targets. The intended research gap is narrower: how should a broadly pretrained forecasting model consume revision history, learn from labels that mature at different dates, and produce forecasts for explicitly named vintages un-der a defensible information budget? This manuscript does not establish a first-in-literature claim. A broader systematic review remains necessary before a submission claims novelty over all revision-aware neural models. We separate three research questions: 1. Does revision history add predictive value beyond the latest vintage available at issuance, holding backbone, target definition, and training budget fixed? 2. Can a joint forecast distinguish uncertainty about the first release from uncertainty about its subsequent re-vision, while maintaining useful marginal calibration? 3. How much do data-vintage leakage and uncertain pre-training exposure change the interpretation of appar-ent forecasting gains? Success requires evidence on the first two questions after the third has been audited. Better performance under a hindsight-contaminated input is not evidence of a de-ployable improvement. 
+
+# 3 Two-Time Data and Target Con-tract 
+
+## 3.1 Availability and validity intervals 
+
+Let i index a series and t an observation period. Let 
+
+v denote an information-availability date. An archived record is 
+
+e = ( i, t, v e, u e, x e), (1) where [ ve, u e] is the closed interval during which the recorded value is current, following the API’s inclusive real-time-period semantics [25, 24]. At end-of-day fore-cast origin o, the current value is 
+
+y[o] 
+
+> i,t
+
+= xe if ve ≤ o ≤ ue. (2) The historical event set contains records with ve ≤ o.Their eventual end dates are used only to resolve interval membership; a future end date is never an input feature. Revision counts, first values, and differences are computed from the truncated event history. The information set Io includes those events and meta-data demonstrably available by o. A forecast is a function of Io, trained using eligible earlier labels. Different mod-els may use different summaries of the same information set, but no model receives records unavailable to another at that date. A deliberately contaminated diagnostic is an explicitly marked exception. The reference runner uses monthly period-start times-tamps and issues a forecast on the day before the target month begins. Thus, it forecasts the next observation period’s eventual first publication; it does not use a fu-ture realized release calendar to select an origin. The forecast horizon from the last available observation can exceed one month because publication is delayed. In-traday forecasts, quarterly series, and mixed-frequency reconciliation require extensions. 
+
+## 3.2 First and mature targets 
+
+Let ri,t be the actual first-publication date, when verified by the archive-coverage audit. For a prespecified maturity lag L in calendar days, define 
+
+Y Fi,t = y[ri,t ] 
+
+> i,t
+
+, (3) 
+
+Y M,L i,t = y[ri,t +L] 
+
+> i,t
+
+, (4) 
+
+DLi,t = Y M,L i,t − Y Fi,t . (5) 2The mature target is the value in force at the fixed date ri,t + L. It is not the next revision after that date, the kth release, or the latest value at download. If no revision occurs by that date, the preceding still-valid value remains the target. If the archive does not cover the date, or the value is missing then, the mature label is unavailable. The default is L = 180 days; 90- and 365-day sensitivities are included in the synthetic suite and remain to be evaluated on audited real data. The earliest archived record need not be the origi-nal first publication. A historical series may enter the archive after many revisions. The software therefore calls its raw label “first archived” internally and requires a series-specific coverage audit before a real-data run is interpreted as first-release forecasting. Requesting the earliest possible API real-time date does not establish that coverage. 
+
+## 3.3 Label eligibility and transformations 
+
+At training origin o, a first label is eligible only if ri,t ≤ o;a mature label is eligible only if ri,t + L ≤ o. The reference adapter uses complete target pairs, applying the second and stricter condition. This simplifies a fair joint comparison but wastes some recent first-release labels. A neural implementation should use target-specific loss masks to exploit them safely. Following the distinction between real-time and retro-spectively revised estimation data [31, 10], every histor-ical training feature vector is reconstructed at its own historical origin. Its target may later become available for training, but its context is never retrospectively up-graded. Feature centering and scaling for the fitted head use only its training partition. Per-origin level and scale features use only that origin’s available history. For-ward filling is causal and retains an explicit missingness channel; backward filling is excluded. For economic applications, raw levels, log changes, or growth rates must be chosen before the test. A change computed from a vintage must use both operands avail-able in that vintage. The executable reference uses levels and performs no seasonal adjustment or rebasing. Unit changes, definition changes, and benchmark breaks must be recorded and may require cohort separation. 
+
+# 4 Revision-Aware Adaptation 
+
+## 4.1 Input channels 
+
+For each visible observation period, construct the latest value, first archived value, cumulative revision, publica-tion age, event count, and missingness indicator. All are functions of Io. A sparse revision triangle could retain every event; the reference implementation compresses it into these channels. This is a deliberate approximation: two distinct revision paths with identical summaries are indistinguishable to the adapter. The latest-vintage comparator receives only the current-value sequence. The revision-aware mode also passes the additional channels as past-only covariates . Fu-ture revision sizes, future event counts, and realized pub-lication dates are never passed as known future covariates. The public Chronos-2 dataframe interface distinguishes historical covariates from supplied future covariates [6]. The same checkpoint is used in both modes, and inference is independent across series in the reference runner. 
+
+## 4.2 Executable frozen-backbone adapter 
+
+Let bo be the frozen backbone’s median for the target observation period. Let so > 0 be a scale derived from differences in the as-of context, and zo the feature vector. A two-output residual adapter models 
+
+[ Y F
+
+Y M,L 
+
+] ∣∣∣ Io ∼ N 
+
+(
+
+bo1 + soB⊤ ˜zo, s 2
+
+> o
+
+̂ Σo
+
+)
+
+. (6) Here ˜zo contains an intercept and training-standardized features. The reference head is ridge regression with penalty 10 and an unpenalized intercept. It uses 12 context lags, the missingness indicators, and, in revision-aware mode, the corresponding revision, log-age, and log-count features. Chronos modes additionally include the normalized backbone median and an interval-derived spread feature. The Gaussian distribution is an adapter approximation; it is not asserted to be the native Chronos predictive law. Both Chronos modes use the same head type, train-ing rules, and calibration budget. This produces a controlled comparison between Chronos-latest and 
+
+VINTAGE-TS-frozen . The latter is an adaptation of pre-trained weights, not end-to-end foundation-model train-ing. Without a checkpoint, the CPU-only linear reference sets bo to the latest available value and compares corre-sponding feature sets. The residual covariance is estimated from the most recent 12 complete, eligible calibration pairs. The mean head is trained only on pairs whose mature target dates precede or equal the first calibration origin. This purges overlap caused by delayed labels. Calibration pairs are disjoint from mean-fitting pairs, and the head is not refitted on them afterward. A diagonal shrinkage term and a small ridge ensure positive covariance eigenvalues. The procedure estimates local empirical uncertainty; it does not establish finite-sample coverage under arbitrary distribution shift. The two-target covariance yields a revision distribution directly: 
+
+μD = μM − μF , (7) 
+
+σ2 
+
+> D
+
+= Σ M M + Σ F F − 2Σ F M . (8) This is preferable to adding marginal variances under an unjustified independence assumption. More generally, Var( Y M ) = Var( Y F ) + Var( D) + 2 Cov( Y F , D ). (9) 3VINTAGE-TS 
+
+Revision-aware forecasting architecture            
+
+> Observation time tInformation-availability time v
+> 01 RELEASE HISTORY 02 AS-OF INPUTS 03 BACKBONE 04 ADAPTATION 05 PREDICTIONS
+
+ALFRED 
+
+> Vintage archive
+> Original releases Later revisions
+
+( t, v, value ) 
+
+> Two recorded times
+
+As-of builder  
+
+> Forecast origin o
+> o
+
+Use only v ≤ o 
+
+> Current vintage First value + revision Release age + count Missingness mask
+> Past-only channels
+
+Chronos-2 
+
+> Frozen backbone
+> Fixed weights
+
+Base forecast 
+
+> Median + spread
+> No weight updates
+
+Joint adapter 
+
+> Two-target model
+
+F M
+
+> Ridge mean heads Joint covariance
+> Calibrated residuals
+
+First-release forecast 
+
+> Next period’s first publication
+
+Y F
+
+Mature-vintage forecast 
+
+> Value at first release + L days
+
+Y M,L 
+
+> Revision uncertainty
+> Mature − first release As-of feature summary
+> TRAINING AT ORIGIN o
+
+Historical replay 
+
+> Same as-of rules
+
+Earlier as-of examples 
+
+> Target pairs available by origin o
+
+Fit + calibrate adapter   
+
+> Purged chronological split
+> Only the adapter is fitted Labels respect availability Backbone remains frozen
+> Forecast data flow Adapter fitting / calibration Architecture schematic • L is a fixed maturity lag
+
+Figure 1: VINTAGE-TS architecture. Historical releases are reconstructed using only information available at forecast origin o. A frozen Chronos-2 backbone and a calibrated joint adapter produce first-release and mature-vintage forecasts, together with revision uncertainty. Adapter fitting uses historical as-of examples and labels available by the corresponding cutoff. These are forecast-distribution identities, not a causal identification of measurement error or an assertion that revisions are independent news. 
+
+## 4.3 Proposed neural extension 
+
+A subsequent model can encode each event with separate observation-time and release-time embeddings and attend only to events visible at its example origin. Two heads, or a joint conditional density, would predict Y F and DL.The joint construction would recover Y M = Y F + DL.This supports revision nowcasting for already-published periods as well as forecasting future releases. For marginal quantile heads, an eligible training objec-tive is 
+
+L = ∑ 
+
+> k∈{ F,M }
+
+λk
+
+∑
+
+> e,q
+
+me,k (o)ρq (Ye,k −̂ Qe,k,q ), (10) where me,k (o) enforces target-specific availability. A joint likelihood or a dependence model is additionally needed to obtain a meaningful revision distribution; two collections of marginal quantiles alone do not identify it. The event encoder, neural training loop, mixed-frequency batching, and partially observed joint loss are proposed extensions ,not implemented or tested components of this package. 
+
+# 5 Evaluation Protocol 
+
+## 5.1 Archive construction 
+
+Download ALFRED validity intervals through the FRED observations endpoint with explicit real-time bounds, identity units, and pagination [25, 24]. Preserve raw re-sponses, checksums, series IDs, and the archive snapshot date. A request with no explicit historical window is insufficient for an as-of study. The software keeps closed validity intervals and rejects overlapping duplicates in-stead of silently selecting a row. ALFRED’s documentation distinguishes release dates from ingestion and notes that date provenance can de-pend on the source or data provider [23]. The proposed evaluation therefore uses archive-date end-of-day seman-tics. Source-calendar matching and a one-business-day conservative delay are useful sensitivity checks, particu-larly for same-day decisions. The latter sensitivity is not included in the initial runner. Start with audited monthly employment and industrial-production series, then expand only when vintage cover-age and transformations have been checked. The supplied coverage file is intentionally marked pending; it cannot authorize a first-release interpretation by default. Series selection should reflect revision regimes and availability, 4Table 1: Comparators and implementation scope. “As-of” always refers to the forecast origin.       
+
+> Method Input and role AR As-of values; regularized linear autoregression with two target heads. Revision-linear Same linear family with revision-age features; backbone-free ablation. Revision-state-space As-of release events; latent level and decaying release error. Chronos-latest Frozen checkpoint with current vintage only; calibrated residual head. VINTAGE-TS-frozen Same checkpoint and head budget; revision covariates added. AR-hindsight Later revisions substituted into already-visible periods; invalid-context diagnostic.
+
+not test-set gains. Quarterly national accounts form a separate extension with their own release calendar and frequency handling. 
+
+## 5.2 Rolling origins and comparator fair-ness 
+
+At each origin, reconstruct the information set, retain eligible training examples, fit or update permitted pa-rameters, issue immutable forecasts, and score them only after the target-vintage date. The reference program ret-rospectively reconstructs this process; it does not operate a live forecast registry. A prospective study should hash and timestamp predictions before release. Use a chronological development period to select lags, regularization, feature sets, and maturity sensitivity. Freeze those choices before the final rolling period. Evalu-ation origins remain identical across methods, and paired comparisons use their shared target support. Report excluded origins, missing targets, and effective sample size. Mature targets close to the archive snapshot are right-censored, not filled with a latest downloaded value. The state-space reference uses a random-walk level and a per-period release error: 
+
+xt = xt−1 + ηt, (11) 
+
+y[rt+a] 
+
+> t
+
+= xt + ρa/ 30 bt + ϵt,a . (12) The shared bt induces dependence across releases of one observation. Each archived change event is assimi-lated once; unchanged daily snapshots are not repeatedly treated as independent measurements. The code uses a 72-period context, ρ = 0 .65, and empirical scale defaults estimated from as-of data. It is a transparent baseline, not a replication of Jacobs and van Norden or an opti-mized news-and-noise model. A publication study should additionally fit richer state-space specifications with the same pretest tuning discipline. 
+
+## 5.3 Accuracy, calibration, and depen-dence 
+
+Report MAE and RMSE for both targets, together with CRPS, quantile loss, 80% interval coverage, width, and probability-integral-transform diagnostics. The reference code uses analytic Gaussian CRPS and a seven-quantile grid. PIT uniformity and interval coverage are diagnos-tics, not established properties of the model. Also inspect the revision difference, whose covariance and predictive scale are exported per forecast. Raw errors across differently scaled economic series should not be pooled as the primary real-data metric. Re-port series-level metrics and normalize by a development-period naive forecast scale before macro-averaging. The current runner exports series identifiers and all predic-tions but its convenience summary pools raw errors. The synthetic series share units; the paper’s demonstration uses that summary. A final ALFRED analysis must implement the prespecified scale normalization. Use paired differences on shared dates and block-bootstrap uncertainty, retaining series observed at the same origin in the same date block. The reference script implements a circular moving-block bootstrap with 1,000 draws and six-month blocks. Its intervals are descriptive for the small demonstration. The real study should re-port sensitivity to block length, cohort-level uncertainty, and multiplicity correction for multiple primary claims. Failure to reject equal performance should not be called equivalence. 
+
+## 5.4 Decisive plots and ablations 
+
+A revision heatmap shows how each observation changes across archived versions. It must distinguish unseen entries from zeros. Error versus publication lag should compare predictions of the same mature target after different amounts of revision history have arrived. The shipped lag plot is a carry-forward nowcast diagnostic; it is explicitly not a revision-aware neural forecast result. The hindsight diagnostic replaces values for periods already visible at the historical origin with their archive-snapshot values. It retains the historical period support, issuance schedule, and label-eligibility rules. This isolates one common contamination path. It does not measure the full effect of also leaking future periods, using future normalization, or training on unavailable labels. The primary ablation removes revision covariates while keeping the same Chronos checkpoint and adapter. Fur-ther proposed ablations remove age, first-vintage, or event-count channels; vary maturity lag; compare frozen and fine-tuned weights; and stratify high- and low-revision regimes. They must be selected using develop-ment data. The basic linear feature and honest/hindsight 5comparisons have been executed, together with the syn-thetic seed, maturity-lag, and revision-amplitude sensi-tivities in Section 8. The matched Chronos comparison remains unrun. 
+
+# 6 Pretraining Exposure Audit 
+
+An as-of dataframe prevents input leakage but cannot erase information already encoded in pretrained weights. A model downloaded today may have been exposed to ob-servations or revisions published after a historical forecast origin. This risk is separate from supervised fine-tuning leakage. The Chronos-2 report describes its training data and includes an inventory of real univariate cor-pora [7]; dataset names alone are not a per-series overlap certificate. For every checkpoint, record the exact immutable revi-sion or local weight hash, acquisition date, known training cutoff, corpus evidence, and overlap checks. The pack-age exports a checkpoint-audit template with an explicit unknown-overlap state. Providing a manifest documents a claim; it does not verify it automatically. Freeze the in-stalled package version as well, since an unpinned remote model or interface can change. Interpret results in three distinct settings. A retrospec-tive pretrained evaluation with uncertain overlap mea-sures transfer performance under unresolved exposure. An overlap-screened historical subset reduces identified risks but remains conditional on the completeness of the audit. A prospective evaluation made with already-frozen weights excludes those weights having seen later test re-leases, provided all downstream fitting also follows the information contract. A synthetic-only or independently trained checkpoint can be a useful control, but its data provenance must also be inspected. No retrospective result in this proposal is labeled leakage-free merely because its local features were masked correctly. Until checkpoint evidence is available, a real Chronos run should be described as an exploratory retro-spective transfer experiment. 
+
+# 7 Executed Synthetic Demonstra-tion 
+
+## 7.1 Setup and numerical results 
+
+The packaged demonstration generates two monthly se-ries of 132 observation periods beginning in January 2008, with random seed 17. A drifting latent level and a serially correlated initial-publication error generate four archived versions per observation, arriving at 0, 30, 90, and 180 days after first publication. Revision error decays with age. This noise-like mechanism is an engineering fix-ture, not an economic model or an estimate of ALFRED revision behavior. Table 2: Executed synthetic demonstration only. Each row has n = 48. Coverage is for nominal 80% intervals. 
+
+Method Target MAE CRPS Cov. AR First 0.979 0.677 0.812 Revision-linear First 1.037 0.766 0.833 State-space First 1.033 0.722 0.896 Hindsight AR First 1.173 0.809 0.646 AR Mature 0.748 0.534 0.875 Revision-linear Mature 0.717 0.548 0.875 State-space Mature 0.795 0.564 0.854 Hindsight AR Mature 0.671 0.472 0.792 2016-01-01 2016-07-01 2017-01-01 2017-07-01 2018-01-01 2018-07-01 Observation period 0123Archived vintage index 
+
+> Synthetic demonstration: revision from first vintage
+> −1.5 −1.0 −0.5 0.0 0.5 1.0 1.5 Revised minus first value
+
+Figure 2: Synthetic revision triangle. The color scale records signed change from the first archived value; vin-tage index counts archived versions, not a universal cal-endar lag. Forecasts cover January 2016 through December 2017. There are 48 predictions per method and target: 24 origins for each of two series. Each origin requires at least 24 purged mean-fitting examples and 12 calibration pairs. The targets are first publication and the value in force 180 days later. Table 2 contains results produced by the accompanying script. No Chronos weights are used in this experiment. Revision-linear reduces mature-target MAE by 0.031 relative to AR in this run, but its mature-target CRPS is worse. The paired six-month-block bootstrap interval for the MAE difference is [ −0.148 , 0.195]. This example therefore does not support a reliable overall advantage of revision features. It demonstrates why point accuracy and probabilistic performance should be assessed separately. Hindsight AR has a lower mature MAE than honest AR, with a paired difference of 0.077 and an interval of [−0.045 , 0.203]. For the first-release target, the direction reverses: honest minus hindsight MAE is −0.194, with interval [ −0.362 , −0.017]. Later revisions can remove information correlated with early reporting error. Con-tamination does not have to improve every metric to invalidate the historical information set. 6first mature Target vintage 0.0 0.2 0.4 0.6 0.8 1.0 1.2 MAE 
+
+> Synthetic demonstration: honest and hindsight contexts
+> Honest AR Hindsight AR
+
+Figure 3: The same synthetic issuance dates yield dif-ferent errors when historical context is replaced by later revisions. The sign of the effect depends on the target vintage. 0 20 40 60 80 100 120 140 Days since first publication 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 MAE against fixed mature target 
+
+> Synthetic demonstration: carry-forward nowcast
+
+Figure 4: Synthetic carry-forward nowcast error against the 180-day target. The decline is expected under the chosen decaying-error generator and is not evidence that all real revisions become easier with age. 
+
+## 7.2 Verification and limits of the artifact 
+
+Thirty-one executed automated tests extend the original nine checks. They cover calendar-date validation, closed and missing validity intervals, right-censored and fixed-maturity targets, causal filling, chronological calibration purging, stable fitting with collinear features, Gaussian-score transformations, and positive joint covariance. An end-to-end test alters every future revision value and ver-ifies that honest forecast means and uncertainties remain unchanged. The information-audit CSV exposes fitting and calibration cutoffs at every origin. Offline integration fixtures additionally test ALFRED pagination, preservation of missing values, and credential-safe error handling, together with Chronos past-only covariate routing and forecast-date alignment. These are mocked interface tests: the optional Chronos adapter was not executed against downloaded weights, and the live ALFRED downloader was not exercised with an API key. These integration limits are recorded in the package. The artifact is sufficient to reproduce the synthetic results and begin the audited real-data study; it is not evidence that the proposed neural extension or economic benchmark has been completed. 
+
+# 8 Extended Synthetic Tests 
+
+## 8.1 Design and reproducibility 
+
+To test whether the original demonstration generalizes across random draws and revision settings, we execute a fixed 25-configuration suite. The seeds are 17, 29, 43, 71, and 101. For each seed, we test 90-, 180-, and 365-day mature targets at the standard revision-error scale, plus scales 0.25 and 2 at the 180-day target. Each configuration retains two series, 132 observation periods, and the same 24 evaluation months. All configurations are reported; no hyperparameters are retuned using their outcomes. This extension uses five archived versions at 0, 30, 90, 180, and 365 days after first publication. It is a separate generator run from the original four-version demonstration. The extra version makes the 365-day target numerically distinct from the 180-day vintage. For revision stress, the multiplier applies to the complete release deviation from the latent path, including residual release noise. Identical seeds retain identical latent paths and innovations across scale settings. Each configuration produces 384 method/target fore-cast rows, giving 9,600 rows in total. Those rows reuse observation dates and underlying paths across configura-tions; they are not 9,600 independent origins. Configu-ration files are written before evaluation, and every run saves its synthetic fixture, forecasts, information audit, metrics, bootstrap contrasts, and environment manifest. Error bars in the sensitivity plots show one sample stan-dard deviation across five seeds, not confidence intervals. 
+
+## 8.2 Trajectories and calibration 
+
+Figure 5 complements aggregate errors with rolling pre-dicted means and intervals. Both targets share the same selected series and evaluation dates, avoiding selection of a favorable time segment. The plot can reveal systematic lag, excessive width, and periods where observations fall outside nominal intervals. It does not establish simulta-neous path coverage. Figure 6 expands the single 80% coverage statistic to nominal levels of 50%, 60%, 70%, 80%, 90%, and 95%. The same held-out forecast means and scales define every interval. This avoids recalibrating separately against each plotted test coverage. The curves concern marginal Gaussian intervals and remain distinct from the joint first/mature dependence assumption. 
+
+## 8.3 Variation across seeds 
+
+Table 3 summarizes the five-seed, standard-revision, 180-day setting. Revision-linear’s mean mature MAE is 1.231, compared with 1.007 for AR and 0.918 for the revision 7100 102 104 106 First value        
+
+> 80% predictive interval Observed target Forecast mean
+> 2016-02 2016-06 2016-10 2017-02 2017-06 2017-10 Target observation month 100 102 104 106 Mature value
+
+Original synthetic demo: SYN1, Revision-linear Figure 5: original synthetic demonstration, series SYN1. Revision-linear means and 80% intervals are plotted against first and mature targets over all evaluation months. These are successive rolling forecasts, each issued at its own origin; the connected curves are not one multi-step forecast path. state-space reference. Its mature CRPS is also worse: 0.875 versus 0.728 and 0.656, respectively. Thus, the small mature-MAE gain observed in the original single-seed demonstration does not provide a robust general advantage for this linear adaptation. The first-release comparison also disfavors Revision-linear on average. Figure 7 shows paired AR-minus-Revision-linear differences for every seed. Positive differ-ences favor revision features; negative differences favor AR. Three seeds have within-seed 95% block-bootstrap intervals entirely below zero for both targets. These in-tervals are descriptive, are not multiplicity-adjusted, and do not substitute for evidence on real releases. No post-hoc model changes were made to reverse the unfavorable result. 
+
+## 8.4 Maturity and revision stress 
+
+Figure 8 shows that a later target does not automatically yield a better trained forecaster. AR’s mean mature MAE rises from 0.973 at 90 days to 1.046 at 365 days, while the state-space reference remains near 0.91. A longer lag both changes the label and withholds recent supervised examples for longer; the experiment does not identify Table 3: Extended synthetic suite at 180 days and stan-dard revision scale. Mean across five seeds; 48 forecasts per seed and target. These differ from the original four-version demonstration.                             
+
+> Method Target MAE CRPS Cov. AR First 1.170 0.830 0.800 Revision-linear First 1.411 1.001 0.750 State-space First 1.190 0.831 0.850 AR Mature 1.007 0.728 0.762 Revision-linear Mature 1.231 0.875 0.754 State-space Mature 0.918 0.656 0.787
+
+these effects separately. The state-space reference does not use the same paired-label regression window, which helps explain why the mechanisms differ. As the revision-error multiplier increases from 0.25 to 2, mature MAE rises from 0.798 to 1.177 for AR, from 1.006 to 1.385 for Revision-linear, and from 0.796 to 1.026 for state-space (Figure 9). This controlled noise-like generator favors an explicitly modeled decaying-error structure; it does not establish state-space dominance 80.5 0.6 0.7 0.8 0.9 Nominal coverage 0.4 0.5 0.6 0.7 0.8 0.9 1.0 Empirical coverage 
+
+First     
+
+> 0.5 0.6 0.7 0.8 0.9 Nominal coverage
+
+Mature 
+
+> AR Revision-linear State-space
+
+Original synthetic demo: 48 forecasts per target Figure 6: nominal versus empirical central-interval coverage in the original demonstration, with 48 forecasts per method and target. The diagonal denotes exact marginal coverage. Departures are descriptive; the temporally dependent observations do not justify independent-binomial confidence statements. −0.8 −0.6 −0.4 −0.2 0.0 MAE(AR) - MAE(Revision-linear) 17 29 43 71 101 Random seed 
+
+First      
+
+> −0.8 −0.6 −0.4 −0.2 0.0 0.2 MAE(AR) - MAE(Revision-linear)
+
+Mature 
+
+Extended synthetic suite: 180-day target, standard revisions 
+
+Figure 7: per-seed paired MAE differences at 180 days and standard revision scale. Segments are 95% within-seed percentile intervals from 1,000 six-month circular block-bootstrap draws, with both series retained together within a date. Negative values favor AR. under news revisions, structural changes, or an actual economic release process. Together, these additional tests expose an empirical weakness of the high-dimensional linear revision head with limited supervision. They motivate stronger reg-ularization, better feature compression, and a properly controlled foundation-model comparison as future de-velopment work, rather than supporting an unqualified VINTAGE-TS accuracy claim. The real ALFRED and Chronos-2 experiments remain unrun. 
+
+# 9 Limitations and Study Comple-tion Criteria 
+
+The reference study is deliberately narrow: monthly lev-els, per-series adaptation, fixed issuance dates, Gaussian joint uncertainty, a small calibration sample, and a sum-marized revision history. It does not model publication-time uncertainty, arbitrary ragged mixed-frequency pan-els, benchmark redefinitions, or changing institutional 990 180 365 Maturity lag (days) 0.8 0.9 1.0 1.1 1.2 1.3 1.4 Mature-target MAE   
+
+> AR Revision-linear State-space
+> 90 180 365 Maturity lag (days) 0.65 0.70 0.75 0.80 0.85 0.90 80% interval coverage
+
+Extended synthetic suite: mean +/- one seed SD (5 seeds) Figure 8: mature-target MAE and 80% coverage versus maturity lag in the extended suite. Points average five seeds; bars show one seed standard deviation. Changing maturity changes both the scored vintage and the availability of training labels, so this is a joint target-and-supervision sensitivity. 0.25 1.00 2.00 Revision-error multiplier 0.75 1.00 1.25 1.50 1.75 2.00 2.25 MAE 
+
+First   
+
+> 0.25 1.00 2.00 Revision-error multiplier
+
+Mature 
+
+> AR Revision-linear State-space
+
+Extended synthetic suite: mean +/- one seed SD (5 seeds) 
+
+Figure 9: first-release and mature-target MAE as release-error amplitude changes. The 180-day target, latent paths, and random innovations are paired within seed. Points average five seeds; bars show one seed standard deviation, not confidence intervals. revision policies. Summary revision features can discard path information, and a Gaussian head can miss asym-metry and heavy tails. State-space defaults are not an optimized competing estimator. The current implementation addresses next-period re-lease forecasts. Mature-value nowcasting of already-published observations is illustrated only by the lag diag-nostic and remains a model-training extension. Complete-pair filtering delays the use of first-release supervision. The proposed masked neural loss would alleviate that restriction but requires a tested training implementation and a tuning budget matched to baselines. Before reporting research conclusions, the study must complete archive-coverage verification, checkpoint prove-nance analysis, prespecified data transformations, scale-normalized aggregation, adequate real-data rolling eval-uation, and the matched Chronos comparison. A con-vincing outcome requires gains on a declared primary score, paired uncertainty, calibration evidence, and sta-bility across relevant cohorts. A null result is scientifically 10 meaningful: revision histories may be weakly informative, or a latest-vintage model may already exploit their useful consequences. 
+
+# 10 Conclusion 
+
+VINTAGE-TS frames revision-aware forecasting as a two-time information problem with explicitly named target vintages. Its central design is to preserve release history, restrict both inputs and labels to what was available at issuance, and distinguish uncertainty about first publi-cations from uncertainty about subsequent changes. A frozen Chronos-2 adaptation offers an implementable starting point, while a joint event-based neural model remains a proposed extension. The executable package validates the temporal contract with 31 automated tests and supplies a 25-configuration synthetic sensitivity suite. The expanded tests do not establish a consistent benefit of the linear revision head and reinforce the need for strong revision-aware baselines. Its current numerical results establish neither an economic forecasting gain nor a foundation-model improvement. The decisive next evidence is a matched, audited, real-vintage evaluation whose conclusions survive calibration checks and explicit examination of pretraining exposure. 
+
+# References 
+
+[1] Faheem Ahmed, Muhammad Zia, Hasan Mahmood, and Shayma Al Kobaisi. Open source computer game application: An empirical analysis of quality concerns. Entertainment Computing , 21:1–10, 2017. [2] Saiqa Aleem, Rabia Batool, Shayma Alkobaisi, Fa-heem Ahmed, and Asad Masood Khattak. Saas application maturity assessment model. IEEE Ac-cess , 12:128305–128325, 2024. [3] Shayma Alkobaisi. Optimizing map labeling of point features based on an onion peeling approach. Journal of Spatial Information Science , 2011. [4] Shayma Alkobaisi, Wan D Bae, Petr Vojtěchovsk` y, and Sada Narayanappa. An interactive framework for spatial joins: a statistical approach to data anal-ysis in gis. GeoInformatica , 16(2):329–355, 2012. [5] Shayma Alkobaisi, Muhammad Farhan Safdar, Piotr Pałka, and Najah Abed Abu Ali. Artificial intelli-gence algorithms in asthma management: a review of data engineering, predictive models, and future implications. Applied Sciences , 15(7):3609, 2025. [6] Amazon Science. Chronos forecasting: Offi-cial implementation. https://github.com/ amazon-science/chronos-forecasting , 2026. API inspected September 22, 2026; experiments must pin their installed version and checkpoint. [7] Abdul Fatir Ansari, Oleksandr Shchur, Jaris Küken, Andreas Auer, et al. Chronos-2: From uni-variate to universal forecasting. arXiv preprint arXiv:2510.15821 , 2025. [8] Abdul Fatir Ansari, Lorenzo Stella, Caner Türk-men, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapu-ram, Sebastian Pineda Arango, Shubham Kapoor, Jasper Zschiegner, Danielle C. Maddix, Hao Wang, Michael W. Mahoney, Kari Torkkola, Andrew Gor-don Wilson, Michael Bohlke-Schneider, and Yuyang Wang. Chronos: Learning the language of time se-ries. Transactions on Machine Learning Research ,2024. [9] S. Borağan Aruoba. Data revisions are not well behaved. Journal of Money, Credit and Banking ,40(2–3):319–340, 2008. [10] Wan D Bae, Shayma Alkobaisi, Matthew Horak, Siddheshwari Bankar, Sartaj Bhuvaji, Sungroul Kim, and Choon-Sik Park. Synthetic data generation and evaluation techniques for classifiers in data starved medical applications. IEEE Access , 13:16584–16602, 2025. [11] Wan D Bae, Shayma Alkobaisi, Matthew Horak, Choon-Sik Park, Sungroul Kim, and Joel Davidson. Predicting health risks of adult asthmatics suscepti-ble to indoor air quality using improved logistic and quantile regression models. Life , 12(10):1631, 2022. [12] Wan D Bae, Shayma Alkobaisi, Seon Ho Kim, Sada Narayanappa, and Cyrus Shahabi. Supporting range queries on web data using k-nearest neighbor search. In International Symposium on Web and Wireless Geographical Information Systems , pages 61–75. Springer, 2007. [13] Wan D Bae, Shayma Alkobaisi, Seon Ho Kim, Sada Narayanappa, and Cyrus Shahabi. Web data re-trieval: solving spatial range queries using k-nearest neighbor searches. GeoInformatica , 13(4):483–514, 2009. [14] Wan D Bae, Shayma Alkobaisi, and Scott TLeutenegger. Irsj: Incremental refining spatial joins for interactive queries in gis. GeoInformat-ica , 14(4):507–543, 2010. [15] Wan D Bae, Shayma Alkobaisi, Sada Narayanappa, and Cheng C Liu. A mobile data analysis frame-work for environmental health decision support. In 
+
+2012 Ninth International Conference on Information Technology-New Generations , pages 155–161. IEEE, 2012. [16] Wan D Bae, Petr Vojtěchovsk` y, Shayma Alkobaisi, Scott T Leutenegger, and Seon Ho Kim. An inter-active framework for raster data spatial joins. In 11 Proceedings of the 15th annual ACM international symposium on Advances in geographic information systems , pages 1–8, 2007. [17] Marta Bańbura and Michele Modugno. Maximum likelihood estimation of factor models on datasets with arbitrary pattern of missing data. Journal of Applied Econometrics , 29(1):133–160, 2014. [18] Christoph Bergmeir, Rob J. Hyndman, and Bon-soo Koo. A note on the validity of cross-validation for evaluating autoregressive time series prediction. 
+
+Computational Statistics & Data Analysis , 120:70–83, 2018. [19] Dean Croushore. Frontiers of real-time data analysis. 
+
+Journal of Economic Literature , 49(1):72–100, 2011. [20] Dean Croushore and Tom Stark. A real-time data set for macroeconomists. Journal of Econometrics ,105(1):111–130, 2001. [21] Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting. In Proceedings of the 41st International Conference on Machine Learn-ing , volume 235 of Proceedings of Machine Learning Research , pages 10148–10167. PMLR, 2024. [22] Francis X. Diebold and Roberto S. Mariano. Com-paring predictive accuracy. Journal of Business & Economic Statistics , 13(3):253–263, 1995. [23] Federal Reserve Bank of St. Louis. ALFRED: Help and vintage data definitions. https://alfred. stlouisfed.org/help , 2026. Accessed September 22, 2026. [24] Federal Reserve Bank of St. Louis. FRED API: Real-time periods. https://fred.stlouisfed.org/ docs/api/fred/realtime_period.html , 2026. Ac-cessed September 22, 2026. [25] Federal Reserve Bank of St. Louis. FRED API: Series observations. https://fred.stlouisfed. org/docs/api/fred/series_observations.html ,2026. Accessed September 22, 2026. [26] Domenico Giannone, Lucrezia Reichlin, and David Small. Nowcasting: The real-time informational content of macroeconomic data. Journal of Monetary Economics , 55(4):665–676, 2008. [27] Tilmann Gneiting, Fadoua Balabdaoui, and Adrian E. Raftery. Probabilistic forecasts, calibra-tion and sharpness. Journal of the Royal Statis-tical Society: Series B (Statistical Methodology) ,69(2):243–268, 2007. [28] Tilmann Gneiting and Adrian E. Raftery. Strictly proper scoring rules, prediction, and estimation. 
+
+Journal of the American Statistical Association ,102(477):359–378, 2007. [29] Jan P. A. M. Jacobs and Simon van Norden. Mod-eling data revisions: Measurement error and dy-namics of “true” values. Journal of Econometrics ,161(2):101–109, 2011. [30] Sayash Kapoor and Arvind Narayanan. Leakage and the reproducibility crisis in machine-learning-based science. Patterns , 4(9):100804, 2023. [31] Evan F. Koenig, Sheila Dolmas, and Jeremy Piger. The use and abuse of real-time data in economic forecasting. The Review of Economics and Statistics ,85(3):618–628, 2003. [32] Bryan Lim, Sercan Ö. Arık, Nicolas Loeff, and Tomas Pfister. Temporal fusion transformers for in-terpretable multi-horizon time series forecasting. In-ternational Journal of Forecasting , 37(4):1748–1764, 2021. [33] Yuqi Nie, Nam H. Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In 
+
+The Eleventh International Conference on Learning Representations , 2023. [34] David Salinas, Valentin Flunkert, Jan Gasthaus, and Tim Januschowski. DeepAR: Probabilistic forecast-ing with autoregressive recurrent networks. Inter-national Journal of Forecasting , 36(3):1181–1191, 2020. [35] Tom Stark and Dean Croushore. Forecasting with a real-time data set for macroeconomists. Journal of Macroeconomics , 24(4):507–531, 2002. [36] Leonard J. Tashman. Out-of-sample tests of forecast-ing accuracy: An analysis and review. International Journal of Forecasting , 16(4):437–450, 2000. [37] Gerald Woo, Chenghao Liu, Akshat Kumar, Caim-ing Xiong, Silvio Savarese, and Doyen Sahoo. Unified training of universal time series forecasting trans-formers. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of 
+
+Proceedings of Machine Learning Research , pages 53140–53164. PMLR, 2024. [38] Byunggu Yu, Seon Ho Kim, Shayma Alkobaisi, Wan D Bae, and Thomas Bailey. The tornado model: Uncertainty model for continuously changing data. In International Conference on Database Systems for Advanced Applications , pages 624–636. Springer, 2007. 12

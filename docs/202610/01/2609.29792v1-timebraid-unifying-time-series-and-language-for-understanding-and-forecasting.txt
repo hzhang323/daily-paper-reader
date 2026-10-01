@@ -1,0 +1,1829 @@
+Title: TimeBraid: Unifying Time Series and Language for Understanding and Forecasting
+
+URL Source: https://arxiv.org/pdf/2609.29792v1
+
+Published Time: Fri, 25 Sep 2026 01:37:14 GMT
+
+Number of Pages: 57
+
+Markdown Content:
+# TimeBraid: Unifying Time Series and Language for Understanding and Forecasting 
+
+Xinyue Wang 1,3,† , Jiacheng Pang 2, Kun Zhou 3, Kexin Zhang 2, Defu Cao 2, Fan Feng 1, Faisal 2,
+
+Songyao Jin 1,3,† , Yan Liu 2, Biwei Huang 1,3 
+
+1 University of California San Diego , 2 University of Southern California , 3 Aether AI 
+
+†Part of the work was completed during an internship at Aether AI 
+
+We present TimeBraid, a series of unified time-series and language models that align pretrained language models and pretrained time-series foundation models through interleaved global residual attention layers. Each model inherits knowledge, instruction following, and reasoning from one side, continuous-signal perception and zero-shot forecasting from the other, and fuses the two in a shared representation space where both modalities are understood and generated. We study the design choices that make such unified modeling work: where to align the two representation spaces, how to ground language in temporal structure, how to balance understanding with generation, and how to keep joint optimization stable. The resulting recipe combines a unified prompting scheme for diverse time-series and text tasks, stabilized joint training, and supervision from 2.2M curated series–text pairs and 4.9M instruction-tuning samples. Across benchmarks spanning time-series perception, understanding, reasoning, and both context-aided and unimodal forecasting, TimeBraid remains competitive with far larger general-purpose models and task-specific counterparts. 
+
+Keywords: Unified Time-Series and Language Models, Time-Series Analysis, Multi-Modal Forecasting 
+
+# Correspondence: Xinyue Wang (xiw159@ucsd.edu) 
+
+ Project § Code Model Data: Alignment · SFT Model 
+
+“It rises, then falls.” 
+
+Applications 
+
+Forecasting, Control & Reconstruction 
+
+Long-Term Forecast  Contextual Forecast  Counterfactual Forecast  Value Imputation     
+
+> “Reliance: est. EPS growth 29.7%” if promoted
+> if closed
+> Q: What comes next? Q: Given the outlook, what's next? Q: What if we promote or close it? Q: What are the missing values?
+
+Perception, Understanding, Reasoning 
+
+Contextual Description  Anomaly Localization  Sequence Reasoning  State Recognition      
+
+> West Valley, LA · daily crime · Feb–Jun 2024 First ABCD
+> long-run mean
+> Q: Describe West Valley's crime.
+> A: Above its norm and drops in May.
+
+Causal Analysis 
+
+> AAPL · Twitter mentions
+
+<ts>  TS patches  </ts>  Text tokens 
+
+TimeBraid 
+
+Unified Time-series and Language Models 
+
+> Q: Where does the shift begin?
+> A: Near step 80.
+
+Period Estimation 
+
+> 50 steps
+> Q: How often does it repeat?
+> A: Every 50 steps.
+> Q: Restore the heart-rate trace?
+> A: B, C, A, D.
+
+Signal Relationships 
+
+> Q: Which ECG rhythm is this?
+> A: Atrial flutter.
+
+Signal Dynamics 
+
+<ts>  TS patches  </ts>  Text tokens 
+
+“Describe this series. 
+
+text  Q: Why did mentions surge? 
+
+> A: Corporate announcement.
+> Q: How should S1 match S2?
+> A: Reduce gain; keep timing.
+> Q: Why does variability grow?
+> A: Multiplicative noise.
+
+time series 
+
+Benchmark results 
+
+GIFT-Eval 
+
+MASE ↓ 
+
+Time-MMD 
+
+MSE rank ↓ 
+
+CAF 
+
+CRPS ↓ 
+
+TSAQA 
+
+Accuracy ↑ 
+
+closed-source reference 
+
+TemporalBench 
+
+Accuracy ↑ 
+
+CaTS-Bench 
+
+DeBERTa-F1 ↑                      
+
+> .763 .676 .698 .705
+> 4.50 6.33 7.61 7.89 .225 .231 .275 .233 80.7 85.3 36.6 32.4 31.1 38.5 .712 .713 .682 .660
+> 51.0 63.1
+
+TimeBraid 
+
+Toto-2 
+
+Chronos-2 
+
+TimesFM 2.5 
+
+TimeBraid 
+
+TimesFM 2.5 
+
+Chronos-2 
+
+Sundial 
+
+TimeBraid 
+
+DoubleCast 
+
+Moirai-2 
+
+GPT-5.4 
+
+TimeBraid 
+
+Llama 3.1 (SFT) 
+
+Qwen3-8B 
+
+GPT-5.4 
+
+TimeBraid 
+
+Qwen3-8B 
+
+DeepSeek-Chat 
+
+GPT-5.4 
+
+TimeBraid 
+
+Idefics 2 (SFT) 
+
+Intern VL 2.5 
+
+GPT-5.4 
+
+Figure 1. Overview of TimeBraid. The unified time-series and language interface, application examples, and results on time-series understanding (TSAQA, TemporalBench, CaTS-Bench) and forecasting (GIFT-Eval, Time-MMD, CAF) benchmarks. 
+
+1arXiv:2609.29792v1 [cs.CL] 24 Sep 2026 TimeBraid: Unifying Time Series and Language 2
+
+1 Introduction 
+
+From early development, human intelligence is shaped by continuous interaction with a rich stream of heterogeneous signals. Vision, audition, language, and tactile sensation arrive as synchronized time series, allowing information from one modality to contextualize and complement information from others (Smith & Gasser, 2005; Smith et al., 2018; Orhan et al., 2020). Existing efforts to build multimodal systems have largely relied on composed workflows or architectures that merge separately developed, modality-specific modules. Unified multimodal models explore a complementary direction: learning shared representations for understanding and generating heterogeneous signals within a single set of model weights (Team, 2024; Zhou et al., 2025a; Xie et al., 2025a; Wang et al., 2024; Chen et al., 2025b; Deng et al., 2025; Xu et al., 2025a; An et al., 2026). Emerging evidence suggests that joint pretraining across modalities may foster capabilities that are difficult to acquire from any individual modality in isolation (Tong et al., 2026). However, time-series data remains largely outside this unification. Numerical records of dynamical systems (e.g., physiology, power grids, markets, and climate) lack the semantic context for identifica-tion and interpretation (Goldberger et al., 2000; Hong & Fan, 2016; Tsay, 2010; Lam et al., 2023; Shallue & Vanderburg, 2018). Language grounding can supply this context and connect time series with broader world knowledge, motivating their inclusion as an essential modality in unified models. Existing approaches typically connect time series and language by adding specialized components, ranging from projection layers to signal tokenizers, to pretrained language or time-series models (Xie et al., 2024; Guan et al., 2026a; Jin et al., 2024; Wang et al., 2025a). However, such components introduce representational gaps, causing semantic misalignment and degrading pretrained capabilities, and each resulting system covers only a fragment of the full bidirectional interface (Section 5). Aligning the native representations of both pretrained hosts while largely preserving their capabilities remains underexplored. Such alignment requires large-scale paired pretraining, yet the inherent semantic gap between continuous signals and discrete language makes it challenging. To bridge this gap, we present 
+
+TimeBraid , a mixture-of-Transformers architecture that combines modality-specific processing with cross-modal context sharing. Inspired by how specialized sensory organs perceive different signals while the brain integrates them for decision-making, TimeBraid employs separate pretrained experts for language reasoning, time-series perception, and forecasting, while connecting them through 
+
+global residual attention . This mechanism organizes their representations into a shared chronological context, enabling cross-modal interaction while substantially preserving pretrained language and forecasting capabilities. Building on this architecture, we introduce a two-stage training recipe that first aligns time series and language on large-scale paired data and then adapts the unified model to diverse downstream tasks. Across twelve understanding and forecasting benchmarks (Jing et al., 2026; Cai et al., 2024; Weng et al., 2026; Zhou et al., 2026; Liu et al., 2024a; Wang et al., 2025a; Zheng et al., 2026; Williams et al., 2024; Aksu et al., 2024), TimeBraid at 1.2B–6.7B parameters serves both directions of the series–text interface in one model, as summarized in Figure 1. For understanding, TimeBraid-6.7B reaches 80.65% on TSAQA, compared with 85.26% for TSAQA-specific LLaMA3.1-8B SFT and 63.10% for GPT-5.4. On the held-out TB-MCQ suite it performs on par with GPT-5.4 (36.58% vs. 38.50%). Its CaTS-Bench captions match the strongest frontier VLMs and the models finetuned on the benchmark. For forecasting, TimeBraid attains the best average MSE rank on the nine Time-MMD domains and TimeBraid: Unifying Time Series and Language 3
+
+the best CRPS on CAF. On GIFT-Eval it largely maintains comparable zero-shot forecasting to state-of-the-art time-series foundation models. It is also the only non-LLM model whose Ctrl-F forecasts follow the stated condition, and attains the best Macro MSE and Macro MAE on CGTSF. Further analysis systematically ablates the design space of this new model class and singles out the shared attention space, stabilized joint optimization, and the alignment stage as the choices that matter most. Together, these results establish TimeBraid as a series of powerful and versatile unified models of time and language. 
+
+2 Preliminaries 
+
+Every time-series and language task can be described as an interleaving of the two modalities. Formally, an example is a segment sequence 𝑆 = (𝑠 1, . . . , 𝑠 𝑀 ), where each segment is either a text segment (a token sequence) or a time-series segment (a univariate value sequence (𝑥 1, . . . , 𝑥 𝑛 ) ∈ ℝ𝑛 ; a multivariate series enters as one segment per variable), and each segment is designated as context or 
+
+target ; the number and ordering of segments are unconstrained. Context segments are fully observed: context text 𝑠 text carries instructions, questions, and background, and a context time-series segment 𝑠 ts ,𝐶 
+
+carries observed measurements. Target segments are the model’s outputs: a target text segment is a language response to be generated, and a target time-series segment 𝑠 ts ,𝑇 = (𝑥 1, . . . , 𝑥 ℎ, 𝑥 ℎ+1, . . . , 𝑥 ℎ+ 𝑓 )
+
+restates the observed history (𝑥 1, . . . , 𝑥 ℎ) of its context segment and continues it with 𝑓 future values to be generated. 
+
+3 Method 
+
+TimeBraid is a unified time-series and language model built on top of native language and time-series representations: a pretrained language model and a pretrained time-series foundation model. Its design pursues two properties: (i) the framework should be an omni learner and practitioner, not bound by a specific task format, accepting any time-series and text segment composition in input and output; and (ii) it should leverage the pretrained representations in existing language models and time-series foundation models rather than relearning them from scratch. We first describe the data recipe that develops these capabilities, then the unified prompting and model design that realize (i) and (ii), and finally the training objectives, optimization setup, and inference procedure. 
+
+3.1 Data Recipe 
+
+Our data is arranged as a two-stage curriculum (Figure 2). The first stage teaches basic time-series understanding and controllable forecasting on constructed paired data. The second stage builds on these basics and targets instruction following, task-specific performance, and real-world domain knowledge with a heterogeneous instruction mixture. 
+
+Stage 1: Alignment. The alignment stage uses 2.23M paired examples, split 3:7 between under-standing and forecasting. The understanding data covers both univariate and multivariate cases: morphology captions describe the basic structures of a single series (trends, seasonality, regimes, salient features, inter-series relationships); context-rich captions describe real series together with their real-world context; programmable captions in the style of ChatTS (Xie et al., 2024) are generated attribute-first, so each description matches its series precisely by construction; multivariate exam-ples are generated from structural causal models with known interaction structure; and templated TimeBraid: Unifying Time Series and Language 4Stage 1 — Alignment 
+
+2.23M             
+
+> samples
+> Forecasting 70.0%
+> Controlled Forecasting 668K
+> General Forecasting 892K
+> Subtotal 1.56M
+> Time-Series Understanding 30.0%
+> Morphology Description 50K
+> Contextual Description 50K
+> ChatTS Univariate Analysis 260K
+> ChatTS Multivariate Analysis 109K
+> Causal Modeling 100K
+> TimeSeriesExam Description 100K
+> Subtotal 669K
+
+Stage 2 — Instruction Fine-Tuning 
+
+4.88M                                       
+
+> samples
+> Forecasting 54.49%
+> CGTSF 53.9K
+> FinMultiTime S&P 500 144K
+> MoTime 32.6K
+> CAF-7M 2.31M
+> TimeMMD 20.8K
+> TimeMQA 74.7K
+> Subtotal 2.64M
+> Unimodal Corpora 11.69%
+> GIFT-Eval Pretrain 200K
+> Dolci-Instruct 200K
+> Subtotal 400K
+> Captioning & Description 3.34%
+> OpenTSLM M4 Captioning 80K
+> SensorCaps 36K
+> TimeMMD Open-Ended 1.9K
+> TRACE Captioning 44K
+> Subtotal 162K
+> Time-Series QA & Reasoning 22.49%
+> CaTSBench 16K
+> ChatTS 50.4K
+> HITS-R 157K
+> OpenSQA 139K
+> OpenTSLM ECG 159K
+> OpenTSLM HAR 68.5K
+> OpenTSLM Sleep 7.4K
+> OpenTSLM TSQA 38.4K
+> TimeMQA Reasoning 110K
+> TSAQA Reasoning 126K
+> EngineMTQA 100K
+> RATs 33K
+> TimeMQA Imputation 38.6K
+> TSAQA Anomaly Detection 21K
+> Subtotal 1.07M
+> Alignment Retention 8.00%
+> Understanding Retention 116K
+> Forecasting Retention 498K
+> Subtotal 614K
+
+Figure 2. Two-stage training recipe. Stage 2 counts show the final one-pass sample inventory, while percentages show training-time sampling shares. 
+
+programmable tasks (Cai et al., 2024) cover the same content from diverse task perspectives. The forecasting data focuses on controllability and is built with future-aware annotation: annotations are produced with access to the future, which is never included in the model input. The forecasting control set synthesizes several distinct futures from one shared history using programmable operators and captions the condition that leads to each future, so the model learns to follow stated conditions when forecasting. The general forecasting set annotates realized futures of real series, aligning context-conditioned forecasts with natural real-world evolution. We rewrite some forecasting exam-ples in different tones and genres to make their presentation more diverse and realistic. Appendix A details the construction of each family. 
+
+Stage 2: Supervised Fine-Tuning. The second stage uses a heterogeneous mixture spanning time-series question answering and reasoning, captioning and description, contextual and unimodal long-horizon forecasting, and domain-specific applications in energy, climate, healthcare, finance, sensing, and industrial monitoring. Its final one-pass inventory contains 4,881,583 samples. The training-time sampling shares allocate 54.49% to forecasting, 22.49% to time-series QA and reasoning, 3.34% to captioning and description, 11.69% to unimodal data, and 8.00% to alignment retention. The retained alignment quota contains 614,113 samples: 116,294 from understanding and 497,819 from forecasting. 
+
+3.2 Unified Time-Series and Language Modeling 
+
+Unified Time-Series and Language Prompting. The prompting scheme defines the serialization 
+
+𝑆 ↦ → 𝑢 1: 𝑇 , mapping a segment sequence (Section 2) to the mixed sequence of 𝑇 text tokens and time-series patches that the model consumes. Each example is rendered as a chat transcript in the TimeBraid: Unifying Time Series and Language 5
+
+native chat template, and time-series segments are wrapped with special tokens <ts></ts> (as illustrated in the examples below). Each context time-series segment is prepended with a statistics block indicating the length, mean and standard deviation of the segment, and each target segment is a bare <ts></ts> . The text segments are tokenized into text tokens and the time-series segments are normalized and tokenized into patches of fixed length 𝑃 , according to the pretrained language model and time-series foundation model respectively. For the context time-series segments, we use full-segment normalization. For a target time-series segment, we normalize the full segment with the statistics of its history prefix and then apply a rolling RevIN normalization (Kim et al., 2022) to better handle nonstationarity and respect the causal order in the prediction process. The global sequence ordering is determined by the chronological order of the original segment sequence. The examples below show one multivariate understanding and one univariate forecasting transcript.   
+
+> Example: multivariate understanding User: Equity:
+
+<stats>len=94, mean=103, std=4</stats><ts> </ts> . Stress: 
+
+<stats>len=90, mean=19, std=7</stats><ts> </ts> . How do they relate?   
+
+> Assistant: Stress leads each equity drawdown.
+> Example: univariate forecasting User: Here is the last 96 hours of server CPU load:
+
+<stats>len=96, mean=42.1, std=8.3</stats><ts> </ts> . A deployment just shipped, forecast the next 96 hours.  
+
+> Assistant:
+
+<ts> </ts> 
+
+Tri-Expert Architecture. The core part of TimeBraid is a Mixture-of-Transformers (MoT) architec-ture that unifies time-series perception, reasoning and forecasting within a single framework. The perception expert encodes context time-series segments, the reasoning expert handles text input and output such as instructions and language responses, and the forecasting expert generates target time-series segments based on the time-series and text contexts. We initialize the experts with their corresponding pretrained models, e.g., large language models and time-series foundation models. Note that while the perception and forecasting experts receive different input with different normal-ization, they can share the same underlying model (dual-tower architecture). One may also consider using different backbones (tri-tower architecture) to further disentangle the representations used for understanding and forecasting, analogous to unified vision models that decouple understanding from generation representations (Chen et al., 2025b). However, we do not observe significant performance improvement by using extra backbones in ablation studies (Figure 4E). The choice of backbone for each expert tower is not limited under this framework, and we leave the study of model composition as future work. 
+
+Global Residual Attention. The time-series tower has fewer layers than the language tower, so each of its layers is paired with one language layer, evenly interleaved across depth; the remaining language layers are unpaired and process only their own tokens. The towers interact through global residual attention layers at the paired positions. At every paired layer, each tower 𝑟 ∈ { L, T} first applies its native block to its own tokens, producing hidden states 𝐻 𝑟 ∈ ℝ𝑛 𝑟 ×𝑑 𝑟 , where 𝑛 𝑟 is the number of tokens in stream 𝑟 and 𝑑 𝑟 the native width of tower 𝑟 . The global residual attention layers project them into a shared attention space of width 𝑑 for self-attention on the global mixed sequence,  
+
+> 𝑄 𝑟
+
+= 𝜓 𝑄 𝑟 
+
+ 𝜙 𝑟 (𝐻 𝑟 ) 𝑊 𝑄 𝑟 
+
+, 𝐾 𝑟 = 𝜓 𝐾 𝑟 
+
+ 𝜙 𝑟 (𝐻 𝑟 ) 𝑊 𝐾 𝑟 
+
+, 𝑉 𝑟 = 𝜙 𝑟 (𝐻 𝑟 ) 𝑊 𝑉 𝑟 , (1) TimeBraid: Unifying Time Series and Language 6OUTPUT 
+
+TimeBraid Block × N 
+
+> Perception Expert
+> Time-series Foundation Model Block
+> INPUT
+> Time-series patches
+
+Context time-series 
+
+> Equity
+> VIX
+> DXY
+
+Text response 
+
+Investors get nervous, markets turn shaky and stocks may fall… 
+
+> Text tokens
+
+Global Residual Attention 
+
+> Large Language Model Block
+> Reasoning Expert
+> Text tokens
+
+Text instruction 
+
+> Inflation is still high, so interest rates stay high…
+> Forecast what’s next.
+
+Time-series 
+
+> VIX
+> Time-series patches
+> Time-series Foundation Model Block
+> Forecasting Expert
+> Time-series patches
+
+Target time-series              
+
+> ??
+> next?
+> ?VIX
+> past
+> ... ... ...
+> +++
+> OFOPOR
+> Regroup by expert
+> ... ... ...
+> Global Causal
+> Attention
+> Align by global position
+> ...
+> QFKFVFQPKPVPQRKRVR
+> ...
+> Forecasting
+> Expert
+> ...
+> Perception
+> Expert
+> ...
+> Reasoning
+> Expert
+
+Figure 3. TimeBraid architecture: the model components and the flow of information between the time-series and language modalities. 
+
+where 𝑊 𝑄 𝑟 , 𝑊 𝐾 𝑟 , 𝑊 𝑉 𝑟 ∈ ℝ𝑑 𝑟 ×𝑑 map each stream to the shared width, 𝜙 𝑟 is a stream-specific RMSNorm on hidden states, and 𝜓 𝑄 𝑟 , 𝜓 𝐾 𝑟 are per-head RMSNorms on queries and keys. The projected tokens of both streams are reordered into single global sequences ˜ 𝑄, ˜𝐾, ˜𝑉 by their timeline positions 𝜏 and attended jointly under a causal mask, 
+
+𝑂 = Attention  RoPE 𝜏 ( ˜𝑄 ), RoPE 𝜏 ( ˜𝐾 ), ˜𝑉 , 𝐻 𝑟 ← 𝐻 𝑟 + 𝑂 𝑟 𝑊 𝑂 𝑟 , (2) where 𝑂 𝑟 denotes the rows of 𝑂 belonging to stream 𝑟 , routed back to their original positions, and the output projections 𝑊 𝑂 𝑟 ∈ ℝ𝑑 ×𝑑 𝑟 are zero-initialized so that each global layer starts as an identity map. A text token thus attends to all earlier tokens of both modalities, and a patch token does the same. The cross-modal information is exchanged token-to-token in both directions, enabling flexible and rich interactions between time-series and text. 
+
+Disentangled Positional Embeddings. We use three kinds of positional embeddings: (1) the language tower applies rotary embeddings (RoPE) inside its native blocks, on the patch-expanded positions, (2) the time-series tower applies its native positions locally within each segment, restarting at every segment, (3) the residual attention applies RoPE on the shared global ordered positions 𝜏 
+
+(Eq. 2), where both modalities are placed on one sequential axis. Algorithm 1 in Appendix C gives pseudocode for the full forward pass. 
+
+3.3 Training and Inference 
+
+Joint Training Loss. Time-series and language modeling are jointly optimized with separate losses. Text targets are trained with the standard next-token cross-entropy loss LCE . Time-series targets are supervised autoregressively via Multi-Patch Prediction (MPP): every patch of a target segment is predicted from its preceding context, and each predicted patch incurs a point term and a quantile TimeBraid: Unifying Time Series and Language 7
+
+term, 
+
+LTS = 1
+
+|T | ∑︁ 𝑡 ∈ T 
+
+
+
+ˆ𝑦 𝑡 − 𝑦 𝑡  
+
+> 22
+
++ 1
+
+|Q| ∑︁ 𝑞 ∈ Q 
+
+max  𝑞 ( 𝑦 𝑡 − ˆ𝑦 (𝑞 ) 
+
+> 𝑡
+
+), (𝑞 − 1) ( 𝑦 𝑡 − ˆ𝑦 (𝑞 ) 
+
+> 𝑡
+
+) 
+
+> ,
+
+(3) where T indexes the target patches of the example, 𝑦 𝑡 is the 𝑡 -th standardized target patch, ˆ 𝑦 𝑡 its point prediction, and ˆ 𝑦 (𝑞 ) 
+
+> 𝑡
+
+its prediction at quantile 𝑞 ∈ Q = {0.1, 0.2, . . . , 0.9}; the second term is the pinball loss. We use the point regression to describe the central trajectory and the quantile term to capture the predictive distribution and uncertainty. The total objective is L = LCE + 𝛼 LTS .
+
+Stabilizing the Joint Optimization. The language and time-series losses have different optimization characteristics, and naive joint training leads to ineffective learning. We observe that on strongly non-stationary segments, where the future departs from the history statistics, the regression loss LTS 
+
+can spike by orders of magnitude, and the spikes disrupt language-side learning through the shared backbone updates. We address this with two techniques. First, robust normalization : during the causal RevIN normalization, each raw target value 𝑥 is transformed as 𝑦 = asinh  (𝑥 − 𝜇 )/ 𝜎 , where 𝜇 
+
+and 𝜎 are the rolling history statistics of the RevIN step, producing the standardized targets in Eq. 3. The map is linear near zero and logarithmic in the tails, so extreme targets are compressed into a bounded range. Second, loss capping : the time-series loss of each response is rescaled by the detached factor 𝑠 = min  1, 𝑐 /stop_gradient (ℓ), where ℓ is the response’s time-series loss value and 𝑐 is a fixed cap threshold (Appendix C). This caps the value and gradient contribution of outlier responses and leaves in-range responses unchanged. 
+
+Training Setup. The alignment and supervised fine-tuning stages train all parameters (the language tower, the time-series tower, and the residual attention layers) with AdamW, using a 500-step warmup and a consistent learning rate of 2 × 10 −5 for both modalities, a loss weight of 𝛼 = 0.5 for the time-series loss to reflect the optimal learning rate ratio (Section 4.3), a global batch size of 128, and BF16 precision for training efficiency. The alignment stage uses context length 2,560 and is trained for one epoch; the supervised fine-tuning stage uses context length 4,096 and trains for 30k steps. 
+
+Text Strength Modulation at Inference Time. Text ranges from decisive (a verified maintenance schedule for server load) to barely informative (noisy commentary on a financial series), and the history itself ranges from regular series that largely predict themselves to volatile ones whose next window hinges on stated events. For a modality this heterogeneous, we expose the conditioning strength as an inference-time modulation. Since 𝑠 ts ,𝑇 can be predicted either from 𝑠 ts ,𝐶 alone or jointly from 𝑠 ts ,𝐶 and 𝑠 text , querying the model under the two conditioning modes yields two point predictions, ˆ𝑦 ts (time-series context only) and ˆ 𝑦 text +ts (time-series and text contexts), which we interpolate with a guidance weight 𝜆 ∈ [ 0, 1],ˆ𝑦 𝜆 = (1 − 𝜆 ) ˆ𝑦 ts + 𝜆 ˆ𝑦 text +ts . (4) A small 𝜆 leans on the global temporal regularities of the series, while a large 𝜆 keeps the forecast sensitive to the text within the horizon it describes. It provides more flexibility for the model to adapt across domains and inputs of certainty. 
+
+4 Experiments 
+
+We evaluate TimeBraid on time-series understanding and forecasting, covering perception, question answering and reasoning, contextual description, and contextual, controlled, and unimodal forecasting. TimeBraid: Unifying Time Series and Language 8
+
+Comparisons include general-purpose language and vision–language models, specialized time-series models, and unified models. Evaluation protocols, data sources, relationships to the training mixture, and complete results are detailed in Appendices B.3, E, and F. In main-text tables, bold and underlining mark the best and second-best values in the primary comparison. Detailed appendix tables also mark third-best values with daggers. Dashes indicate unavailable or non-comparable results. 
+
+4.1 Time-Series Understanding 
+
+Table 1. Time-series understanding accuracy (%) on TSAQA (per-category and overall), TimeSeriesExam (TSExam), and the 16 TemporalBench multiple-choice tasks (TB-MCQ, unweighted macro-average). The Closed-source Reference Models group provides references excluded from ranking. A.D.: anomaly detection; CLS: classification; Char.: characterization; Comp.: comparison; D.T.: data transformation; T.R.: temporal relation; PZ: puzzling/ordering format. Char./Comp./D.T./T.R. report the multiple-choice format. SFT denotes TSAQA-specific LoRA fine-tuning (Jing et al., 2026). Per-format and per-category results are in Tables 13, 12, and 16. Model TSAQA TSExam TB-MCQ A.D. ↑ CLS ↑ Char. ↑ Comp. ↑ D.T. ↑ T.R. ↑ PZ ↑ Overall ↑ Overall ↑ Avg. ↑
+
+Closed-source Reference Models 
+
+GPT-5.4 53.32 49.57 81.98 74.47 54.94 82.96 51.02 63.10 67.83 38.50 GPT-4.1 55.85 50.38 89.36 76.99 51.13 79.09 45.77 62.82 67.89 36.91 GPT-4o 54.32 47.20 84.15 69.07 53.24 75.58 45.61 60.73 55.96 32.30 Gemini-2.5-Flash 52.08 49.07 81.08 72.21 60.17 84.49 60.84 65.08 53.89 34.61 
+
+Open-source Large Language Models 
+
+Qwen3-8B 50.60 50.52 66.87 63.21 34.46 67.14 21.93 51.04 46.66 32.43 LLaMA3.1-8B 54.92 50.20 62.26 49.98 36.56 40.95 6.80 44.93 35.52 25.88 
+
+Time-Series Language Models 
+
+ChatTS 49.42 52.08 60.43 58.27 30.29 50.61 33.59 49.83 50.72 24.90 TimeOmni-1-7B 50.98 56.47 59.06 44.55 28.39 40.79 30.93 44.40 35.25 25.67 
+
+Unified Models 
+
+ChatTime-7B 50.20 43.47 27.29 25.14 25.15 23.80 27.87 38.38 41.94 28.45 TimeOmni-VL 50.82 51.15 44.18 28.87 23.55 23.63 15.52 39.27 49.06 32.32 TimeBraid-1.2B (Ours) 82.58 80.78 77.68 69.20 77.92 89.43 45.04 76.61 50.13 34.17 TimeBraid-2.5B (Ours) 83.23 79.25 80.05 72.86 82.92 91.71 48.36 78.31 60.05 35.74 TimeBraid-6.7B (Ours) 83.43 85.78 81.78 75.12 86.39 92.04 49.39 80.65 63.14 36.58 
+
+Perception, Question Answering, and Reasoning. The time-series understanding results are summarized in Table 1. TSAQA poses multi-format questions about a presented series, from perception subtasks such as anomaly detection and classification to reasoning subtasks such as temporal relations and ordering. TimeSeriesExam and the TemporalBench multiple-choice suite (TB-MCQ) are exams of time-series concepts and temporal reasoning. TimeBraid-6.7B achieves 80.65% overall TSAQA accuracy, compared with 85.26% and 84.29% for the benchmark-specific fine-tuned LLaMA3.1-8B and Qwen3-8B (Jing et al., 2026), and 63.10% for GPT-5.4. TimeBraid-2.5B and TimeBraid-1.2B achieve 78.31% and 76.61%. All three variants remain competitive on TB-MCQ, with TimeBraid-6.7B landing within two points of GPT-5.4. TimeOmni-VL obtains 39.27% on TSAQA and 49.06% on TimeBraid: Unifying Time Series and Language 9
+
+TimeSeriesExam, where TimeBraid-6.7B reaches 63.14%. Per-category breakdowns are provided in Tables 12, 13, and 16. 
+
+Table 2. Contextual description on the CaTS-Bench human-rewritten split: five metrics of alignment with reference captions and the released Numeric Fidelity score, all in [0, 1]. The Closed-source Reference Models group provides references excluded from ranking. Rows marked finetuned are trained on the CaTS-Bench training split; the full comparison is in Table 14. 
+
+Model Lexical and Semantic Alignment Numeric ↑
+
+DeBERTa-F1 ↑ SimCSE ↑ BLEU ↑ ROUGE-L ↑ METEOR ↑
+
+Closed-source Reference Models 
+
+GPT-5.4 0.660 0.843 0.064 0.239 0.264 0.778 Gemini 2.0 Flash 0.694 0.884 0.113 0.283 0.304 0.757 GPT-4o 0.685 0.886 0.090 0.259 0.314 0.739 
+
+Open-source Large Language Models 
+
+InternVL 2.5 38B 0.682 0.867 0.085 0.262 0.294 0.740 Gemma 3 27B 0.680 0.883 0.089 0.255 0.307 0.745 Idefics 2 (finetuned) 0.713 0.885 0.131 0.325 0.303 0.748 Llama 3.2 Vision (finetuned) 0.672 0.851 0.087 0.266 0.295 0.740 Phi-4 Multimodal (finetuned) 0.664 0.862 0.078 0.243 0.290 0.703 
+
+Time-Series Language Models 
+
+ChatTS 0.614 0.665 0.040 0.191 0.198 0.648 TimeOmni-1-7B 0.634 0.796 0.046 0.205 0.231 0.769 
+
+Unified Models 
+
+ChatTime-7B 0.371 0.234 0.004 0.032 0.030 0.077 TimeOmni-VL 0.598 0.568 0.027 0.179 0.165 0.370 TimeBraid-1.2B (Ours) 0.706 0.880 0.120 0.305 0.288 0.666 TimeBraid-2.5B (Ours) 0.708 0.885 0.121 0.307 0.289 0.670 TimeBraid-6.7B (Ours) 0.712 0.886 0.123 0.313 0.292 0.684 
+
+Contextual Description. Table 2 reports contextual description results on the CaTS-Bench human-rewritten split, where the model writes a caption for a series given its background context, scored for alignment with human references and for the fidelity of the numbers it cites. In the primary comparison, TimeBraid-6.7B ranks second on DeBERTa-F1, BLEU, and ROUGE-L and achieves the best SimCSE, while TimeBraid-2.5B remains second or third on the same alignment metrics. All three variants lead every other series–text model by a wide margin on every alignment metric. Numeric fidelity is their weakest axis, below the general-purpose models. The gap is expected: the time-series backbone compresses each patch of 32 raw values into a single embedding, and this reduction preserves shape and dynamics but loses fine-grained local values. Results for all evaluated models are reported in Table 14. 
+
+4.2 Time-Series Forecasting 
+
+Contextual Forecasting. Table 3 reports contextual forecasting on real-world benchmarks, where TimeMMD and CGTSF pair series from domains such as health, energy, and traffic with aligned text. Among the models shown in this summary table, a TimeBraid variant ranks among the top three on TimeBraid: Unifying Time Series and Language 10 
+
+eight of the nine TimeMMD domains. TimeBraid attains the best Macro MSE and Macro MAE on CGTSF. Detailed results are provided in Tables 17 and 18. 
+
+Table 3. Real-world contextual forecasting. Every text-conditioned model receives the paired text of each window, and a starred name (PatchTST ∗) marks a time-series backbone extended with a text branch. TimeMMD reports per-domain MSE averaged over four horizons; TimeBraid, the foundation models, and MIGAS-1.5 use a fixed 128-step history, while ChatTime, Aurora, and the text-conditioned supervised baselines use the official 8/36/96 lookbacks. CGTSF reports training-split-standardized MSE on MSPG, LEU, and PTF, averaged over four history-length settings. The remaining baselines, detailed results, and full model names are in Tables 17 and 18. Model TimeMMD (MSE ↓) CGTSF (MSE ↓)Agri. Clim. Econ. Ener. Env. Health Sec. Soc. Traf. MSPG LEU PTF 
+
+Time-Series Foundation Models 
+
+TimesFM 2.5 0.127 0.859 0.017 0.239 0.569 0.665 114.8 0.845 0.152 0.585 0.777 0.243 Chronos-2 0.085 0.988 0.015 0.262 0.566 1.217 110.3 1.110 0.201 0.649 0.715 0.230 Moirai 0.102 0.949 0.020 0.277 0.581 1.280 109.8 0.859 0.163 1.000 0.681 0.284 Sundial 0.102 0.865 0.022 0.266 0.561 1.240 111.7 0.856 0.160 0.763 0.683 0.242 TimeMoE 0.107 0.935 0.021 0.277 0.579 1.229 110.4 0.801 0.167 1.138 0.698 0.239 
+
+Multimodal Forecasting Models 
+
+Aurora 0.109 1.428 0.040 0.367 0.597 2.000 120.7 1.155 0.322 0.789 0.757 0.336 MIGAS-1.5 0.086 0.983 0.015 0.242 0.671 1.302 109.9 1.110 0.200 0.757 0.887 0.386 Time-LLM 0.098 1.320 0.031 0.279 0.519 1.488 114.9 1.023 0.223 0.583 0.699 0.163 GPT4MTS 0.093 1.262 0.027 0.266 0.518 1.519 111.2 1.014 0.249 0.567 0.694 0.180 Time-VLM 0.093 1.282 0.020 0.253 0.494 1.482 113.0 1.068 0.229 0.818 0.725 0.175 PatchTST ∗ 0.093 1.267 0.019 0.269 0.492 1.556 111.7 1.110 0.216 0.602 0.706 0.179 
+
+Unified Models 
+
+ChatTime 0.130 2.279 0.071 0.365 1.099 2.516 144.3 1.227 0.505 2.727 1.015 0.359 TimeBraid-1.2B (Ours) 0.116 0.899 0.025 0.256 0.516 1.002 109.0 0.808 0.148 0.472 0.642 0.136 TimeBraid-2.5B (Ours) 0.137 0.871 0.025 0.235 0.507 0.956 108.9 0.839 0.145 0.467 0.644 0.133 
+
+TimeBraid-6.7B (Ours) 0.144 0.938 0.018 0.231 0.507 0.925 108.6 0.799 0.153 0.459 0.641 0.138 
+
+Controlled Forecasting. Controlled forecasting examines whether language can direct a model’s numerical predictions (Table 4). We introduce Ctrl-F, a controlled-forecasting evaluation set built from histories in the GIFT-Eval test set (Aksu et al., 2024), with multiple deterministic, text-conditioned synthetic continuations for each history. TimeBraid-6.7B achieves 43.33% Top-1 accuracy against a 33.33% chance level, showing that textual conditions can guide its numerical forecasts. CAF and CiK extend the evaluation to forecasting with informative scenarios and contextual knowledge. TimeBraid-6.7B achieves the lowest pooled CRPS on CAF, while TimeBraid-2.5B performs comparably to the strongest listed time-series foundation model on CiK. We see that the strongest LLMs remain ahead on Ctrl-F and CiK because they can easily convert the control signal to output and have the advantages of deep reasoning. TimeBraid: Unifying Time Series and Language 11 
+
+Table 4. Controlled forecasting with verifiable targets. The Closed-source Reference Models group provides references excluded from ranking. Ctrl-F: history-𝑧 -normalized MSE and Top-1 correct-sibling retrieval accuracy. CAF: normalized CRPS on all 904 correct-context test cases. CiK: RCRPS under official task weights. Details in Tables 20, 19, and 15. Model Ctrl-F CAF CiK MSE ↓ Top-1 (%) ↑ CRPS ↓ RCRPS ↓
+
+Closed-source Reference Models 
+
+GPT-5.4 5.188 51.33 0.233 0.145 GPT-4o 5.447 60.00 0.234 0.257 Gemini-2.5-Flash 6.624 56.00 0.247 0.110 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 6.405 59.33 0.267 0.225 
+
+Time-Series Foundation Models 
+
+Moirai 8.425 33.33 0.275 0.288 Chronos-2 8.597 33.33 0.277 0.295 TimesFM 2.5 8.784 33.33 0.281 0.295 Sundial 8.829 33.33 0.331 0.314 TimeMoE 9.077 33.33 0.414 0.327 
+
+Multimodal Forecasting Models 
+
+Aurora 9.091 33.33 0.460 0.313 MIGAS-1.5 8.604 33.33 0.346 0.351 
+
+Unified Models 
+
+ChatTime 9.165 33.33 0.345 0.344 TimeOmni-VL 10.387 32.00 0.489 0.655 TimeBraid-1.2B (Ours) 6.826 40.67 0.235 0.301 TimeBraid-2.5B (Ours) 6.972 40.67 0.235 0.289 TimeBraid-6.7B (Ours) 6.232 43.33 0.225 0.294 
+
+Unimodal Forecasting. TimeBraid also supports competitive short-term and long-term forecasting from numerical histories alone (Tables 5 and 6). On GIFT-Eval (Aksu et al., 2024), which spans diverse series and forecast lengths, it outperforms the listed statistical and task-specific supervised baselines, while the strongest specialized forecasting foundation models remain ahead. On the long-horizon ETT and Weather benchmarks, TimeBraid-2.5B achieves the second-best average MSE rank and third-best average MAE rank. We see that it largely preserves the unimodal forecasting capability from TimesFM2.5, and the gap is expected to be reduced by a more balanced data recipe. 
+
+Table 5. Aggregate GIFT-Eval forecasting performance. Lower is better.                                                   
+
+> Metric Statistical Methods Task-Specific Models (Supervised) Time Series Foundation Models
+> TimeBraid (Ours) Naive Seasonal Naive Auto ARIMA DeepAR TiDE N-BEATS PatchTST TimesFM 2.5 TabPFN-TS Chronos 2Moirai2 Sundial Base TiRex Toto-2.0 FnF Chronicle
+> MASE 0.763 1.270 1.000 1.074 1.343 1.091 0.938 0.849 0.705 0.771 0.698 0.728 0.750 0.716 0.676 1.053
+> CRPS 0.546 1.591 1.000 0.912 0.853 0.772 0.816 0.587 0.490 0.544 0.485 0.516 0.559 0.488 0.463 0.754
+
+TimeBraid: Unifying Time Series and Language 12 
+
+Table 6. Unimodal forecasting on ETT and Weather. Each dataset entry averages MSE or MAE over horizons 
+
+{96 , 192 , 336 , 720 }. Avg. rank aggregates the 20 dataset–horizon settings; lower is better. Per-horizon results are in Table 21. 
+
+Dataset 
+
+Zero-shot Full-shot 
+
+TimeBraid-2.5B Sundial L TimeMoE U Moirai L TimesFM 2.5 Chronos-2 iTransformer TimeMixer PatchTST DLinear MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTm1 0.373 0.375 0.331 0.369 0.356 0.391 0.422 0.391 0.375 0.370 0.373 0.356 0.407 0.409 0.381 0.395 0.387 0.400 0.403 0.406 ETTm2 0.256 0.311 0.254 0.315 0.288 0.344 0.329 0.343 0.271 0.305 0.254 0.291 0.288 0.332 0.275 0.323 0.280 0.326 0.350 0.400 ETTh1 0.393 0.407 0.395 0.420 0.412 0.426 0.480 0.439 0.396 0.405 0.420 0.405 0.454 0.447 0.448 0.442 0.468 0.454 0.455 0.451 ETTh2 0.338 0.377 0.334 0.387 0.371 0.399 0.367 0.377 0.343 0.369 0.342 0.366 0.383 0.406 0.364 0.395 0.386 0.406 0.558 0.515 Weather 0.228 0.260 0.238 0.275 0.256 0.288 0.264 0.273 0.240 0.255 0.219 0.241 0.257 0.278 0.240 0.271 0.258 0.280 0.265 0.316 Avg. rank 2.48 3.45 2.23 4.15 5.20 6.72 8.05 6.00 3.83 2.25 2.80 1.20 8.10 8.07 5.67 5.80 7.72 7.88 8.93 9.47 
+
+4.3 Ablation Studies 
+
+We organize the ablations around six research questions that arise when transplanting the unified-multimodal recipe to time series: where the cross-modal interaction should live ( RQ1 ), whether perception and forecasting need separate towers ( RQ2 ), whether the two training objectives can coexist stably ( RQ3 ), how learning rate and data should be split between them ( RQ4 ), whether the alignment stage is necessary at all ( RQ5 ), and how strongly the forecast should draw on text at inference ( RQ6 ). For RQ1–RQ4, each panel of Figure 4 compares runs that are trained for 10k steps on the alignment dataset and differ only in the ablated factor, and we analyze the loss curves of language modeling loss and time-series loss. For RQ5, we compare full recipes on downstream benchmarks (Figure 5); for RQ6, we sweep the inference-time text weight of the final model (Figure 6). 0 5 10                                  
+
+> step (k)
+> 0.5 1.0 1.5 2.0 2.5 3.0
+> LM loss
+> A. MLP Proj v.s. Residual Attn
+> MLP Projector Residual Attention
+> 0510
+> step (k)
+> 1.0 1.5 2.0 2.5 3.0 3.5
+> LM loss
+> B1. Learning rate: LM
+> 5e-5 1e-4 2e-4 5e-4
+> 0510
+> step (k)
+> 1234567
+> TS loss
+> B2. Learning rate: TS
+> 5e-5 1e-4 2e-4 5e-4
+> 0510
+> step (k)
+> 0.75 1.00 1.25 1.50 1.75 2.00 2.25 2.50
+> LM loss
+> E1. Dual vs tri tower: LM
+> Dual tower Tri tower
+> 0510
+> step (k)
+> 123456
+> TS loss
+> E2. Dual vs tri tower: TS
+> Dual tower Tri tower
+> 0510
+> step (k)
+> 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5
+> LM loss
+> C1. Normalization: LM
+> robust RevIN + loss capping RevIN
+> 0510
+> step (k)
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> TS loss
+> C2. Normalization: TS
+> robust RevIN + loss capping RevIN
+> 0510
+> step (k)
+> 0.75 1.00 1.25 1.50 1.75 2.00 2.25 2.50
+> LM loss
+> D1. U:F ratio: LM
+> 5:5 2:8 2.5:7.5 3:7
+> 0510
+> step (k)
+> 123456
+> TS loss
+> D2. U:F ratio: TS
+> 5:5 2:8 2.5:7.5 3:7
+> 810 0.75 1.00 1.25 last 2k
+> 810 0.675 0.700 0.725 0.750
+> last 2k
+> 810 0.6 0.7 0.8 last 2k
+> 810 0.68 0.70 0.72 last 2k
+> 810 0.65 0.70
+> last 2k
+> 810 123last 2k
+> 810 10 1
+> 10 3last 2k
+> 810 0.70 0.75
+> last 2k
+> 810 0.60 0.65 0.70 last 2k
+
+Figure 4. Training-loss trajectories for the design ablations; each panel compares 10k-step runs that differ only in the ablated factor: (A) cross-modal interface, (B) shared learning rate, (C) plain vs. robust RevIN, 
+
+(D) understanding-to-forecasting data ratio, (E) dual- vs. tri-tower. Insets zoom into the last 2k steps; lower is better. 
+
+RQ1: Interaction Space. We pivot the investigation of the proper interaction space on understanding tasks. The mainstream multimodal information fusion for understanding in vision–language models is an MLP connector that projects the visual modality into the language representation space (Liu et al., 2023), and some time-series language models inherit this recipe (Xie et al., 2024). Whether TimeBraid: Unifying Time Series and Language 13 
+
+the language space is an equally good host for temporal representations has not been fully examined. Panel A compares the VLM-like MLP projector with the global residual attention we used in the final architecture. With the projector, the language loss plateaus early at roughly twice the level that residual attention reaches, and the gap never closes. We observe that the language space is a poor projection target for temporal representations, and the time-series patches are often projected to be global statistics such as mean and standard deviation. The two pretrained models align much more easily in a new shared space that favors neither geometry, which also aligns with the previous findings in the limits of alignment in vision, language, and time-series representations (Yashwante & Yu, 2026). 
+
+RQ2: Expert Separation. Unified vision models find that understanding and generation favor different representations and decouple them accordingly (Deng et al., 2025; Chen et al., 2025b), which suggests giving perception and forecasting separate time-series towers. Panel E tests this hypothesis: the tri-tower variant initializes an independent perception expert and forecasting expert from the pretrained time-series models, while the dual-tower model uses the same time-series model to process both perception and forecasting streams. The two trajectories are nearly identical on both losses throughout training. Unlike vision understanding and generation, a shared temporal representation space is capable of processing information for perception and forecasting. We leave the study of using different time-series foundation models for different experts for future work. 
+
+RQ3: Optimization Stability. The regression loss suffers from its scale-sensitive property. On strongly non-stationary segments, where future values depart from the history statistics, the time-series loss can grow arbitrarily large. Panel C shows that this failure mode is real. With plain causal RevIN (Kim et al., 2022), the time-series loss spikes recurrently over several orders of magnitude (C2), and every spike disrupts the language loss through the shared updates (C1). We find that these large spikes often cause the pretrained language representation to be corrupted. Robust normalization together with loss capping removes both symptoms and keeps the time-series loss stably and quietly optimized. 
+
+RQ4: Balancing the Two Modalities. Time-series and language have different internal properties and learning dynamics. It is critical to harmonize their joint training to prevent malignant competition. Panel B sweeps a learning rate shared by both towers during joint training. The language loss is stable across the whole grid (B1), whereas the time-series loss clearly degrades at the largest rate (B2); the joint training therefore receives an 𝛼 = 0.5 time-series loss weight in the final recipe. Panel D varies the understanding-to-forecasting data ratio. Every forecasting-heavy mixture (3:7 to 2:8) reaches the same lower time-series loss, while the balanced 5:5 mixture is clearly worse (D2), and the language loss is unchanged across all ratios (D1). We therefore adopt 3:7, which keeps the largest understanding share without giving up any forecasting optimization, in effect the Pareto point of the tested range. All three optimization ablations lead to the same conclusion: the time-series objective is far more sensitive than the language objective, and protecting it with bounded targets, a smaller learning rate, and a larger data share does not make language learning better. 
+
+RQ5: Necessity of the Alignment Stage. Unified multimodal models conventionally align the modalities on paired data before instruction tuning (Liu et al., 2023; Deng et al., 2025), but the alignment stage is costly, and its necessity is rarely tested. Figure 5 compares runs that share the TimeBraid: Unifying Time Series and Language 14 
+
+same SFT recipe and differ in initialization, using either the aligned model or the pretrained towers directly. On understanding (a), the aligned initialization stays ahead at every checkpoint, with the largest margins in early training. On TimeMMD (b), the two runs are hard to separate: the curves cross repeatedly and end at nearly the same MSE. Much of TimeMMD’s text only weakly constrains the future (RQ6), so the numeric-history skills that SFT alone teaches already cover this benchmark setting. On CAF (c), where the text verifiably specifies the future, the benefit is persistent: the aligned run keeps a lower qCRPS at every checkpoint, and SFT alone never closes the gap. We keep the stage in the final recipe because alignment therefore pays where the forecast must draw on language and adds a lasting head start on understanding. 2k 4k 6k 8k 10k 12k 14k 16k 18k 20k  
+
+> Training steps
+> 0.5 0.6 0.7
+> Accuracy
+> 2k 4k 6k 8k 10k 12k 14k 16k 18k 20k
+> Training steps
+> 0.44 0.45 0.46 0.47 0.48
+> MSE
+> (b) TimeMMD
+> 2k 4k 6k 8k 10k 12k 14k 16k 18k 20k
+> Training steps
+> 0.21 0.22 0.23 0.24 0.25
+> Normalized qCRPS
+> (c) CAF (a) TSAQA (10%)
+> Aligned initialization Direct SFT
+
+Figure 5. Effect of the alignment stage over the course of SFT. We compare aligned initialization with direct SFT from the pretrained towers on (a) TSAQA accuracy (10% test subset, higher is better), (b) TimeMMD MSE (lower is better), and (c) CAF normalized qCRPS (lower is better). 
+
+RQ6: Text Effects on Forecasting across Domains and History Lengths. Figure 6 shows that no single text weight works across all domains. Larger 𝜆 usually helps Economy, Public Health, Agriculture, and Energy; Traffic gains little at smaller weights, Security does not improve, and Climate and Social Good change with history length. The first group receives reports on trade, petroleum, broiler markets, or influenza that address the forecast target or a direct driver. The weaker pairs are less direct. Traffic pairs national monthly vehicle miles traveled with local road counts, air travel, and long-term plans. Security pairs monthly FEMA grant amounts, which contain rare event-driven spikes, with past disasters and grant rules that do not specify the next spike’s timing or size. Environment pairs volatile daily New York AQI with broad or out-of-state reports; Climate and Social Good sometimes use reports from another period or region (Liu et al., 2024a). Text can therefore add little because it does not match the target, or because it does not specify an abrupt future change. In domains with weak or noisy context, a longer history can be more reliable than text-heavy mixing: Security is best without text, while Traffic and Public Health retain only small text weights at 𝐻 = 128. In contrast, Economy, Agriculture, and Environment continue to benefit from larger text weights. TimeBraid: Unifying Time Series and Language 15 −24 −16 −8 08                   
+
+> (a) Public Health
+> −30 −20 −10 0
+> (b) Economy
+> −12 −9 −6 −3 0
+> (c) Agriculture
+> −12 −8 −4 0
+> (d) Energy
+> −2.4 −1.6 −0.8 0.0
+> (e) Environment
+> −1.6 −0.8 0.0 0.8 1.6
+> (f) Traffic
+> 0.0 0.2 0.4 0.6 0.8 1.0 01234
+> (g) Security
+> 0.0 0.2 0.4 0.6 0.8 1.0 −6 −3 036
+> (h) Climate
+> 0.0 0.2 0.4 0.6 0.8 1.0 −5 0510 15
+> (i) Social Good
+> Text-guidance strength (lambda) Relative MSE change vs. lambda=0 (%)
+> H8 H16 H32 H64 H128
+
+Figure 6. Effect of text guidance across domains and history lengths. Each panel sweeps the text-mixing weight 𝜆 on one TimeMMD domain, reporting the relative MSE change against the text-free forecast ( 𝜆 = 0) at input histories 8–128; lower is better. At least one nonzero weight helps at every history length in Public Health, Economy, Agriculture, Energy, Environment, and Traffic; Security prefers 𝜆 = 0; Climate and Social Good change sign with history. We report this sweep as a sensitivity analysis because the released text is not point-in-time certified; it is separate from model selection, for which a single 𝜆 = 0.3 is selected on validation data and fixed across all domains. 
+
+5 Related Work 
+
+Unified Multimodal Models. Unified multimodal models differ chiefly in how a discrete language backbone hosts a continuous modality (An et al., 2026; Tong et al., 2026). One line quantizes every input into a shared token vocabulary and trains a single next-token predictor (Team, 2024; Zhan et al., 2024; Wang et al., 2024); a second mixes autoregressive text prediction with diffusion-style generation inside one transformer, increasingly over continuous latents (Zhou et al., 2025a; Xie et al., 2025a; Deng et al., 2025; Xie et al., 2025b); a third decouples the representations serving understanding from those serving generation (Chen et al., 2025b). Omni-modal systems extend these recipes to speech, audio, and video (Xu et al., 2025a; Cui et al., 2026; Kim et al., 2026). Two lessons recur across this progression: continuous signals lose fidelity when forced through a discrete vocabulary (Fan et al., 2025), and understanding and generation favor different treatments of the same modality. Yet time series, for all their ubiquity, remain largely absent from these systems. TimeBraid carries both lessons to this missing modality: it aligns time series with language in continuous space, avoiding quantization at both input and output, and gives perception and forecasting different input processing while sharing one time-series backbone. TimeBraid: Unifying Time Series and Language 16 
+
+Time-Series Foundation Models. Pretraining on large signal corpora yields foundation models that forecast zero-shot across domains (Garza et al., 2023; Rasul et al., 2023; Das et al., 2023; Ansari et al., 2024; Woo et al., 2024). The family has since diversified along axes familiar from language modeling: sparse experts (Shi et al., 2025), long-context and serial scaling (Liu et al., 2025a; 2026), generative decoding (Liu et al., 2025b), compact multi-task backbones (Goswami et al., 2024; Ekambaram et al., 2024; Gao et al., 2024; Xiao et al., 2025), and domain specialization (Cohen et al., 2025). Yet the interface stays numeric: domain knowledge and instructions have no way in and explanations no way out, even though textual context can materially improve forecasts (Williams et al., 2024; Liu et al., 2024a). TimeBraid builds on this line, initializing its perception and forecasting experts from pretrained time-series blocks to inherit their temporal competence, while adding the language interface and world knowledge these models lack. 
+
+Coupling Time Series with Language. Work coupling time series with language typically picks one pretrained host and moves the other modality into it. Understanding models host series in an LLM through an attached encoder or projector (Xie et al., 2024; Guan et al., 2026a; Wang et al., 2025b; Langer et al., 2025), even when that encoder is itself a pretrained time-series foundation model (Yu et al., 2025). Forecasting models host series in a language or vision–language model via digit serialization (Gruver et al., 2023), input reprogramming or adaptation (Jin et al., 2024; Chang et al., 2025; Liu et al., 2024b), or rendered images (Zhong et al., 2025); conversely, context-aided forecasters host text in a numeric model through an added text branch (Liu et al., 2024a). All of these cover only one direction of the interface, and the move itself is lossy: alignment between time-series, vision, and language representations has clear limits (Yashwante & Yu, 2026), and on purely numeric benchmarks the language host adds little (Tan et al., 2024). The few models covering both directions pay a different price: ChatTime hosts values in an LLM vocabulary as discrete tokens (Wang et al., 2025a), TimeOmni-VL hosts them in pixel space as rendered plots (Guan et al., 2026b), and the concurrent Chronicle learns a joint space from scratch with 324M parameters, forgoing pretrained competence on both sides (Quinlan et al., 2026). TimeBraid instead keeps each modality in its own pretrained host and fuses the two in a shared representation space, covering both directions without forcing either modality into the other’s geometry. 
+
+6 Limitations 
+
+TimeBraid is our early attempt toward unified time-series and language models. It is trained without a continued pretraining stage. Public interleaved series–text corpora at pretraining scale are not yet mature, so our recipe moves directly from alignment to supervised fine-tuning. Arguably, large-scale continued pretraining would instill broader and richer world knowledge and improve the model across the board. Perception carries bounded numeric precision. The model sometimes hallucinates the value at a specific point and misreads complex waveforms (long, high-frequency, or low signal-to-noise). Training coverage contributes, but the main reason is the patch tokenization inherited from the time-series backbone, which compresses many raw values into each embedding and does not fully preserve grounded local detail. Forecast control weakens when text contradicts history. The forecasting expert inherits the transi-tion dynamics of its pretrained backbone, which bias it toward historically consistent continuations. TimeBraid: Unifying Time Series and Language 17 
+
+Direct control signals that demand behavior at odds with the history (an abrupt level shift, a sudden regime break) are followed loosely. Furthermore, large-scale high-quality real-world text-conditioned forecasting data and multi-modal multi-variate data are not readily available in public access. When the input text guidance and content are highly complex and noisy, TimeBraid cannot completely translate it to effective forecasting signals. However, we see that using a frontier language model for reasoning and instruction conversion helps mitigate these issues, and it implies the need for combination with agents for a better forecasting system. 
+
+7 Conclusion 
+
+We presented TimeBraid, a unified time-series and language model that aligns the native repre-sentations of a pretrained language model and pretrained time-series foundation models through tri-expert global residual attention. Trained with a dual-stage recipe on curated alignment pairs and a broad instruction mixture, one set of weights understands and generates both modalities, forecasting at the level of dedicated time-series foundation models while remaining competitive with far larger general-purpose models on understanding and context-aided forecasting. Our ablations distill the design choices that make this model class work: where the cross-modal interaction should live, whether perception and forecasting need separate experts, and how strongly the forecast should draw on text at inference. We hope TimeBraid is a step toward unified models that treat time-series as an essential modality, understood and generated in its native representation. 
+
+References 
+
+Taha Aksu, Gerald Woo, Juncheng Liu, Xu Liu, Chenghao Liu, Silvio Savarese, Caiming Xiong, and Doyen Sahoo. GIFT-Eval: A benchmark for general time series forecasting model evaluation. arXiv preprint arXiv:2410.10393 , 2024. Siyu An, Junru Lu, Junnan Dong, Qiufeng Wang, Yinghui Li, Weizhi Fei, Zichao Yu, Zheng Yuan, Biao Liu, Haopeng Wang, et al. Toward native multimodal modeling: A roadmap. arXiv preprint arXiv:2605.25343 , 2026. Abdul Fatir Ansari, Lorenzo Stella, Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebastian Pineda Arango, Shubham Kapoor, et al. Chronos: Learning the language of time series. arXiv preprint arXiv:2403.07815 , 2024. Yifu Cai, Arjun Choudhry, Mononito Goswami, and Artur Dubrawski. TimeSeriesExam: A time series understanding exam. arXiv preprint arXiv:2410.14752 , 2024. Ching Chang, Wei-Yao Wang, Wen-Chih Peng, and Tien-Fu Chen. LLM4TS: Aligning pre-trained LLMs as data-efficient time-series forecasters. ACM Transactions on Intelligent Systems and Technology , 16 (3):1–20, 2025. Jialin Chen, Ziyu Zhao, Gaukhar Nurbek, Aosong Feng, Ali Maatouk, Leandros Tassiulas, Yifeng Gao, and Rex Ying. TRACE: Grounding time series in context for multimodal embedding and retrieval. In 
+
+Advances in Neural Information Processing Systems , volume 38, pp. 2440–2472. Curran Associates, Inc., 2025a. doi: 10.52202/085713-0087. URL https://proceedings.neurips.cc/paper_files/paper/ 2025/file/03adea6231459e2aab0a68d0aa19793a-Paper-Conference.pdf. TimeBraid: Unifying Time Series and Language 18 
+
+Xiaokang Chen, Zhiyu Wu, Xingchao Liu, Zizheng Pan, Wen Liu, Zhenda Xie, Xingkai Yu, and Chong Ruan. Janus-Pro: Unified multimodal understanding and generation with data and model scaling. 
+
+arXiv preprint arXiv:2501.17811 , 2025b. Ben Cohen, Emaad Khwaja, Youssef Doubli, Salahidine Lemaachi, Chris Lettieri, Charles Masson, Hugo Miccinilli, Elise Ramé, Qiqi Ren, Afshin Rostamizadeh, et al. This time is different: An observability perspective on time series foundation models. Advances in Neural Information Processing Systems ,38:50907–50951, 2025. Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, Yingjing Xu, Tianran Wang, Zhihui He, Wenshuo Ma, Tianchi Cai, et al. MiniCPM-o 4.5: Towards real-time full-duplex omni-modal interaction. arXiv preprint arXiv:2604.27393 , 2026. Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting. arXiv preprint arXiv:2310.10688 , 2023. Chaorui Deng, Deyao Zhu, Kunchang Li, Chenhui Gou, Feng Li, Zeyu Wang, Shu Zhong, Weihao Yu, Xiaonan Nie, Ziang Song, et al. Emerging properties in unified multimodal pretraining. arXiv preprint arXiv:2505.14683 , 2025. Yueyang Ding, Haopeng Zhang, Rui Dai, Yi Wang, Tianyu Zong, Kaikui Liu, and Xiangxiang Chu. LLaTiSA: Towards difficulty-stratified time series reasoning from visual perception to semantics. In 
+
+Findings of the Association for Computational Linguistics: ACL 2026 , pp. 32677–32717. Association for Computational Linguistics, 2026. doi: 10.18653/v1/2026.findings-acl.1636. URL https: //aclanthology.org/2026.findings-acl.1636/. Vijay Ekambaram, Arindam Jati, Pankaj Dayama, Sumanta Mukherjee, Nam H Nguyen, Wesley M Gifford, Chandra Reddy, and Jayant Kalagnanam. Tiny time mixers (TTMs): Fast pre-trained models for enhanced zero/few-shot forecasting of multivariate time series. Advances in Neural Information Processing Systems , 37:74147–74181, 2024. Lijie Fan, Tianhong Li, Siyang Qin, Yuanzhen Li, Chen Sun, Michael Rubinstein, Deqing Sun, Kaiming He, and Yonglong Tian. Fluid: Scaling autoregressive text-to-image generative models with continuous tokens. In International Conference on Learning Representations , volume 2025, pp. 100218–100231, 2025. Shanghua Gao, Teddy Koker, Owen Queen, Thomas Hartvigsen, Theodoros Tsiligkaridis, and Marinka Zitnik. UniTS: A unified multi-task time series model. Advances in Neural Information Processing Systems , 37:140589–140631, 2024. Azul Garza, Cristian Challu, and Max Mergenthaler-Canseco. TimeGPT-1. arXiv preprint arXiv:2310.03589 , 2023. Ary L Goldberger, Luis AN Amaral, Leon Glass, Jeffrey M Hausdorff, Plamen Ch Ivanov, Roger G Mark, Joseph E Mietus, George B Moody, Chung-Kang Peng, and H Eugene Stanley. PhysioBank, PhysioToolkit, and PhysioNet: components of a new research resource for complex physiologic signals. Circulation , 101(23):e215–e220, 2000. TimeBraid: Unifying Time Series and Language 19 
+
+Mononito Goswami, Konrad Szafer, Arjun Choudhry, Yifu Cai, Shuo Li, and Artur Dubrawski. MO-MENT: A family of open time-series foundation models. arXiv preprint arXiv:2402.03885 , 2024. Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew G Wilson. Large language models are zero-shot time series forecasters. Advances in Neural Information Processing Systems , 36:19622–19635, 2023. Tong Guan, Zijie Meng, Dianqi Li, Shiyu Wang, Chao-Han Huck Yang, Qingsong Wen, Zuozhu Liu, Sabato Siniscalchi, Ming Jin, and Shirui Pan. TimeOmni-1: Incentivizing complex reasoning with time series in large language models. In International Conference on Learning Representations ,volume 2026, pp. 152139–152170, 2026a. Tong Guan, Sheng Pan, Johan Barthelemy, Zhao Li, Yujun Cai, Cesare Alippi, Ming Jin, and Shirui Pan. TimeOmni-VL: Unified models for time series understanding and generation. arXiv preprint arXiv:2602.17149 , 2026b. Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. Measuring massive multitask language understanding. arXiv preprint arXiv:2009.03300 ,2020. Tao Hong and Shu Fan. Probabilistic electric load forecasting: A tutorial review. International Journal of Forecasting , 32(3):914–938, 2016. Sheikh Asif Imran, Mohammad Nur Hossain Khan, Subrata Biswas, and Bashima Islam. LLaSA: A multimodal LLM for human activity analysis through wearable and smartphone sensors. arXiv preprint arXiv:2406.14498 , 2024. Ming Jin, Shiyu Wang, Lintao Ma, Zhixuan Chu, James Zhang, Xiaoming Shi, Pin-Yu Chen, Yuxuan Liang, Yuan-Fang Li, Shirui Pan, et al. Time-LLM: Time series forecasting by reprogramming large language models. In International Conference on Learning Representations , volume 2024, pp. 23857–23880, 2024. Baoyu Jing, Sanhorn Chen, Lecheng Zheng, Boyu Liu, Zihao Li, Jiaru Zou, Tianxin Wei, Zhining Liu, Zhichen Zeng, Ruizhong Qiu, et al. TSAQA: Time series analysis question and answering benchmark. In Proceedings of the Fifth Workshop on Generation, Evaluation and Metrics (GEM) , pp. 944–979, 2026. Jaeik Kim, Woojin Kim, Jihwan Hong, Yejoon Lee, Sieun Hyeon, Mintaek Lim, Yunseok Han, Dogeun Kim, Hoeun Lee, Hyunggeun Kim, et al. Dynin-Omni: Omnimodal unified large diffusion language model. arXiv preprint arXiv:2604.00007 , 2026. Taesung Kim, Jinhee Kim, Yunwon Tae, Cheonbok Park, Jang-Ho Choi, and Jaegul Choo. Reversible instance normalization for accurate time-series forecasting against distribution shift. In International Conference on Learning Representations , 2022. Yaxuan Kong, Yiyuan Yang, Yoontae Hwang, Wenjie Du, Stefan Zohren, Zhangyang Wang, Ming Jin, and Qingsong Wen. Time-MQA: Time series multi-task question answering with context enhancement. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 29736–29753. Association for Computational Linguistics, 2025. doi: 10.18653/v1/2025.acl-long.1437. URL https://aclanthology.org/2025.acl-long.1437/. TimeBraid: Unifying Time Series and Language 20 
+
+Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, et al. Learning skillful medium-range global weather forecasting. Science , 382(6677):1416–1421, 2023. Patrick Langer, Thomas Kaar, Max Rosenblattl, Maxwell A. Xu, Winnie Chow, Martin Maritsch, Robert Jakob, Ning Wang, Juncheng Liu, Aradhana Verma, Brian Han, Daniel Seung Kim, Henry Chubb, Scott Ceresnak, Aydin Zahedivash, Alexander Tarlochan Singh Sandhu, Fatima Rodriguez, Daniel McDuff, Elgar Fleisch, Oliver Aalami, Filipe Barata, and Paul Schmiedmayer. OpenTSLM: Time-series language models for reasoning over multivariate medical text- and time-series data, 2025. URL https://arxiv.org/abs/2510.02410. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in Neural Information Processing Systems , 36:34892–34916, 2023. Haoxin Liu, Shangqing Xu, Zhiyuan Zhao, Lingkai Kong, Harshavardhan Kamarthi, Aditya B Sasanur, Megha Sharma, Jiaming Cui, Qingsong Wen, Chao Zhang, et al. Time-MMD: Multi-domain multimodal dataset for time series analysis. Advances in Neural Information Processing Systems , 37: 77888–77933, 2024a. Xu Liu, Junfeng Hu, Yuan Li, Shizhe Diao, Yuxuan Liang, Bryan Hooi, and Roger Zimmermann. UniTime: A language-empowered unified model for cross-domain time series forecasting. In 
+
+Proceedings of the ACM Web Conference 2024 , pp. 4095–4106, 2024b. Yong Liu, Guo Qin, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. Timer-XL: Long-context transformers for unified time series forecasting. In International Conference on Learning Representations , volume 2025, pp. 83982–84006, 2025a. Yong Liu, Guo Qin, Zhiyuan Shi, Zhi Chen, Caiyin Yang, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. Sundial: A family of highly capable time series foundation models. arXiv preprint arXiv:2502.00816 , 2025b. Yong Liu, Xingjian Su, Shiyu Wang, Haoran Zhang, Haixuan Liu, Yuxuan Wang, Zhou Ye, Yang Xiang, Jianmin Wang, and Mingsheng Long. Timer-S1: A billion-scale time series foundation model with serial scaling. arXiv preprint arXiv:2603.04791 , 2026. Emin Orhan, Vaibhav Gupta, and Brenden M Lake. Self-supervised learning through the eyes of a child. Advances in Neural Information Processing Systems , 33:9960–9971, 2020. Paul Quinlan, Jeremy Levasseur, Qingguo Li, and Xiaodan Zhu. Chronicle: A multimodal foundation model for joint language and time series understanding. arXiv preprint arXiv:2605.20268 , 2026. Kashif Rasul, Arjun Ashok, Andrew Robert Williams, Hena Ghonia, Rishika Bhagwatkar, Arian Khorasani, Mohammad Javad Darvishi Bayazi, George Adamopoulos, Roland Riachi, Nadhir Hassen, et al. Lag-Llama: Towards foundation models for probabilistic time series forecasting. arXiv preprint arXiv:2310.08278 , 2023. Christopher J Shallue and Andrew Vanderburg. Identifying exoplanets with deep learning: A five-planet resonant chain around Kepler-80 and an eighth planet around Kepler-90. The Astronomical Journal , 155(2):94, 2018. TimeBraid: Unifying Time Series and Language 21 
+
+Xiaoming Shi, Shiyu Wang, Yuqi Nie, Dianqi Li, Zhou Ye, Qingsong Wen, and Ming Jin. Time-MoE: Billion-scale time series foundation models with mixture of experts. In International Conference on Learning Representations , volume 2025, pp. 34635–34667, 2025. Linda Smith and Michael Gasser. The development of embodied cognition: Six lessons from babies. 
+
+Artificial Life , 11(1-2):13–29, 2005. Linda B Smith, Swapnaa Jayaraman, Elizabeth Clerkin, and Chen Yu. The developing infant creates a curriculum for statistical learning. Trends in Cognitive Sciences , 22(4):325–336, 2018. Mingtian Tan, Mike A Merrill, Vinayak Gupta, Tim Althoff, and Thomas Hartvigsen. Are language models actually useful for time series forecasting? Advances in Neural Information Processing Systems , 37:60162–60191, 2024. Chameleon Team. Chameleon: Mixed-modal early-fusion foundation models. arXiv preprint arXiv:2405.09818 , 2024. Team Olmo, Allyson Ettinger, Amanda Bertsch, Bailey Kuehl, David Graham, David Heineman, Dirk Groeneveld, Faeze Brahman, Finbarr Timbers, Hamish Ivison, et al. Olmo 3, 2025. URL https://arxiv.org/abs/2512.13961. Shengbang Tong, David Fan, John Nguyen, Ellis Brown, Gaoyue Zhou, Shengyi Qian, Boyang Zheng, Théophane Vallaeys, Junlin Han, Rob Fergus, et al. Beyond language modeling: An exploration of multimodal pretraining. arXiv preprint arXiv:2603.03276 , 2026. Ruey S Tsay. Analysis of financial time series . Wiley New York, 3 edition, 2010. Chengsen Wang, Qi Qi, Jingyu Wang, Haifeng Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and Jianxin Liao. ChatTime: A unified multimodal time series foundation model bridging numerical and textual data. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pp. 12694–12702, 2025a. Siyuan Wang, Peng Chen, Yihang Wang, Wanghui Qiu, Chenjuan Guo, Bin Yang, and Yang Shu. Unlocking the value of text: Event-driven reasoning and multi-level alignment for time series forecasting. In International Conference on Learning Representations , volume 2026, pp. 31182– 31210, 2026. Xinlong Wang, Xiaosong Zhang, Zhengxiong Luo, Quan Sun, Yufeng Cui, Jinsheng Wang, Fan Zhang, Yueze Wang, Zhen Li, Qiying Yu, et al. Emu3: Next-token prediction is all you need. arXiv preprint arXiv:2409.18869 , 2024. Yilin Wang, Peixuan Lei, Jie Song, Yuzhe Hao, Tao Chen, Yuxuan Zhang, Lei Jia, Yuanxiang Li, and Zhongyu Wei. ITFormer: Bridging time series and natural language for multi-modal QA with large-scale multitask dataset. In Proceedings of the 42nd International Conference on Machine Learning ,volume 267 of Proceedings of Machine Learning Research , pp. 63324–63344. PMLR, 2025b. URL https://proceedings.mlr.press/v267/wang25av.html. Muyan Weng, Defu Cao, Wei Yang, Yashaswi Sharma, and Yan Liu. TemporalBench: A benchmark for evaluating LLM-based agents on contextual and event-informed time series tasks. In Proceedings of TimeBraid: Unifying Time Series and Language 22 
+
+the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pp. 9997–10008, 2026. Andrew Robert Williams, Arjun Ashok, Étienne Marcotte, Valentina Zantedeschi, Jithendaraa Subra-manian, Roland Riachi, James Requeima, Alexandre Lacoste, Irina Rish, Nicolas Chapados, et al. Context is key: A benchmark for forecasting with essential textual information. arXiv preprint arXiv:2410.18959 , 2024. Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and Doyen Sahoo. Unified training of universal time series forecasting transformers. arXiv preprint arXiv:2402.02592 , 2024. Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting. Advances in Neural Information Processing Systems , 34:22419–22430, 2021. Congxi Xiao, Jingbo Zhou, Yixiong Xiao, Xinjiang Lu, Le Zhang, and Hui Xiong. TimeFound: a foundation model for time series forecasting. arXiv preprint arXiv:2503.04118 , 2025. Jinheng Xie, Weijia Mao, Zechen Bai, David Junhao Zhang, Weihao Wang, Kevin Qinghong Lin, Yuchao Gu, Zhijie Chen, Zhenheng Yang, and Mike Zheng Shou. Show-o: One single transformer to unify multimodal understanding and generation. In International Conference on Learning Representations ,volume 2025, pp. 28240–28264, 2025a. Jinheng Xie, Zhenheng Yang, and Mike Zheng Shou. Show-o2: Improved native unified multimodal models. Advances in Neural Information Processing Systems , 38:47490–47518, 2025b. Zhe Xie, Zeyan Li, Xiao He, Longlong Xu, Xidao Wen, Tieying Zhang, Jianjun Chen, Rui Shi, and Dan Pei. ChatTS: Aligning time series with LLMs via synthetic data for enhanced understanding and reasoning. arXiv preprint arXiv:2412.03104 , 2024. Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, et al. Qwen3-Omni technical report. arXiv preprint arXiv:2509.17765 , 2025a. Wenyan Xu, Dawei Xiang, Yue Liu, Xiyu Wang, Yanxiang Ma, Liang Zhang, Shu Hu, Chang Xu, and Jiaheng Zhang. FinMultiTime: A four-modal bilingual dataset for financial time-series analysis, 2025b. URL https://arxiv.org/abs/2506.05019. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. Yiyuan Yang, Zichuan Liu, Lei Song, Kai Ying, Stephen Wang, Joshua Thomas Bamford, Svitlana Vyetrenko, Jiang Bian, and Qingsong Wen. Time-RA: Towards time series reasoning for anomaly diagnosis with LLM feedback. In Findings of the Association for Computational Linguistics: ACL 2026 , pp. 11591–11616. Association for Computational Linguistics, 2026. doi: 10.18653/v1/2026. findings-acl.562. URL https://aclanthology.org/2026.findings-acl.562/. Pratham Yashwante and Rose Yu. Time series, vision, and language: Exploring the limits of alignment in contrastive representation spaces. arXiv preprint arXiv:2602.19367 , 2026. TimeBraid: Unifying Time Series and Language 23 
+
+Fangxu Yu, Hongyu Zhao, and Tianyi Zhou. TS-Reasoner: Aligning time series foundation models with LLM reasoning. arXiv preprint arXiv:2510.03519 , 2025. Jun Zhan, Junqi Dai, Jiasheng Ye, Yunhua Zhou, Dong Zhang, Zhigeng Liu, Xin Zhang, Ruibin Yuan, Ge Zhang, Linyang Li, et al. AnyGPT: Unified multimodal LLM with discrete sequence modeling. In 
+
+Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 9637–9662, 2024. Vincent Zhihao Zheng, Étienne Marcotte, Arjun Ashok, Andrew Robert Williams, Lijun Sun, Alexandre Drouin, and Valentina Zantedeschi. Overcoming the modality gap in context-aided forecasting. 
+
+arXiv preprint arXiv:2603.12451 , 2026. Siru Zhong, Weilin Ruan, Ming Jin, Huan Li, Qingsong Wen, and Yuxuan Liang. Time-VLM: Ex-ploring multimodal vision-language models for augmented time series forecasting. arXiv preprint arXiv:2502.04395 , 2025. Chunting Zhou, Lili Yu, Arun Babu, Kushal Tirumala, Michihiro Yasunaga, Leonid Shamis, Jacob Kahn, Xuezhe Ma, Luke Zettlemoyer, and Omer Levy. Transfusion: Predict the next token and diffuse images with one multi-modal model. In International Conference on Learning Representations ,volume 2025, pp. 6446–6469, 2025a. Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 35, pp. 11106–11115, 2021. Luca Zhou, Pratham Yashwante, Marshall Fisher, Alessio Sampieri, Zihao Zhou, Fabio Galasso, and Rose Yu. CaTS-Bench: Can language models describe time series? In Findings of the Association for Computational Linguistics: ACL 2026 , pp. 34479–34519, 2026. Xin Zhou, Weiqing Wang, Francisco J. Baldán, Wray Buntine, and Christoph Bergmeir. MoTime: A dataset suite for multimodal time series forecasting, 2025b. URL https://arxiv.org/abs/2505.15072. TimeBraid: Unifying Time Series and Language 24 
+
+Appendix Contents 
+
+A Data Curation Pipeline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 
+
+A.1 Univariate Understanding . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 A.2 Multivariate Understanding. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 A.3 Univariate Forecasting . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 
+
+B Training Data . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 
+
+B.1 Alignment Corpus Composition . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 B.2 Supervised Fine-Tuning Sources . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 B.3 Overlap with Evaluation Benchmarks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 
+
+C Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 
+
+C.1 Model Configuration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 C.2 Training Hyperparameters. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 
+
+D Prompt Template Examples . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 E Evaluation Protocols . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 F Detailed Experimental Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36 
+
+F.1 Time-Series Understanding . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36 F.2 Time-Series Forecasting . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 F.3 Language Ability Retention . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45 
+
+G Success and Failure Cases . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46 TimeBraid: Unifying Time Series and Language 25 
+
+A Data Curation Pipeline 
+
+Figure 7 presents our data curation pipelines for univariate understanding, multivariate un-derstanding, and univariate forecasting. Each pipeline pairs time series with language through a capability-specific annotation process, followed by shared filtering for factual consistency, style, and format. Relative/absolute 
+
+> timestamp
+> domain semantics
+> Gift-eval pretrain
+> seed windows
+> External information
+> collection
+
+Synthesis based on unimodal univariate data 
+
+> Fine-grained downstream annotation Pipeline
+> time-series-language datasets
+> Task-specific
+> (w/ set of evidences)
+> VLM annotations
+
+Contextualized Recaption based on Multi-modal Data   
+
+> General Context Annotation Pipeline
+> Operator extraction Operator-augmented
+> annotation
+> Genre/semantics-based
+> rewriting (Optional) Counterfactual Context Annotation Pipeline
+> Operator sampling
+> & synthesis
+> Operator-based
+> annotation
+> Time-series Description Pipeline
+> (w/ set of evidences)
+> VLM annotations
+> Causal Graph Annotation Pipeline
+> Structural Causal Model generator (w/ ground truth causal graphs)
+> LLM annotations
+
+Multi-variate Causal Data Generation 
+
+> Facts, style and
+> format filtering
+
+Figure 7. Alignment data curation for univariate understanding, multivariate understanding, and univariate forecasting. 
+
+A.1 Univariate Understanding 
+
+Univariate understanding data teaches the model to recognize temporal patterns and express them in language. We use vision-language models as the primary annotators because their exposure to charts and visual data equips them to perceive global morphology, such as trends, seasonality, and regime changes, together with local events such as peaks, troughs, and anomalies. Their annotations distill this temporal knowledge into textual supervision. For real series, each evidence pack combines the observed trace with deterministic statistics, extrema, trend segments, change points, periodic patterns, and temporal landmarks; the context-rich route additionally supplies domain semantics and calendar information. Separately, we adopt the attribute-first synthesis scheme of ChatTS (Xie et al., 2024), in which sampled temporal attributes determine both the generated series and its programmable description. We also rewrite procedurally generated exam prompts on pattern recognition, noise, similarity, anomalies, and Granger-causal structure into concise descriptive-answer supervision. All outputs pass factual, stylistic, and formatting filters. 
+
+A.2 Multivariate Understanding 
+
+Real multivariate time series rarely carry detailed, verifiable annotations of interactions across variables. We retain the cleaned multivariate descriptions from ChatTS (Xie et al., 2024) for broad descriptive coverage and construct graph-grounded relational supervision with temporal structural equation models. The source generator samples sparse or random lagged graphs over 3 to 50 observed TimeBraid: Unifying Time Series and Language 26 
+
+variables with maximum lags from 2 to 50 steps, then simulates their multivariate trajectories. Each evidence pack records the graph-authorized variable roles, lag offsets, intervention metadata when present, temporal anchors, and canonical evidence for direct parent-to-target relations, short directed chains, localized shock follow-ons, historical reference windows from the same SCM, and local parent/child motifs. A text-only LLM converts this evidence into natural descriptions under automatic grounding checks. The active mixture contains 100,000 SCM descriptions, including 74,210 positive relation examples and 25,790 comparison controls whose channels are not directly adjacent to the target. 
+
+A.3 Univariate Forecasting 
+
+Paired data that connects an observed history, a textual condition, and its corresponding fu-ture is scarce in natural corpora. We construct this supervision through the general-context and counterfactual-context pipelines in Figure 7. The general branch annotates the realized suffix of a real window with its domain semantics and temporal information. The control branch produces three sibling continuations from one history: a baseline and two controlled variants, each composing up to three transformations drawn from level shifts, ramps, slope changes, pulses, seasonal-amplitude changes, saturations, shock decays, and analog replays. It renders the applied transformations as natural-language conditions, so the shared history can lead to distinct text-specified futures. The model input contains the observed history and the natural-language continuation condition, while time-series loss applies only to the held-out suffix. Optional genre and semantic rewrites diversify the conditions while preserving their connection to the target future. Both pipelines apply the shared factual, stylistic, and formatting filters. 
+
+B Training Data 
+
+Stage 1 contains 2,229,500 alignment examples, grouped into 12 families along the three curation routes of Appendix A. Stage 2 uses a final inventory of 4,881,583 samples across five composition categories, with alignment retention restricted to its recipe-defined quota. 
+
+B.1 Alignment Corpus Composition 
+
+Table 7 lists the 12 alignment families. The understanding and forecasting halves are fixed at 3:7 by construction (668,850 and 1,560,650 rows). Each forecasting branch appears in three variants: a base variant with horizon at most 512, a rewrite of the same rows into domain-grounded real-world context with horizon at most 32, and a partial genre rewrite under the same horizon limit. Control rows are organized into three-sibling groups that share one history: one neutral continuation and two operator-conditioned futures. TimeBraid: Unifying Time Series and Language 27 
+
+Table 7. Alignment corpus: 12 families, 2,229,500 examples. 𝐻 is the forecast horizon. Rewrite variants reuse the base rows and change only the user-visible text. Family Curation route 𝑛 Share 
+
+Understanding 668,850 rows, 30.0% Morphology captions morphology-grounded VLM annotation 50,000 2.2% Context-rich captions context-grounded VLM annotation 50,000 2.2% ChatTS (Xie et al., 2024) univariate attribute-programmed synthesis 260,000 11.7% ChatTS (Xie et al., 2024) multivariate attribute-programmed synthesis 108,850 4.9% Multivariate SCM SCM-grounded relation synthesis 100,000 4.5% TimeSeriesExam descriptions procedural task synthesis 100,000 4.5% 
+
+Forecasting, control branch 668,291 rows, 30.0% Control, 𝐻 ≤ 512 operator-controlled future synthesis 338,953 15.2% Control, 𝐻 ≤ 32 domain-grounded rewriting 164,918 7.4% Control, 𝐻 ≤ 32 genre-conditioned rewriting 164,420 7.4% 
+
+Forecasting, general branch 892,359 rows, 40.0% General, 𝐻 ≤ 512 realized-future annotation 528,507 23.7% General, 𝐻 ≤ 32 domain-grounded rewriting 255,291 11.5% General, 𝐻 ≤ 32 genre-conditioned rewriting 108,561 4.9% 
+
+B.2 Supervised Fine-Tuning Sources 
+
+Table 8 reports the Stage-2 data distribution. 
+
+Table 8. Final one-pass Stage-2 sample inventory and training-time sampling shares. References identify the source datasets; counts refer to our selected and reformatted examples.                                                
+
+> Source Final samples Training Share
+> Forecasting 2,640,566 samples, 54.49% CGTSF (Wang et al., 2025a) 53,926 2.04% FinMultiTime S&P 500 (Xu et al., 2025b) 144,387 5.46% MoTime (News/Wiki) (Zhou et al., 2025b) 32,589 1.23% CAF-7M (Zheng et al., 2026) 2,314,216 42.15% Time-MMD (Liu et al., 2024a) 20,768 0.79% Time-MQA Forecasting (Kong et al., 2025) 74,680 2.82%
+> Time-Series QA & Reasoning 1,065,021 samples, 22.49% CaTS-Bench (Zhou et al., 2026) 15,995 0.33% ChatTS (Xie et al., 2024) 50,377 1.05% HiTSR (Ding et al., 2026) 157,147 3.24% OpenSQA (Imran et al., 2024) 138,754 2.72% OpenTSLM ECG (Langer et al., 2025) 159,313 3.28% OpenTSLM HAR (Langer et al., 2025) 68,542 1.41% OpenTSLM Sleep (Langer et al., 2025) 7,434 0.15% OpenTSLM TSQA (Langer et al., 2025) 38,400 0.79% Time-MQA Reasoning (Kong et al., 2025) 110,212 2.27% TSAQA Reasoning (Jing et al., 2026) 125,957 2.60% EngineMT-QA (Wang et al., 2025b) 100,296 2.07% RATs40K (Yang et al., 2026) 32,994 0.68% Time-MQA Imputation (Kong et al., 2025) 38,607 1.46% TSAQA Anomaly Detection (Jing et al., 2026) 20,993 0.43%
+> Captioning & Description 161,883 samples, 3.34% OpenTSLM M4 Captioning (Langer et al., 2025) 80,000 1.65%
+
+Continued on the next page. TimeBraid: Unifying Time Series and Language 28 
+
+Table 8 continued from the previous page.                     
+
+> Source Final samples Training Share SensorCaps (Imran et al., 2024) 35,960 0.74% Time-MMD Open-Ended (Liu et al., 2024a) 1,925 0.04% TRACE Captioning (Chen et al., 2025a) 43,998 0.91%
+> Unimodal Corpora 400,000 samples, 11.69% GIFT-Eval Pretrain (Aksu et al., 2024) 200,000 7.56% Dolci-Instruct (No-Tools) (Team Olmo et al., 2025) 200,000 4.12%
+> Alignment Retention 614,113 samples, 8.00% Understanding Retention 116,294 1.51% Forecasting Retention 497,819 6.48%
+> Final inventory 4,881,583 100.00%
+
+B.3 Overlap with Evaluation Benchmarks 
+
+To ensure a valid evaluation, we strictly enforce no overlap with the training mixture at the split level, keeping evaluation examples held out even when related training data originate from the same benchmark family or underlying data-generating process. Table 9 summarizes this relationship for each benchmark. 
+
+Table 9. Training status of the evaluation suites. Status is determined by split membership in the mixture. Benchmark Status 
+
+Understanding 
+
+TemporalBench (TB-MCQ) Out-of-domain. TSExam Independently generated and rewritten samples from the same data-generating process are included in the alignment mixture. TSAQA Training split is included in the SFT mixture. CaTS-Bench Training split is included in the SFT mixture. 
+
+Forecasting 
+
+ETT and Weather Out-of-domain. CiK Out-of-domain. Time-MMD Training split is included in the SFT mixture. CGTSF Training split is included in the SFT mixture. CAF Part of the training split is included in the SFT mixture. Ctrl-F Independently generated samples from the same data-generating process are included in the alignment mixture. GIFT-Eval Part of the training split is used as seed data for data gen-eration. 
+
+C Implementation Details 
+
+C.1 Model Configuration 
+
+Table 10 gives the parameter allocation across Qwen3 language towers (Yang et al., 2025), TimesFM-derived time-series towers (Das et al., 2023), and fusion stacks. Variant names round the TimeBraid: Unifying Time Series and Language 29 
+
+total parameter count, including frozen weights and excluding buffers; shared weights are counted once.                  
+
+> Table 10. Parameter inventory across TimeBraid scales, in billions of parameters. Variant Language tower Fusion Time-series tower Total TimeBraid-1.2B 0.596 0.378 0.231 1.205 TimeBraid-2.5B 1.721 0.545 0.231 2.497 TimeBraid-6.7B 4.022 2.265 0.389 6.676
+
+Geometry and Layer Pairing. TimeBraid-1.2B and TimeBraid-2.5B interleave 20 time-series and fusion blocks across 28 language layers, while TimeBraid-6.7B pairs 36 time-series and fusion blocks with its 36 language layers. Time-series segments use patches of 𝑃 = 32 values, and each paired layer exchanges information through global residual attention. 
+
+C.2 Training Hyperparameters 
+
+Both stages update every parameter of the model (language tower, time-series tower, and the global residual attention blocks) under the settings in Table 11. The two stages share the optimizer, schedule, batch size, and objective constants; they differ in context length, step budget, and data mixture.  
+
+> Table 11. Training hyperparameters for both stages. Rows spanning both columns are identical across stages.
+
+Stage 1 (alignment) Stage 2 (supervised fine-tuning) Optimizer AdamW, 8-bit states Learning rate 2 × 10 −5, all parameters Schedule constant with warmup Warmup steps 500 Weight decay 0Gradient clipping 1.0 Precision BF16 mixed precision Random seed 3407 Global batch size 128 Sequence packing disabled Patch length 𝑃 32 Time-series loss weight 𝛼 0.5 Point loss squared error Quantile set Q {0.1, 0.2, . . . , 0.9}
+
+Loss cap threshold 𝑐 2.0 Target transform asinh on causal RevIN residuals Context length 2,560 4,096 Training data 2.23M alignment pairs 4.88M final samples Training steps 17k steps 30k steps TimeBraid: Unifying Time Series and Language 30 
+
+# H_l: (n_l, d_l) language hidden states; H_t: (n_t, d_t) time-series hidden states # tau_l, tau_t: timeline positions of each stream (global chronological order) # pair_of[i]: time-series layer paired with language layer i, or None; # smaller variants have unpaired language layers, while 6.7B pairs all 36 layers # Wq_r, Wk_r, Wv_r: (d_r, d) projections to the shared width; Wo_r: (d, d_r), zero-init # phi_r: hidden-state RMSNorm; psi_r: per-head QK RMSNorm (r in {l, t}) def forward(H_l, H_t, tau_l, tau_t): for i in range(num_lm_layers): H_l = lm_block[i](H_l) # every language layer runs its native block (RoPE inside) if pair_of[i] is None: continue # unpaired layer: the language stream continues alone j = pair_of[i] H_t = ts_block[j](H_t) # paired time-series layer (segment-local positions) H_l, H_t = fuse[j](H_l, H_t, tau_l, tau_t) # global residual attention return H_l, H_t def fuse(H_l, H_t, tau_l, tau_t): # project both streams into the shared attention width d (values: no head norm) q_l, k_l, v_l = psi_l(phi_l(H_l) @ Wq_l), psi_l(phi_l(H_l) @ Wk_l), phi_l(H_l) @ Wv_l q_t, k_t, v_t = psi_t(phi_t(H_t) @ Wq_t), psi_t(phi_t(H_t) @ Wk_t), phi_t(H_t) @ Wv_t # reorder into one global sequence by timeline position tau q, k, v, tau = merge_by_position([q_l, q_t], [k_l, k_t], [v_l, v_t], [tau_l, tau_t]) # joint causal attention with RoPE on the shared global axis o = attention(rope(q, tau), rope(k, tau), v, mask="causal") # route rows back to their streams; zero-init Wo_r makes fusion start as identity o_l, o_t = split_by_stream(o) return H_l + o_l @ Wo_l, H_t + o_t @ Wo_t 
+
+Algorithm 1. Pseudocode of TimeBraid’s forward pass. Every language layer runs its native block. At paired positions, the corresponding time-series block runs and both streams exchange information through global residual attention (Eqs. 1 and 2); at any unpaired position, the language stream proceeds alone. 
+
+D Prompt Template Examples 
+
+Examples are wrapped in Qwen3 chat templates and a series of time-series payloads. The transcript itself contains no time-series numbers: each segment appears in the text as the empty pair <ts></ts> ,and the 𝑁 -th occurrence binds to the 𝑁 -th payload. <ts> and </ts> are added to the vocabulary as ordinary tokens, <stats> and </stats> stay plain text, and only assistant content receives cross-entropy. A context segment is preceded by <stats>len= 𝐿 , mean= 𝜇 , std= 𝜎 </stats> , computed on the raw values before normalization, so the text stream carries the physical scale while the patch stream carries only normalized shape. A target segment emits a bare <ts></ts> and never receives a statistics block, so the model is not told the scale of the sequence it must produce. Target segments span the full window [history | future ] and reuse the mean and standard deviation of their context TimeBraid: Unifying Time Series and Language 31 
+
+segment, which keeps every future-aware statistic out of the input, and only the future suffix is scored. Exam-style questions are the one family whose payload keeps raw values, because their options refer to absolute magnitudes. Each card below is one real alignment row, one per task family. Inside every <ts></ts> we plot the payload it binds to: teal for observed and context spans, orange for the future the assistant must generate. 
+
+Univariate description User: Treat this cloud operations series from Borg Cluster Data 2011 as sampled every 5 minutes. 
+
+<stats>len=79, mean=0.0671359, std=0.0062208</stats> <ts> </ts> Provide a brief written summary of the series. 
+
+Assistant: A sharp, isolated excursion dominates the middle of the window, contrasting with the otherwise stable baseline. The series holds a steady level near 0.065 until step 39, where it drops abruptly to a local minimum of 0.052. This is immediately followed by a steep recovery to 0.076 at step 40, creating a narrow V-shape. The signal then drifts upward, reaching the window’s global maximum of 0.083 at step 55, before settling into a gradual decline toward the end. The amplitude of this central event is significantly larger than the ambient noise observed in the first and last thirds of the trace. 
+
+Context-rich description User: Describe the time series of fatalities due to a specific severity level in Porterville city. The data spans from 2003 to 2008 with a yearly frequency, covering a total population of 41,774. <stats>len=6, mean=3.167, std=1.067</stats> <ts> </ts> 
+
+Relevant context: Time series of fatalities (severity: Killed) in Porterville city, CA. Data range: 2003-2008. Frequency: Yearly. Total population: 41,774. 
+
+Assistant: Porterville city recorded annual fatalities (severity: Killed) between 2003 and 2008 among a population of 41,774. The series began at 3.0 in 2003 and reached its minimum of 2.0 in 2004. The data then exhibited high volatility, spiking to 4.0 in 2005 before dropping back to 2.0 in 2006. Following this trough, the series trended upward, reaching a net increase of 2.0 over the period and closing at its maximum value of 5.0 in 2008. 
+
+Time-series question answering User: You are given a pair of synthetic time series generated by procedural time-series templates. Time series 1: <stats>len=296, mean=3.11567, std=2.01952</stats> <ts> </ts> 
+
+Time series 2: <stats>len=236, mean=2.34241, std=1.70843</stats> <ts> </ts> 
+
+Instruction: Identify which time series contains the anomaly and describe the anomaly type based on the visible statistics and series patterns. Respond with one concise declarative sentence. 
+
+Assistant: Time series 1 has a speed up/down anomaly, meaning the period of its cyclic components differs from the rest of the series. TimeBraid: Unifying Time Series and Language 32 
+
+Multivariate relational understanding User: In a Web Servers system, there are 13 metrics: Request Rates is of length 256: <stats>len=256, mean=-0.4419, std=0.420386</stats> <ts> </ts> ;Backend Server Latency is of length 256: <stats>len=256, mean=5.0224, std=1.20905</stats> <ts> </ts> ;
+
+[6 metrics elided, same form] 
+
+Security Event Logs is of length 256: <stats>len=256, mean=-119.453, std=155.282</stats> <ts> </ts> ;
+
+[4 metrics elided] . Analyze the trend of Security Event Logs in detail. 
+
+Assistant: From point 11 to point 55, there is an increasing trend. From point 55 to point 126, there is a decreasing trend. From point 126 to point 188, there is an increasing trend. From point 188 to point 245, there is a decreasing trend. 
+
+Contextual forecasting User: We have been tracking our annual volume for the last five years: <stats>len=5, mean=4165.4, std=175.205</stats> <ts> </ts> . Historically, we’ve seen similar growth patterns during previous expansion phases where a slow start was followed by a rapid surge in demand. Based on current market projections and our scaling strategy, we expect a similar acceleration over the next five years, starting with a modest increase to around 4,701 in year 6 and climbing steeply to reach approximately 5,622 by year 10. Please provide the full 10-year sequence, including the observed history and the forecasted values. 
+
+Assistant: <ts> </ts> 
+
+Controllable forecasting, three sibling rows User: Local tech monitors are tracking weekly visitor traffic for the site, with current data showing 
+
+<stats>len=6, mean=525.667, std=302.232</stats> <ts> </ts> . With a major marketing push and site relaunch peaking in about four weeks, officials expect a significant surge in traffic, potentially reaching around 869 visitors. To assist with server capacity planning, please provide the full sequence of weekly traffic, including the observed data and the forecast for the next 5 weeks. 
+
+Assistant: <ts> </ts> 
+
+User: Team, I’m reviewing our weekly page views for the current seasonal cycle to coordinate our upcoming resource allocation. We’ve seen some volatility lately, but typically this period involves a dip followed by a recovery as our annual event nears. Based on the last six weeks <stats>len=6, mean=525.667, std=302.232</stats> <ts> </ts> , we expect a similar pattern. We anticipate traffic hitting a low of around 348 next week, climbing to a peak of about 661 by week four, and then dropping back to roughly 339 in week five. Please provide the full sequence of 11 weekly values, including the observed data and the five-week forecast, so we can finalize the schedule. 
+
+Assistant: <ts> </ts> TimeBraid: Unifying Time Series and Language 33   
+
+> User: Weekly Page View Log – Landing Page Current Status: Tracking traffic trends for the landing page prior to decommissioning. Recent Activity:
+
+<stats>len=6, mean=525.667, std=302.232</stats> <ts> </ts>  
+
+> Note: This page is scheduled for decommissioning starting next week. Traffic is expected to drop immediately to nearly zero and remain flat once the URL redirect is active. Please provide the completed 11-week sequence, including the observed data and the projected values for the final 5 weeks.
+> Assistant:
+
+<ts> </ts> 
+
+E Evaluation Protocols 
+
+For every public benchmark, we use its official split or released evaluation set and follow its official evaluation protocol and input-length setting unless stated otherwise. Ctrl-F uses our frozen evaluation set. Each paragraph below states whether baseline results are taken from an existing study or evaluated by us. 
+
+TemporalBench. TemporalBench is a multi-domain benchmark over real numerical series that separates historical-structure interpretation (T1), context-free prediction (T2), context-grounded reasoning (T3), and event-conditioned forecasting (T4), testing whether agents can align temporal patterns with external context and adapt when conditions change. Multiple-choice tasks use accuracy; forecasting uses domain-specific MAE or sMAPE variants, where sMAPE normalizes absolute error by the magnitudes of the target and prediction and MIMIC uses the benchmark’s observation-weighted aggregation. We evaluate every model ourselves on the official TemporalBench evaluation set (Weng et al., 2026) (Table 16). 
+
+TimeSeriesExam. TimeSeriesExam is a configurable, procedurally generated multiple-choice exam in which one or two controlled synthetic series, represented as plots or serialized values, are paired with answer options and an in-context example to test pattern and noise understanding, anomaly detection, comparative reasoning, and Granger-causality reasoning. We use the official evaluation set (Cai et al., 2024) and take the shared baseline results from the TS-Reasoner paper (Yu et al., 2025). GPT-5.4, Gemini-2.5-Flash, TimeOmni-1-7B, TimeOmni-VL, and TimeBraid are additional evaluations performed by us on the same released set with its scorer (Table 12). 
+
+TSAQA. TSAQA formulates each instance as a numerical series, natural-language context, and a true-or-false, multiple-choice, or puzzling question, spanning anomaly detection and classification together with characterization, comparison, data transformation, and temporal-relation reasoning. Puzzling questions ask the model to reorder four shuffled successor patches and are scored by the fraction placed in the correct position. We use the official test set (Jing et al., 2026); except for GPT-5.4, the LLM and finetuned baseline results are taken from the TSAQA paper, while GPT-5.4, the time-series language models, and the unified models are evaluated by us on the same 42,000 cases with the paper-defined scoring rule (Table 13). 
+
+CaTS-Bench. In its primary captioning task, CaTS-Bench pairs raw time-indexed values with con-textual metadata, a line plot, and a standardized instruction, asking models to synthesize numerical, TimeBraid: Unifying Time Series and Language 34 
+
+visual, and semantic evidence into a grounded description evaluated against human-rewritten refer-ences. Embedding and lexical metrics measure semantic and wording consistency with the reference; Numeric Fidelity extracts numbers from the reference and output and combines their matching precision and recall. We use the official human-rewritten evaluation set (Zhou et al., 2026), take the available baseline results from the CaTS-Bench paper, and evaluate GPT-5.4, the time-series language models, and the unified models ourselves on the same set with the six released-formula local metrics (Table 14); the separate Gemini-dependent Numeric Score 2.0 is not a column in that table. 
+
+CiK. CiK comprises 71 probabilistic forecasting tasks across seven domains, each paired with historical, future, covariate, causal, or intemporal natural-language context that is essential beyond the observed numerical history, and tests whether models integrate both modalities. RCRPS emphasizes context-relevant future regions, penalizes violations of textual constraints, and normalizes scores by task scale; we aggregate it using the official task weights. We evaluate every model ourselves on the official 355-instance CiK evaluation set (Williams et al., 2024) (Table 15). 
+
+TimeMMD. Time-MMD evaluates multimodal forecasting across nine real-world domains by pairing numerical histories with temporally aligned historical text at four frequency-dependent horizons, testing whether extra-numerical domain knowledge improves prediction. We report each domain’s MSE and MAE macro-averaged over its four horizons. We use the official evaluation split (Liu et al., 2024a). Every row of Table 17 is evaluated by us, with each multimodal forecasting model receiving the window’s paired text: GPT4MTS, TaTS, Time-VLM (Zhong et al., 2025), the text-enhanced PatchTST ∗
+
+(VoT style (Wang et al., 2026)), iTransformer ∗, and RaFT ∗, and the additional DLinear, Reformer (MMTSFlib style (Liu et al., 2024a)), and Time-LLM runs. TimeBraid, all time-series foundation models, and MIGAS-1.5 use a fixed 128-step lookback; the text-conditioned baselines, ChatTime, and Aurora use the official lookbacks of 8, 36, and 96. We select a single text-mixing weight of 𝜆 = 0.3 on the validation split and then hold it fixed across all nine domains and history lengths, rather than tuning it separately for each dataset; this uniform setting simplifies evaluation and tests generality across domains. 
+
+CGTSF. CGTSF uses the chronological 6:2:2 splits of MSPG, LEU, and PTF, pairing histories with leakage-controlled background, weather-forecast, and calendar information to test the auxiliary role of text in forecasting at four history lengths per dataset. We standardize errors using training-split statistics and report Macro MSE and Macro MAE as the equal averages across the twelve dataset ×history-length settings. We evaluate every model ourselves on the released CGTSF datasets using the paper-defined splits (Wang et al., 2025a) (Table 18). We adopt the same implementation of the dataset-specific baselines as in the Time-MMD evaluation. 
+
+CAF. CAF-7M evaluates context-aided probabilistic forecasting on verified history–scenario–future windows from datasets reserved for testing, with contexts designed to provide information comple-mentary to the numerical history. Normalized CRPS evaluates the full predictive distribution after adjusting for target scale. We use the official evaluation split (Zheng et al., 2026); DoubleCast and TimeLLM are taken from the CAF-7M paper, and all remaining rows are evaluated by us under the same official protocol (Table 19). 
+
+Ctrl-F. Ctrl-F is our controlled-future test set, built on numerical histories replayed from held-out GIFT-Eval test anchors. Each history is paired with three deliberately separated synthetic future TimeBraid: Unifying Time Series and Language 35 
+
+siblings and a condition identifying the intended continuation, testing whether forecasts follow the condition rather than the shared history alone. The sibling futures are constructed counterfactual targets rather than official GIFT targets, generated with the same procedure used for the control rows of the alignment corpus. Top-1 is correct when a prediction has lower MAE to its intended sibling than to either alternative, with a chance level of 33 .33%. We evaluate every model ourselves on the fixed Ctrl-F evaluation set using the same evaluation protocol (Table 20).  
+
+> Ctrl-F instance: one 22-step hospital history, three sibling conditions at horizon 12 User:
+
+(history=22, horizon=12)  
+
+> Use this continuation condition: The series drops sharply to a local minimum at future step 3, followed by a volatile recovery that peaks at future steps 4 and 9 before ending with a slight upward trend. History:
+
+<stats>len=22, mean=53.1818, std=8.89656</stats> <ts> </ts>  
+
+> Assistant:
+
+<ts> </ts>    
+
+> User: [identical, except] Use this continuation condition: Maintain a strong downward drift across future steps 1 to 12.
+> Assistant:
+
+<ts> </ts>    
+
+> User: [identical, except] Use this continuation condition: Create a local downward pulse in future steps 3 to 8. Cap upper peaks in future steps 1 to 12.
+> Assistant:
+
+<ts> </ts> 
+
+GIFT-Eval. GIFT-Eval evaluates general zero-shot point and probabilistic forecasting across 97 dataset–frequency–horizon configurations spanning univariate and multivariate series, seven domains, ten sampling frequencies, and short-to-long horizons, targeting generalization across heterogeneous forecasting settings. The official leaderboard’s MASE scales absolute point error by seasonal-naive error, while CRPS evaluates the predictive distribution; both are normalized against Seasonal Naive per configuration and aggregated by geometric mean, so lower is better and 1.0 matches Seasonal Naive. We take baseline results from the official leaderboard (Aksu et al., 2024) and evaluate TimeBraid using the last 2,880 history points (Table 5). 
+
+Long-Term Forecasting. Long-term forecasting follows the standard multivariate setting on ETTm1, ETTm2, ETTh1, ETTh2, and the 21-variable Jena Weather dataset at horizons {96 , 192 , 336 , 720 },testing numerical-history-only extrapolation of trends, periodic structure, and long-range dependen-cies (Zhou et al., 2021; Wu et al., 2021). TimeBraid-2.5B and the time-series foundation models are evaluated zero-shot, while the task-specific supervised baselines are trained on each dataset. Most baseline results are taken from the Sundial and Time-MoE papers (Liu et al., 2025b; Shi et al., 2025). We additionally evaluate TimesFM 2.5 and Chronos-2 ourselves, using the same 2,880-step lookback windows as TimeBraid (Table 21). TimeBraid: Unifying Time Series and Language 36 
+
+F Detailed Experimental Results 
+
+This appendix reports the benchmark-level results summarized in the main text. Unless stated otherwise, higher is better for accuracy and similarity metrics, whereas lower is better for forecasting errors and ranks. Across tables, bold, underline, and a dagger mark the best, second-best, and third-best distinct values within the primary comparison, excluding the separately listed Closed-source Reference Models; ties share a rank. Dashes mark unavailable results. Shading identifies TimeBraid. 
+
+F.1 Time-Series Understanding 
+
+Table 12. TimeSeriesExam accuracy (%) by category: pattern recognition (PR), noise understanding (NU), anomaly detection (AD), similarity analysis (SA), causality analysis (CA), and overall (OA). 
+
+Model PR NU AD SA CA OA 
+
+Closed-source Reference Models 
+
+GPT-5.4 69.34 64.29 70.37 74.17 50.00 67.83 GPT-4o 59.03 55.17 53.49 62.83 31.75 55.96 Gemini-2.5-Flash 54.97 54.76 47.22 63.33 41.67 53.89 GPT-4o (vision) 67.12 62.07 62.79 64.60 26.98 62.12 GPT-4.1 (vision) 69.81 68.97 68.22 75.22 41.27 67.89 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 65.23 † 55.17 52.71 63.71 † 42.86 † 59.89 †
+
+Llama-3.1-8B-Instruct 37.73 37.93 30.23 36.28 28.57 35.52 Qwen2.5-7B-Instruct 47.17 47.13 41.86 53.10 41.27 46.66 
+
+Open-source Vision-Language Models 
+
+Qwen2.5-VL-7B-Instruct 25.34 32.18 19.38 42.48 12.70 26.61 InternVL3-8B 50.13 52.87 43.41 54.87 38.09 49.01 
+
+Time-Series Language Models 
+
+ChatTS 50.13 50.57 50.38 61.95 34.92 50.72 TS-Reasoner-7B 52.29 60.92 52.71 64.60 41.27 54.26 TimeOmni-1-7B 42.82 48.81 22.22 24.17 19.44 35.25 
+
+Unified Models 
+
+ChatTime-7B 42.85 49.42 35.65 44.24 34.92 41.94 TimeOmni-VL 50.83 57.14 36.11 54.17 41.67 49.06 TimeBraid-1.2B (Ours) 55.25 48.81 37.04 54.17 38.89 50.13 TimeBraid-2.5B (Ours) 67.13 59.52 † 46.30 † 58.33 48.61 60.05 TimeBraid-6.7B (Ours) 69.89 65.48 42.59 69.17 47.22 63.14 TimeBraid: Unifying Time Series and Language 37 
+
+Table 13. TSAQA test-set accuracy (%). A.D.: anomaly detection; CLS: classification; TF/MC/PZ: true-or-false, multiple-choice, and puzzling/ordering formats. SFT denotes TSAQA-specific LoRA fine-tuning (Jing et al., 2026). Closed-source Reference Models use zero-shot evaluation. Best, second, and third results are marked within the primary comparison, including the TSAQA-specific SFT rows and excluding Closed-source Reference Models; ties share a rank. 
+
+Model A.D. CLS Characterization Comparison Data Transform Temporal Relation Overall TF MC TF MC TF MC TF MC TF MC PZ 
+
+Closed-source Reference Models 
+
+GPT-5.4 53.32 49.57 82.08 81.98 77.59 74.47 65.79 54.94 74.12 82.96 51.02 63.10 GPT-4.1 55.85 50.38 92.97 89.36 83.57 76.99 54.36 51.13 65.90 79.09 45.77 62.82 GPT-4o 54.32 47.20 88.15 84.15 78.61 69.07 60.66 53.24 62.25 75.58 45.61 60.73 Claude-3.5-Sonnet 51.27 41.23 74.39 78.45 66.59 74.14 65.79 57.07 82.05 82.15 54.56 61.19 Gemini-2.5-Flash 52.08 49.07 85.48 81.08 77.79 72.21 63.62 60.17 75.05 84.49 60.84 65.08 
+
+Open-source Large Language Models 
+
+Qwen3-8B 50.60 50.52 77.35 66.87 71.04 63.21 52.43 34.46 65.22 67.14 21.93 51.04 LLaMA3.1-8B 54.92 50.20 68.10 62.26 67.84 49.98 51.90 36.56 54.82 40.95 6.80 44.93 Ministral-8B 53.35 34.08 71.06 63.93 47.54 52.90 50.70 25.28 50.58 33.88 30.77 44.65 Qwen3-0.6B 50.40 35.83 62.00 48.78 58.03 37.51 49.03 23.62 51.99 37.33 13.38 39.06 LLaMA3.2-1B 49.47 39.48 63.74 52.55 61.02 36.82 48.87 4.20 48.97 5.44 6.76 35.70 Gemma3-1B 49.15 49.83 63.74 47.71 61.19 43.37 49.37 24.88 49.42 25.84 23.97 43.03 LLaMA3.1-8B (SFT) 91.02 91.27 92.44 83.68 86.72 79.31 90.17 86.62 96.94 97.41 67.68 85.26 
+
+Qwen3-8B (SFT) 87.70 90.05 92.37 85.42 86.55 79.08 89.84 84.99 † 96.84 97.56 66.21 84.29 Ministral-8B (SFT) 71.56 74.28 91.31 80.78 84.14 74.63 75.15 71.61 94.07 † 94.15 † 56.82 74.74 Qwen3-0.6B (SFT) 83.68 † 85.78 † 89.38 74.87 80.65 64.84 80.51 73.28 93.92 93.79 63.34 † 78.32 LLaMA3.2-1B (SFT) 83.08 83.83 87.71 74.37 78.61 60.88 68.09 51.67 91.39 88.81 57.53 73.48 Gemma3-1B (SFT) 83.10 84.05 87.88 72.54 78.61 59.31 64.06 45.23 91.00 88.05 42.92 69.70 
+
+Time-Series Language Models 
+
+ChatTS 49.42 52.08 69.20 60.43 67.13 58.27 49.97 30.29 54.04 50.61 33.59 49.83 TimeOmni-1-7B 50.98 56.47 39.93 59.06 40.34 44.55 50.70 28.39 50.58 40.79 30.93 44.40 
+
+Unified Models 
+
+ChatTime-7B 50.20 43.47 48.92 27.29 50.49 25.14 49.53 25.15 49.81 23.80 27.87 38.38 TimeOmni-VL 50.82 51.15 41.92 44.18 40.71 28.87 53.23 23.55 58.33 23.63 15.52 39.27 TimeBraid-1.2B (Ours) 82.58 80.78 89.71 77.68 81.80 69.20 80.28 77.92 89.62 89.43 45.04 76.61 TimeBraid-2.5B (Ours) 83.23 79.25 90.64 80.05 83.23 72.86 83.41 82.92 89.71 91.71 48.36 78.31 TimeBraid-6.7B (Ours) 83.43 85.78 † 91.41 † 81.78 † 85.94 † 75.12 † 86.98 † 86.39 92.05 92.04 49.39 80.65 †TimeBraid: Unifying Time Series and Language 38 
+
+Table 14. Full results on the CaTS-Bench human-rewritten split. 
+
+Model Lexical and Semantic Metrics Numeric DeBERTa F1 SimCSE BLEU ROUGE-L METEOR 
+
+Closed-source Reference Models 
+
+GPT-5.4 0.660 0.843 0.064 0.239 0.264 0.778 Gemini 2.0 Flash 0.694 0.884 0.113 0.283 0.304 0.757 GPT-4o 0.685 0.886 0.090 0.259 0.314 0.739 
+
+Open-source Vision-Language Models 
+
+InternVL 2.5 38B 0.682 0.867 0.085 0.262 0.294 0.740 Gemma 3 27B 0.680 0.883 † 0.089 0.255 0.307 0.745 †
+
+LLaVA v1.6 (finetuned) 0.644 0.802 0.064 0.234 0.250 0.589 Idefics 2 (finetuned) 0.713 0.885 0.131 0.325 0.303 0.748 QwenVL (finetuned) 0.678 0.863 0.090 0.257 0.272 0.669 Llama 3.2 Vision (finetuned) 0.672 0.851 0.087 0.266 0.295 † 0.740 Phi-4 Multimodal Instruct (finetuned) 0.664 0.862 0.078 0.243 0.290 0.703 
+
+Time-Series Language Models 
+
+ChatTS 0.614 0.665 0.040 0.191 0.198 0.648 TimeOmni-1-7B 0.634 0.796 0.046 0.205 0.231 0.769 
+
+Unified Models 
+
+ChatTime-7B 0.371 0.234 0.004 0.032 0.030 0.077 TimeOmni-VL 0.598 0.568 0.027 0.179 0.165 0.370 TimeBraid-1.2B (Ours) 0.706 0.880 0.120 0.305 0.288 0.666 TimeBraid-2.5B (Ours) 0.708 † 0.885 0.121 † 0.307 † 0.289 0.670 TimeBraid-6.7B (Ours) 0.712 0.886 0.123 0.313 0.292 0.684 TimeBraid: Unifying Time Series and Language 39 
+
+F.2 Time-Series Forecasting 
+
+F.2.1 Contextual Reasoning Forecasting 
+
+Table 15. Results on CiK: RCRPS weighted by the official task weights, reported with standard errors and stratified by context type. Asterisks mark models that do not use natural-language context. 
+
+Model Average RCRPS Intemporal Information Historical Information Future Information Covariate Information Causal Information 
+
+Closed-source Reference Models 
+
+Gemini-2.5-Flash 0.110 ± 0.002 0.134 ± 0.003 0.142 ± 0.001 0.036 ± 0.001 0.116 ± 0.003 0.252 ± 0.012 GPT-5.4 0.145 ± 0.000 0.182 ± 0.001 0.116 ± 0.001 0.049 ± 0.000 0.160 ± 0.001 0.414 ± 0.001 GPT-4o 0.257 ± 0.001 0.305 ± 0.002 0.135 ± 0.001 0.159 ± 0.000 0.238 ± 0.001 0.613 ± 0.006 GPT-5.4-mini 0.277 ± 0.000 0.302 ± 0.001 0.173 ± 0.001 0.212 ± 0.000 0.261 ± 0.001 0.553 ± 0.000 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 0.225 ± 0.004 0.286 ± 0.006 0.141 ± 0.001 0.089 ± 0.008 0.166 ± 0.001 0.431 ± 0.005 
+
+Qwen-2.5-7B-Inst 0.344 ± 0.001 0.368 ± 0.002 0.195 ± 0.001 0.283 ± 0.002 † 0.333 ± 0.001 0.562 ± 0.001 Llama-3-8B-Inst 0.476 ± 0.003 0.573 ± 0.005 0.245 ± 0.001 0.301 ± 0.000 0.486 ± 0.004 0.526 ± 0.001 
+
+Time-Series Foundation Models 
+
+Moirai-2 ∗ 0.288 ± 0.002 0.252 ± 0.003 0.119 ± 0.002 0.366 ± 0.004 0.244 ± 0.003 0.435 ± 0.008 †
+
+TimesFM ∗ 0.295 ± 0.002 0.265 ± 0.003 0.114 ± 0.001 0.373 ± 0.002 0.251 ± 0.002 0.474 ± 0.006 Sundial ∗ 0.314 ± 0.001 0.285 ± 0.002 0.119 ± 0.001 0.381 ± 0.001 0.263 ± 0.001 0.486 ± 0.004 TimeMoE ∗ 0.327 ± 0.001 0.303 ± 0.001 0.150 ± 0.000 0.387 ± 0.002 0.271 ± 0.001 0.488 ± 0.000 Chronos-2 ∗ 0.295 ± 0.003 0.271 ± 0.005 0.183 ± 0.007 0.354 ± 0.004 0.243 ± 0.003 † 0.445 ± 0.012 
+
+Traditional Time-Series Models 
+
+DLinear ∗ 0.337 ± 0.001 0.337 ± 0.001 0.230 ± 0.000 0.345 ± 0.003 0.284 ± 0.001 0.548 ± 0.000 iTransformer ∗ 0.359 ± 0.001 0.347 ± 0.001 0.230 ± 0.000 0.394 ± 0.003 0.305 ± 0.001 0.565 ± 0.000 ARIMA ∗ 0.501 ± 0.003 0.620 ± 0.003 0.189 ± 0.004 0.319 ± 0.006 0.275 ± 0.002 0.455 ± 0.005 
+
+Multimodal Forecasting Models 
+
+UniTime 0.368 ± 0.002 0.453 ± 0.002 0.156 ± 0.000 0.197 ± 0.004 0.392 ± 0.002 0.433 ± 0.001 
+
+Unified Models 
+
+ChatTime 0.344 ± 0.000 0.332 ± 0.000 0.191 ± 0.000 0.334 ± 0.000 0.315 ± 0.000 0.436 ± 0.000 TimeOmni-VL 0.655 ± 0.028 0.678 ± 0.043 0.260 ± 0.008 0.648 ± 0.023 0.586 ± 0.035 0.818 ± 0.132 TimeBraid-1.2B (Ours) 0.301 ± 0.002 0.278 ± 0.003 0.138 ± 0.002 0.359 ± 0.004 0.250 ± 0.002 0.472 ± 0.006 TimeBraid-2.5B (Ours) 0.289 ± 0.002 † 0.270 ± 0.002 0.142 ± 0.002 0.337 ± 0.003 0.239 ± 0.002 0.468 ± 0.005 TimeBraid-6.7B (Ours) 0.294 ± 0.002 0.267 ± 0.003 † 0.134 ± 0.003 † 0.359 ± 0.004 0.243 ± 0.003 † 0.437 ± 0.009 TimeBraid: Unifying Time Series and Language 40 
+
+F.2.2 TemporalBench 
+
+Table 16. TemporalBench results under the official evaluation setup: (a) accuracy on the 16 multiple-choice tasks, with Average the unweighted macro-average, and (b) forecasting error, not averaged across datasets because the metrics differ. 
+
+(a) Multiple-choice accuracy. 
+
+Model FreshRetailNet PSML Causal Chambers MIMIC Average T1 T2 T3 T4 T1 T2 T3 T4 T1 T2 T3 T4 T1 T2 T3 T4 
+
+Closed-source Reference Models 
+
+GPT-5.4 45.45% 28.03% 41.48% 42.42% 50.50% 31.33% 33.20% 57.33% 18.67% 53.33% 37.20% 45.33% 35.11% 29.08% 35.56% 31.91% 38.50% GPT-4.1 38.64% 31.82% 45.45% 38.64% 48.50% 27.33% 40.00% 53.33% 12.00% 46.00% 48.80% 41.33% 18.62% 29.08% 42.68% 28.37% 36.91% GPT-4o 63.07% 16.67% 28.98% 39.39% 69.00% 23.33% 35.20% 36.67% 10.00% 22.67% 34.00% 42.00% 46.81% 19.86% 0.00% 29.08% 32.30% Gemini-2.5-Flash 59.66% 22.73% 29.55% 38.64% 72.50% 23.33% 22.00% 46.67% 10.67% 45.33% 37.20% 44.00% 42.55% 29.08% 0.00% 29.79% 34.61% Claude-Sonnet-4 55.11% 29.55% 34.66% 43.94% 50.00% 28.67% 33.20% 40.00% 15.33% 60.67% 37.60% 58.67% 35.11% 21.99% 0.00% 32.62% 36.07% 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 63.64% 15.91% 28.98% 34.09% 57.00% 25.33% 32.00% 56.67% 14.67% 28.00% 33.60% 32.00% 28.19% 24.11% 0.00% 23.40% 31.10% Qwen3-8B 36.36% 30.30% † 51.70% 40.15% † 38.50% 29.33% 48.80% 54.67% † 17.33% 15.33% 42.80% 15.33% 16.49% 21.28% 38.49% 21.99% 32.43% Llama-3.1-8B 29.55% 25.76% 46.59% † 22.73% 30.00% 23.33% 38.00% † 50.67% 15.33% 12.67% 27.60% 13.33% 13.30% 17.02% 30.54% 17.73% 25.88% 
+
+Time-Series Language Models 
+
+ChatTS 15.91% 18.18% 31.82% 34.09% 46.00% † 19.33% 38.40% 54.00% 22.67% † 7.33% 35.20% 11.33% 30.85% 11.35% 0.00% 21.99% 24.90% TimeOmni-1-7B 26.70% 21.97% 29.55% 26.52% 33.50% 24.00% 26.00% 40.00% 21.33% 23.33% 30.40% 19.33% 35.64% 27.66% 0.00% 24.82% 25.67% 
+
+Unified Models 
+
+ChatTime-7B 31.25% 27.27% 31.82% 23.48% 37.50% 27.33% 30.00% 19.33% 23.33% 20.67% 32.80% 26.00% 40.43% 26.24% 27.20% 30.50% 28.45% TimeOmni-VL 19.89% 39.39% 43.75% 43.18% 52.00% 29.33% 11.20% 44.67% 18.00% 28.67% 45.20% † 31.33% 18.09% 33.33% 33.47% 29.79% 32.32% TimeBraid-1.2B (Ours) 17.61% 42.42% 41.48% 50.00% 14.50% 32.67% † 19.20% 18.67% 21.33% 61.33% 36.00% 61.33% 34.57% 29.08% † 35.98% † 30.50% 34.17% †
+
+TimeBraid-2.5B (Ours) 34.66% † 25.76% 52.27% 39.39% 14.50% 36.00% 16.80% 52.00% 16.00% 50.67% 47.20% 54.00% † 35.11% † 32.62% 35.15% 29.79% 35.74% TimeBraid-6.7B (Ours) 30.68% 27.27% 44.32% 37.88% 18.00% 41.33% 23.60% 58.00% 24.00% 49.33% † 46.40% 59.33% 33.51% 17.73% 46.86% 26.95% † 36.58% TimeBraid: Unifying Time Series and Language 41 
+
+Table 16. TemporalBench results (continued): forecasting error on 852 current-leaderboard-dev cases. 
+
+(b) Forecasting error (FreshRetailNet and Causal Chambers: MAE; PSML: sMAPE; MIMIC: OW-sMAPE). 
+
+Model FreshRetailNet PSML Causal Chambers MIMIC T2 T4 T2 T4 T2 T4 T2 T4 
+
+Closed-source Reference Models 
+
+GPT-5.4 0.132 0.129 0.236 0.243 3.287 4.279 9.853 10.005 GPT-4o 0.127 0.234 0.333 0.435 1.988 2.755 15.913 16.860 Gemini-2.5-Flash 0.106 0.118 0.304 0.332 2.244 2.370 9.902 12.557 Claude-Sonnet-4 0.116 0.182 0.253 0.318 2.561 2.725 9.098 13.545 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 0.113 0.135 0.333 0.374 2.532 2.126 14.981 14.789 
+
+Time-Series Foundation Models 
+
+TimesFM 2.5 0.113 0.115 0.229 0.231 4.850 4.846 9.215 9.223 Chronos-2 0.116 † 0.119 0.207 0.209 4.812 4.811 9.643 9.647 Moirai-2 0.115 0.116 0.213 0.210 4.766 † 4.767 † 9.051 9.045 Sundial 0.122 0.121 0.205 0.203 † 5.309 5.332 9.973 9.982 TimeMoE 0.119 0.121 0.198 0.198 5.331 5.347 9.600 9.632 
+
+Multimodal Forecasting Models 
+
+MIGAS-1.5 0.115 0.115 0.222 0.221 4.717 4.753 9.553 9.602 Aurora 0.126 0.125 0.204 † 0.204 6.918 6.917 10.469 10.475 
+
+Unified Models 
+
+ChatTime-7B 0.118 0.143 0.225 0.223 5.397 5.220 10.256 10.379 TimeOmni-VL 1.537 1.587 0.726 0.787 41.261 54.678 77.746 85.100 TimeBraid-1.2B (Ours) 0.117 0.118 † 0.205 0.204 5.317 5.316 8.946 † 8.996 TimeBraid-2.5B (Ours) 0.120 0.119 0.201 0.203 † 5.288 5.307 8.945 9.002 †
+
+TimeBraid-6.7B (Ours) 0.116 † 0.116 0.198 0.197 5.304 5.316 8.931 8.972 
+
+F.2.3 TimeMMD 
+
+Table 17. TimeMMD forecasting with paired text, reporting per-domain MSE and MAE macro-averaged over four horizons. Every multimodal forecasting model receives each window’s paired text and runs at the official 8/36/96 lookbacks, as do ChatTime and Aurora; TimeBraid, the time-series foundation models, and MIGAS-1.5 use a fixed 128-step history. Avg Rank averages each model’s rank across the nine domains; lower is better. 
+
+Unified Models Multimodal Forecasting Models Time-Series Foundation Models 
+
+Models TimeBraid-1.2B TimeBraid-2.5B TimeBraid-6.7B ChatTime-7B Time-LLM GPT4MTS TaTS Time-VLM PatchTST ∗ iTransformer ∗ RaFT ∗ DLinear Reformer MIGAS-1.5 Aurora TimesFM 2.5 Chronos-2 Moirai Small Sundial Base Time-MoE-200M Metric MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE Agriculture 0.116 0.209 0.137 0.232 0.144 0.235 0.130 0.240 0.098 0.204 0.093 0.189 0.091 † 0.196 0.093 0.193 † 0.093 0.197 0.164 0.287 0.190 0.322 0.249 0.374 0.497 0.556 0.086 0.185 0.109 0.208 0.127 0.223 0.085 0.185 0.102 0.197 0.102 0.195 0.107 0.200 Climate 0.899 0.746 † 0.871 † 0.729 0.938 0.760 2.279 1.222 1.320 0.938 1.262 0.919 1.307 0.938 1.282 0.930 1.267 0.923 1.247 0.910 1.848 1.092 1.244 0.907 1.131 0.850 0.983 0.791 1.428 0.972 0.859 0.729 0.988 0.794 0.949 0.770 0.865 0.714 0.935 0.748 Economy 0.025 0.125 0.025 0.125 0.018 0.104 0.071 0.219 0.031 0.143 0.027 0.134 0.016 0.100 † 0.020 0.113 0.019 0.109 0.108 0.297 0.177 0.351 0.192 0.382 1.118 0.977 0.015 0.098 0.040 0.166 0.017 † 0.104 0.015 0.096 0.020 0.109 0.022 0.119 0.021 0.117 Energy 0.256 0.348 0.235 0.335 0.231 0.332 0.365 0.460 0.279 0.384 0.266 0.385 0.277 0.387 0.253 0.367 0.269 0.381 0.294 0.407 0.245 0.350 0.341 0.434 0.555 0.571 0.242 0.347 0.367 0.448 0.239 † 0.338 † 0.262 0.357 0.277 0.368 0.266 0.353 0.277 0.357 Environment 0.516 0.509 † 0.507 0.498 0.507 0.513 1.099 0.757 0.519 0.516 0.518 0.517 0.431 0.489 0.494 † 0.521 0.492 0.510 0.519 0.521 0.548 0.553 0.579 0.625 0.523 0.575 0.671 0.591 0.597 0.575 0.569 0.521 0.566 0.527 0.581 0.543 0.561 0.550 0.579 0.562 Health(US) 1.002 0.640 0.956 † 0.619 † 0.925 0.608 2.516 1.037 1.488 0.827 1.519 0.826 1.665 0.810 1.482 0.820 1.556 0.799 1.726 0.808 1.534 0.873 1.714 0.870 1.567 0.824 1.302 0.728 2.000 1.022 0.665 0.484 1.217 0.698 1.280 0.763 1.240 0.749 1.229 0.731 Security 108.957 † 4.695 108.864 4.691 108.552 4.715 † 144.336 5.700 114.884 5.486 111.210 5.288 120.945 5.656 112.981 5.320 111.667 5.265 119.281 5.588 160.934 6.405 109.860 5.264 119.267 5.682 109.911 4.784 120.737 6.028 114.802 5.150 110.309 4.819 109.829 4.811 111.686 5.010 110.392 4.927 SocialGood 0.808 † 0.351 0.839 0.368 0.799 0.352 1.227 0.576 1.023 0.468 1.014 0.451 1.148 0.464 1.068 0.498 1.110 0.484 1.187 0.468 0.994 0.477 0.979 0.500 1.008 0.638 1.110 0.396 1.155 0.576 0.845 0.365 1.110 0.396 0.859 0.364 0.856 0.361 † 0.801 0.364 Traffic 0.148 0.213 0.145 0.206 † 0.153 0.211 0.505 0.555 0.223 0.299 0.249 0.321 0.227 0.278 0.229 0.305 0.216 0.267 0.216 0.286 0.460 0.523 0.316 0.451 0.319 0.471 0.200 0.216 0.322 0.426 0.152 † 0.179 0.201 0.217 0.163 0.191 0.160 0.211 0.167 0.225 Avg Rank 5.83 † 5.39 † 5.11 5.11 4.50 4.78 18.56 18.61 12.28 12.78 10.50 11.33 11.11 10.17 9.50 11.33 9.72 10.00 14.89 13.50 14.67 16.22 14.17 16.22 15.22 17.28 8.06 6.56 17.00 16.78 6.33 5.44 7.61 6.50 8.67 7.17 7.89 6.61 8.39 8.22 TimeBraid: Unifying Time Series and Language 42 
+
+F.2.4 CGTSF 
+
+CGTSF is the context-guided forecasting benchmark of ChatTime (Wang et al., 2025a), with three real-world datasets paired with aligned text: MSPG (Melbourne solar power generation), LEU (London electricity usage), and PTF (Paris traffic flow). 
+
+Table 18. CGTSF context-guided forecasting (Wang et al., 2025a) on MSPG (Melbourne solar power generation), LEU (London electricity usage), and PTF (Paris traffic flow). Errors are standardized using training-split statistics; per-dataset entries average four history-length settings, and Macro MSE and Macro MAE weight the twelve settings equally. We replicate the official evaluation setting and evaluate every baseline ourselves. Model Per-dataset (MSE / MAE ↓) Macro MSPG LEU PTF MSE ↓ MAE ↓
+
+Time-Series Foundation Models 
+
+Chronos-2 0.649 / 0.388 0.715 / 0.414 0.230 / 0.285 0.531 0.363 †
+
+TimesFM-2.5 0.585 / 0.384 0.777 / 0.442 0.243 / 0.306 0.535 0.377 Sundial 0.763 / 0.507 0.683 / 0.453 0.242 / 0.306 0.563 0.422 Moirai-2 1.000 / 0.590 0.681 / 0.422 0.284 / 0.332 0.655 0.448 Time-MoE-200M 1.138 / 0.713 0.698 / 0.450 0.239 / 0.302 0.692 0.488 
+
+Multimodal Forecasting Models 
+
+MIGAS-1.5 0.757 / 0.476 0.887 / 0.550 0.386 / 0.444 0.677 0.490 Aurora 0.789 / 0.562 0.757 / 0.503 0.336 / 0.394 0.627 0.486 Time-LLM 0.583 / 0.476 0.699 / 0.480 0.163 / 0.273 † 0.482 0.409 GPT4MTS 0.567 / 0.438 0.694 / 0.481 0.180 / 0.273 † 0.481 0.397 Time-VLM 0.818 / 0.644 0.725 / 0.498 0.175 / 0.278 0.573 0.473 PatchTST ∗ 0.602 / 0.479 0.706 / 0.489 0.179 / 0.277 0.496 0.415 iTransformer ∗ 0.737 / 0.507 0.698 / 0.490 0.193 / 0.285 0.543 0.428 RaFT ∗ 1.398 / 0.608 0.701 / 0.503 0.238 / 0.322 0.779 0.478 DLinear 0.619 / 0.470 0.687 / 0.487 0.197 / 0.300 0.501 0.419 Reformer 0.859 / 0.584 0.736 / 0.514 0.269 / 0.355 0.621 0.484 
+
+Unified Models 
+
+ChatTime 2.727 / 0.945 1.015 / 0.507 0.359 / 0.373 1.367 0.609 TimeBraid-1.2B (Ours) 0.472 † / 0.371 † 0.642 / 0.425 0.136 / 0.229 0.417 † 0.342 TimeBraid-2.5B (Ours) 0.467 / 0.368 0.644 † / 0.423 † 0.133 / 0.225 0.415 0.338 
+
+TimeBraid-6.7B (Ours) 0.459 / 0.362 0.641 / 0.424 0.138 † / 0.229 0.413 0.338 
+
+We report history-𝑧 -normalized errors: per-dataset MSE/MAE average each dataset’s four history-length settings, and Macro MSE and Macro MAE equally average the twelve dataset ×history-length settings. 
+
+F.2.5 CAF (Context-Aided Forecasting) 
+
+CAF evaluates whether models use scenario information that complements the observed history while forecasting a predictive distribution. We report normalized CRPS with standard errors on all 904 correct-context test cases and their HARD and EASY strata; the evaluation set is held out from our mixture as summarized in Appendix B.3. TimeBraid: Unifying Time Series and Language 43 
+
+F.2.6 Ctrl-F 
+
+Ctrl-F tests whether a forecast follows a natural-language future condition when three distinct continuations share the same observed history. The set contains 50 domain-balanced groups across commerce, compute, epidemic, health, and traffic, whose histories are replayed from held-out GIFT-Eval test anchors. Each group contributes three original-condition windows, three paraphrased-condition windows, and one shared blank-text control, yielding 350 instances in total. We report history-normalized forecasting error on the 150 original-condition windows and Top-1 sibling retrieval against the three candidate futures (chance = 33 .33%). 
+
+Table 19. CAF normalized CRPS on all 904 correct-context examples and the hard/easy strata (lower is better; mean ± s.e.). Model Normalized CRPS ↓
+
+ALL HARD EASY 
+
+Closed-source Reference Models 
+
+GPT-5.4 0.233 ±0.011 0.225 ±0.012 0.243 ±0.019 
+
+GPT-4o 0.234 ±0.011 0.228 ±0.012 0.241 ±0.018 
+
+Gemini-2.5-Flash 0.247 ±0.012 0.247 ±0.016 0.246 ±0.018 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 0.267 ±0.013 0.254 ±0.015 0.283 ±0.021 
+
+Time-Series Foundation Models 
+
+Moirai-2 0.275 ±0.014 0.299 ±0.019 0.248 ±0.020 
+
+Chronos-2 0.277 ±0.015 0.298 ±0.019 0.252 ±0.022 
+
+TimesFM 2.5 0.281 ±0.016 0.293 ±0.020 0.267 ±0.025 
+
+Sundial 0.331 ±0.017 0.340 ±0.021 0.321 ±0.028 
+
+Time-MoE-200M 0.414 ±0.023 0.388 ±0.023 0.445 ±0.042 
+
+Multimodal Forecasting Models 
+
+MIGAS-1.5 0.346 ±0.017 0.379 ±0.023 0.307 ±0.025 
+
+Aurora 0.460 ±0.021 0.428 ±0.021 0.497 ±0.039 
+
+DoubleCast 0.231 ±0.001 0.251 ±0.001 † 0.204 ±0.002 
+
+TimeLLM 0.501 ±0.001 0.428 ±0.001 0.587 ±0.001 
+
+Unified Models 
+
+ChatTime-7B 0.345 ±0.015 0.375 ±0.020 0.310 ±0.022 
+
+TimeOmni-VL 0.489 ±0.025 0.425 ±0.027 0.565 ±0.043 
+
+TimeBraid-1.2B (Ours) 0.235 ±0.012 † 0.243 ±0.016 0.225 ±0.018 †
+
+TimeBraid-2.5B (Ours) 0.235 ±0.012 † 0.243 ±0.014 0.226 ±0.019 
+
+TimeBraid-6.7B (Ours) 0.225 ±0.012 0.231 ±0.015 0.219 ±0.018 
+
+Table 20. Ctrl-F on 150 correct-arm windows, report-ing history-normalized MSE and MAE with correct-sibling Top-1 accuracy (chance = 33 .33%). Model MSE ↓ MAE ↓ Top-1 (%) ↑
+
+Closed-source Reference Models 
+
+GPT-5.4 5.188 1.563 51.33 GPT-4o 5.447 1.591 60.00 Gemini-2.5-Flash 6.624 1.771 56.00 
+
+Open-source Large Language Models 
+
+DeepSeek-Chat 6.405 1.692 59.33 
+
+Time-Series Foundation Models 
+
+Moirai-2 8.425 1.987 33.33 Chronos-2 8.597 2.004 33.33 TimesFM-2.5 8.784 2.025 33.33 Sundial 8.829 2.074 33.33 Time-MoE-200M 9.077 2.114 33.33 
+
+Multimodal Forecasting Models 
+
+MIGAS-1.5 8.604 2.009 33.33 Aurora 9.091 2.141 33.33 
+
+Unified Models 
+
+ChatTime 9.165 2.140 33.33 TimeOmni-VL 10.387 2.367 32.00 TimeBraid-1.2B (Ours) 6.826 † 1.768 † 40.67 †
+
+TimeBraid-2.5B (Ours) 6.972 1.781 40.67 †
+
+TimeBraid-6.7B (Ours) 6.232 1.689 43.33 TimeBraid: Unifying Time Series and Language 44 
+
+F.2.7 Unimodal Forecasting 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4 
+
+MASE (lower is better) 
+
+> Toto-2.0-FnF Chronos-2 TimesFM-2.5 TiRex Moirai2 Sundial-Base
+> (ctx 2,880)
+> TabPFN-TS
+> (ctx 15,360)
+> PatchTST N-BEATS Seasonal Naive Chronicle Auto-ARIMA TiDE Naive DeepAR
+> 0.676 0.698 0.705 0.716 0.728 0.750
+> 0.7628
+> 0.771
+> 0.7710
+> 0.849 0.938 1.000 1.053 1.074 1.091 1.270 1.343
+
+MASE        
+
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75
+
+CRPS (lower is better) 
+
+> Toto-2.0-FnF Chronos-2 TiRex TimesFM-2.5 Moirai2 TabPFN-TS
+> (ctx 15,360)
+> (ctx 2,880)
+> Sundial-Base PatchTST Chronicle TiDE N-BEATS DeepAR Auto-ARIMA Seasonal Naive Naive
+> 0.463 0.485 0.488 0.490 0.516 0.544
+> 0.5460 0.5461
+> 0.559 0.587 0.754 0.772 0.816 0.853 0.912 1.000 1.591
+
+CRPS      
+
+> (ctx 2,880) (ctx 15,360) Forecasting foundation model Supervised deep learning Statistical baseline
+> TimeBraid
+> TimeBraid TimeBraid
+> TimeBraid
+> TimeBraid TimeBraid
+
+Figure 8. Aggregate GIFT-Eval forecasting performance across models and context lengths. Lower is better. 
+
+Table 21. Per-horizon long-term forecasting on ETT and Weather, reporting MSE and MAE at horizons 
+
+{96 , 192 , 336 , 720 } and their average. TimeBraid-2.5B uses a 2,880-step lookback; the baselines retain their official input lengths. Avg Rank averages each model’s rank across the twenty dataset–horizon settings. 
+
+TimeBraid Time-Series Foundation Models Traditional Time-Series Models 
+
+Models TimeBraid-2.5B Sundial Large Time-MoE Ultra Moirai Large TimesFM 2.5 Chronos-2 iTransformer TimeMixer PatchTST DLinear (Ours) (Zero-shot) (Zero-shot) (Zero-shot) (Zero-shot) (Zero-shot) (Full-shot) (Full-shot) (Full-shot) (Full-shot) Metric MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTm1 96 0.310 0.336 0.273 0.329 † 0.281 0.341 0.380 0.361 0.307 0.326 0.301 † 0.312 0.334 0.368 0.320 0.357 0.329 0.367 0.345 0.372 192 0.356 0.364 0.312 0.357 0.305 0.358 † 0.412 0.383 0.358 0.358 † 0.352 † 0.343 0.377 0.391 0.361 0.381 0.367 0.385 0.380 0.389 336 0.388 † 0.385 0.343 0.378 0.369 0.395 0.436 0.400 0.389 0.381 † 0.388 † 0.367 0.426 0.420 0.390 0.404 0.399 0.410 0.413 0.413 720 0.439 0.415 0.397 0.413 0.469 0.472 0.462 0.420 0.444 † 0.414 † 0.451 0.403 0.491 0.459 0.454 0.441 0.454 0.439 0.474 0.453 Avg 0.373 † 0.375 0.331 0.369 0.356 0.391 0.422 0.391 0.375 0.370 † 0.373 † 0.356 0.407 0.409 0.381 0.395 0.387 0.400 0.403 0.406 ETTm2 96 0.171 † 0.250 † 0.172 0.255 0.198 0.288 0.211 0.274 0.170 0.239 0.161 0.225 0.180 0.264 0.175 0.258 0.175 0.259 0.193 0.292 192 0.225 0.290 † 0.227 † 0.296 0.235 0.312 0.281 0.318 0.234 0.283 0.226 0.271 0.250 0.309 0.237 0.299 0.241 0.302 0.284 0.362 336 0.273 0.324 † 0.275 0.331 0.293 0.348 0.341 0.355 0.293 0.321 0.278 † 0.307 0.311 0.348 0.298 0.340 0.305 0.343 0.369 0.427 720 0.356 † 0.378 0.343 0.378 0.427 0.428 0.485 0.428 0.389 0.379 † 0.352 0.359 0.412 0.407 0.391 0.396 0.402 0.400 0.554 0.522 Avg 0.256 0.311 † 0.254 0.315 0.288 0.344 0.329 0.343 0.271 † 0.305 0.254 0.291 0.288 0.332 0.275 0.323 0.280 0.326 0.350 0.400 ETTh1 96 0.364 † 0.384 0.346 0.383 0.349 0.379 0.381 0.388 0.366 0.381 † 0.369 0.372 0.386 0.405 0.375 0.400 0.414 0.419 0.386 0.400 192 0.396 † 0.404 † 0.386 0.410 0.395 0.413 0.434 0.415 0.401 0.402 0.417 0.400 0.441 0.436 0.436 0.429 0.460 0.445 0.437 0.432 336 0.407 0.413 0.410 0.426 0.447 0.453 0.485 0.445 0.415 † 0.412 0.447 0.417 † 0.487 0.458 0.484 0.458 0.501 0.466 0.481 0.459 720 0.404 0.430 0.438 0.459 0.457 0.462 0.611 0.510 0.404 0.423 0.445 † 0.431 † 0.503 0.491 0.498 0.482 0.500 0.488 0.519 0.516 Avg 0.393 0.407 0.395 0.420 † 0.412 0.426 0.480 0.439 0.396 † 0.405 0.420 0.405 0.454 0.447 0.448 0.442 0.468 0.454 0.455 0.451 ETTh2 96 0.284 0.334 0.269 0.330 † 0.292 0.352 0.296 0.330 † 0.275 0.318 0.280 † 0.316 0.297 0.349 0.289 0.341 0.302 0.348 0.333 0.387 192 0.341 0.373 0.325 0.373 0.347 0.379 0.361 0.371 † 0.344 † 0.365 0.346 0.361 0.380 0.400 0.372 0.392 0.388 0.400 0.477 0.476 336 0.360 0.391 † 0.354 0.400 0.406 0.419 0.390 0.390 0.374 0.390 0.370 † 0.386 0.428 0.432 0.386 0.414 0.426 0.433 0.594 0.541 720 0.368 0.410 † 0.389 0.443 0.439 0.447 0.423 0.418 0.377 † 0.402 0.370 0.400 0.427 0.445 0.412 0.434 0.431 0.446 0.831 0.657 Avg 0.338 0.377 † 0.334 0.387 0.371 0.399 0.367 0.377 † 0.343 0.369 0.342 † 0.366 0.383 0.406 0.364 0.395 0.386 0.406 0.558 0.515 Weather 96 0.145 0.189 † 0.157 † 0.208 0.157 † 0.211 0.199 0.211 0.145 0.179 0.139 0.172 0.174 0.214 0.163 0.209 0.177 0.218 0.196 0.255 192 0.193 0.236 † 0.207 0.256 0.208 0.256 0.246 0.251 0.195 † 0.228 0.186 0.219 0.221 0.254 0.208 0.250 0.225 0.259 0.237 0.296 336 0.245 0.278 † 0.259 0.295 0.255 0.290 0.274 0.291 0.260 0.275 0.240 0.260 0.278 0.296 0.251 † 0.287 0.278 0.297 0.283 0.335 720 0.329 † 0.337 † 0.327 0.342 0.405 0.397 0.337 0.340 0.359 0.336 0.311 0.311 0.358 0.349 0.339 0.341 0.354 0.348 0.345 0.381 Avg 0.228 0.260 † 0.238 † 0.275 0.256 0.288 0.264 0.273 0.240 0.255 0.219 0.241 0.257 0.278 0.240 0.271 0.258 0.280 0.265 0.316 Avg Rank 2.48 3.45 † 2.23 4.15 5.20 6.72 8.05 6.00 3.83 2.25 2.80 † 1.20 8.10 8.07 5.67 5.80 7.72 7.88 8.93 9.47 TimeBraid: Unifying Time Series and Language 45 
+
+F.3 Language Ability Retention          
+
+> Table 22. Five-shot MMLU accuracy (%) of TimeBraid-2.5B across training stages (Hendrycks et al., 2020). Base is the pretrained Qwen3-1.7B language tower evaluated stan-dalone on text-only prompts; higher is better. Stage MMLU (%) Base (Qwen3-1.7B language tower) 60.30 Align 40.88 Align, w/ unimodal replay 53.38 SFT 50.68 SFT, w/ unimodal replay during alignment 50.09
+
+To examine whether joint training pre-serves the language ability of the pretrained language tower, we evaluate TimeBraid on MMLU at the end of each training stage. We also train a variant that mixes unimodal data into the alignment stage, replaying the Stage-2 unimodal corpora (Table 8) alongside the paired examples. In Table 22, we report the MMLU accuracy of these checkpoints. From the table, the alignment stage costs the language tower 19.4 points, and mixing unimodal data into this stage recovers MMLU to 53.4. After supervised fine-tuning, the two variants end within 0.6 points of each other, since the fine-tuning mixture already contains an 11.69% unimodal share. We therefore keep the alignment stage purely paired. Overall, mixing unimodal data preserves the language ability of the unified model, although the shares we use do not preserve it fully and leave the released model 9.6 points below its backbone. We leave the search for a unimodal ratio that removes this gap to future work. TimeBraid: Unifying Time Series and Language 46 
+
+G Success and Failure Cases 
+
+The following selected qualitative examples illustrate forecasting and understanding capabilities. For context-conditioned forecasts, we show the supplied contextual text or a verbatim excerpt. Matched comparisons keep the checkpoint, numerical history, prediction horizon, and inference settings fixed, removing only the contextual information; the forecast instruction remains. Reported error reductions refer to the individual examples shown. 1 2 4 5160 240 320 1 12 24 36 48 030 60 1 3 6 9 12 250 500 750 1 3 6 9 12 015 30 1 12 24 36 48 015 30 1 3 6 9 12 00.5 1
+
+Forecasting 
+
+User Background: This dataset represents the annual production of a specific industry, measured in units. The historical trend shows a steady increase from 1983 to 1987, with an average annual growth rate of 10%. Scenario: Suppose a major economic downturn occurs from 1989-01-01 00:00:00 to 1990-12-31 00:00:00, resulting in a significant decline in production, with values 20% lower than the previous year. This downturn is expected to last for two years, after which the production is likely to recover and continue its upward trend. The impact of the economic downturn is evident in the forecast values, with a notable decrease in 1989 and 1990, followed by a gradual increase in the subsequent years. 
+
+User Background: The historical time series data shows fluctuating profit values with occasional spikes and dips. However, starting from 1993-06-24 00:00:00, the values suddenly drop to 0 and remain at this level for an extended period. Scenario: A plausible cause for this drastic change is a store closure or a significant disruption in the supply chain, resulting in a complete halt of sales. This event is likely to have occurred around 1993-06-24 00:00:00 and persisted indefinitely. As a result, the profit values are expected to remain 100% lower than the previous levels. The impact of this event is sustained, with no signs of recovery or resurgence in sales. 
+
+User Background: This time series represents a monthly economic indicator. Scenario: Suppose a major economic downturn occurs from 1982-05-31 00:00:00 to 1982-12-31 00:00:00, resulting in a significant decline in economic activity and a corresponding drop in the time series values to about 50% lower than the usual level. This downturn is likely due to a combination of factors, including reduced consumer spending and investments. The impact on future values will be a sustained decline, with values 30% lower than the preceding year, starting from 1982-05-31 00:00:00 and lasting until the end of 1982. 
+
+User Background: The historical time series data reflects the number of patients or usage of medical services and products in a healthcare setting over time, showing fluctuations with peaks and troughs. Scenario: Suppose a new community health program is launched from 2005-01-01 00:00:00, aiming to provide preventive care and reduce hospital admissions, resulting in a sustained decline in patient counts by about 40% compared to the previous year's average. This initiative is expected to continue influencing patient numbers throughout the forecast period. 
+
+User Background: The historical time series exhibits a recurring pattern of fluctuating profit values, with alternating periods of higher and lower profits. This pattern is expected to persist in the forecast horizon. Scenario: A major change is observed in the forecast, starting from 1991-09-12 00:00:00, where the profit values initially remain steady and then surge to higher levels, followed by a prolonged period of zero profits. A plausible cause for this change is a significant shift in consumer demand, potentially due to a change in season or a major promotional event. This shift leads to an initial increase in sales, followed by a period of stock depletion and subsequent replenishment issues, resulting in zero profits for an extended period. 
+
+User Background: The provided time series represents monthly car parts sales from January 1998 to March 2002. Historically, the sales have shown a pattern of minimal to no sales from 1999-10-01 00:00:00 onwards, with an isolated sale in 1999-10-01 00:00:00. This trend of low sales continues into the forecast horizon starting at 2000-10-01 00:00:00. Scenario: Suppose a major automotive manufacturing plant in the region undergoes a significant restructuring and modernization effort from 2001-01-01 00:00:00 to 2001-09-01 00:00:00. This could lead to an increased demand for specific car parts, potentially resulting in higher sales. The impact of this event on future values could be an increase in sales by about 20% during the restructuring period, culminating in a notable sale in 2001-09-01 00:00:00. 
+
+observed history held-out target forecast without text forecast with scenario text condition 2 condition 3 
+
+MONASH M1 YEARLY DOMINICK MONASH M1 MONTHLY MONASH HOSPITAL DOMINICK MONASH CAR PARTS 
+
+Figure 9. Context-conditioned forecasting with and without scenario text. TimeBraid: Unifying Time Series and Language 47 1 24 48 64 015 30 1 24 48 64 00.15 0.3 1 2 4 55,000 7,500 10,000 
+
+Forecasting 
+
+User Background: The historical time series shows a prolonged period of minimal rainfall from 1972-04-21 to 1972-06-23, with only two instances of non-zero values. Scenario: A significant low-pressure system is expected to develop over the region from 1972-07-02 00:00:00 to 1972-07-04 00:00:00, resulting in substantially higher rainfall, approximately 10-20 times the usual level, due to the system's intense precipitation. This event is likely to cause a brief but pronounced surge in rainfall values. Constraint: The forecast values are expected to remain below 30. 
+
+User Background: This time series represents hourly road occupancy readings from highway sensors in the San Francisco Bay Area. Historically, the data shows a daily pattern with higher occupancy during the day and lower occupancy at night. Scenario: Starting from 2015-06-29 20:00:00, a major sporting event is scheduled to take place in the area, resulting in increased traffic congestion. The event is expected to cause a surge in road occupancy, with values potentially being 2-3 times higher than usual during the evening and nighttime hours. This increased traffic is anticipated to last until the end of the event on 2015-06-30. After the event, traffic patterns are expected to return to normal, with some potential residual effects on the following day. Constraint: The road occupancy values are expected to be bounded above by 1, reflecting the maximum possible occupancy of the road. 
+
+User Background: This dataset represents the yearly sales of a manufacturing company. The historical trend shows fluctuations with an overall decline from 1973 to 1975, followed by a recovery in 1976 and a slight decrease in 1977. Scenario: Suppose a major competitor entered the market in 1978, leading to increased competition and a subsequent decline in sales. This new competitor's aggressive marketing and pricing strategies likely caused the company's sales to drop by approximately 20% in the following years. The impact of this event is expected to last from 1978-12-31 00:00:00 to 1982-12-31 00:00:00, resulting in lower sales figures compared to the pre-1978 period. Constraint: The sales values are assumed to be bounded above by the highest historical value, which is 10188. 
+
+observed history held-out target forecast without text forecast with scenario text condition 2 condition 3 
+
+MONASH WEATHER MONASH TRAFFIC MONASH M3 YEARLY 1 6 12 20 30 40 
+
+> HOSPITAL ACTIVITY history=22, horizon=12
+
+User The trajectory begins with a dip at future step 2, followed by a recovery to a local peak at future step 4. It then drops to a local minimum at future step 6 before surging to the highest future point at future step 7. The sequence concludes with a decline followed by a recovery at the end. User Create a pronounced upward pulse in future steps 3 to 8. Cap upper peaks in future steps 1 to 12. User Maintain a persistently higher level across future steps 1 to 12. 1 24 48 100 200 
+
+> COMPUTE WORKLOAD history=112, horizon=48
+
+User A sharp spike occurs at future step 4, followed by a return to a low level with a minor secondary peak at future step 18. User Maintain a persistently higher level for future steps 1 to 48. User Maintain a sustained upward drift across future steps 1 to 48. Introduce a pronounced downward drop that gradually recovers during future steps 5 to 18. Create a strong local upward pulse within future steps 20 to 33. 
+
+Figure 10. Context-conditioned and text-controlled forecasting on test examples. In the lower panels, solid blue, green, and purple denote conditions 1–3 over the same held-out history; dashed blue in the upper panels denotes forecasting without text. Only the differing condition text is displayed. TimeBraid: Unifying Time Series and Language 48 −50 −25 0
+
+Full history (64 steps)    
+
+> 03000 6000 010 20 30
+
+Future steps (same y scale)   
+
+> 03000 6000 −30 −15 0
+
+Full history (32 steps)    
+
+> 020 40 010 20 30
+
+Future steps (same y scale)   
+
+> 020 40 −30 −15 0
+
+Full history (32 steps)    
+
+> 20 40 010 20 30
+
+Future steps (same y scale) 
+
+> 20 40
+
+Text-controlled forecasting 
+
+Three text instructions applied to each held-out history. Curves show separate model outputs. 
+
+EPIDEMIC SERIES 
+
+Held-out test history; constructed conditions 
+
+User / Context 
+
+Condition 1 - Excerpt: The future trajectory exhibits a steady linear increase, rising from approximately 5500 at future step 1 to approximately 9500 at future step 30. Condition 2 - Excerpt: Maintain a persistently higher level for future steps 1 to 30. Condition 3 - Excerpt: Create a sustained upward drift across future steps 1 to 30. Introduce a strong local upward pulse during future steps 22 to 24. 
+
+RESTAURANT DEMAND 
+
+Held-out test history; constructed conditions 
+
+User / Context 
+
+Condition 1 - Excerpt: The trajectory begins with a rise to a local peak around future step 4, followed by a sharp decline to a future minimum at future step 6. It then recovers to a peak near future step 10 before dropping to a second, lower future minimum at future step 12. From there, the series rises steadily to a future maximum at future step 17, followed by a decline to a trough at future step 20 and a final rise to the end of the horizon. Condition 2 - Excerpt: Maintain a persistently higher level for future steps 1 to 30. Introduce an upward surge that gradually decays for future steps 8 to 15. Condition 3 - Excerpt: Set a persistently lower level for future steps 1 to 30. 
+
+COMMERCE / ALTERNATIVE CONDITIONS 
+
+Held-out GIFT-Eval history; constructed conditions 
+
+User / Context 
+
+Condition 1 - Excerpt: The sequence begins with an upward trend from future step 1, reaching a local peak at future step 6. It then fluctuates with high volatility, dropping to a future minimum at future step 17. Following this trough, the series rises sharply to a future maximum at future step 25, before declining and recovering slightly at the end. Condition 2 - Excerpt: Maintain a persistently higher level for future steps 1 to 30. Introduce a downward drop that gradually recovers for future steps 4 to 11. Create a local upward pulse for future steps 13 to 20. Condition 3 - Excerpt: Maintain a persistently higher level in future steps 1 to 30. Introduce a pronounced upward pulse in future steps 4 to 11. 
+
+History Condition 1 Condition 2 Condition 3 
+
+Figure 11. Text-controlled forecasting on held-out test histories. Each group uses three textual conditions with the same numerical input. Colored curves are recorded model outputs; the text below each panel quotes the differing condition. These are constructed scenarios, not observed alternative futures. Full histories and complete forecast horizons are shown on separate horizontal axes with the same vertical scale. TimeBraid: Unifying Time Series and Language 49 −100 −50 0
+
+Full history (112 steps)   
+
+> 24020 40
+
+Future steps (same y scale)   
+
+> 24−16 −8 0
+
+Full history (22 steps)    
+
+> 50 75 100 04812
+
+Future steps (same y scale)   
+
+> 50 75 100 −100 −50 0
+
+Full history (112 steps)   
+
+> 55 60 65 020 40
+
+Future steps (same y scale) 
+
+> 55 60 65
+
+Text-controlled forecasting 
+
+Three text instructions applied to each held-out history. Curves show separate model outputs. 
+
+COMPUTE / ALTERNATIVE CONDITIONS 
+
+Held-out GIFT-Eval history; constructed conditions 
+
+User / Context 
+
+Condition 1 - Excerpt: The series exhibits a fluctuating pattern with a local peak around future step 8, followed by a dip to a local minimum around future step 26. It then rises to a secondary peak around future step 35 before climbing to the future maximum at future step 46. Condition 2 - Excerpt: Create a marked downward trend in future steps 1 to 48. Introduce a local dip in future steps 28 to 41. Condition 3 - Excerpt: Maintain a persistently lower level across future steps 1 to 48. Introduce a local downward pulse during future steps 12 to 25. Create an upward surge that gradually decays within future steps 28 to 41. 
+
+HEALTH / ALTERNATIVE CONDITIONS 
+
+Held-out GIFT-Eval history; constructed conditions 
+
+User / Context 
+
+Condition 1 - Excerpt: The series drops sharply from future step 1 to 2, then fluctuates with a notable low at future step 9 before recovering toward the end. Condition 2 - Excerpt: Maintain a persistently higher level during future steps 1 to 12. Introduce a pronounced upward surge that gradually decays across future steps 3 to 8. Condition 3 - Excerpt: Shift to a persistently lower level for future steps 1 to 12. 
+
+TRAFFIC / ALTERNATIVE CONDITIONS 
+
+Held-out GIFT-Eval history; constructed conditions 
+
+User / Context 
+
+Condition 1 - Excerpt: The future trajectory exhibits high volatility with sharp fluctuations. It begins with a sharp drop at future step 1, followed by a recovery. A significant local minimum occurs at future step 19, immediately followed by a sharp spike to a local maximum at future step 21. Condition 2 - Excerpt: Maintain a sustained downward drift in future steps 1 to 48. Introduce a pronounced local downward pulse in future steps 20 to 33. Condition 3 - Excerpt: Maintain a persistently lower level across future steps 1 to 48. Introduce a local downward pulse during future steps 5 to 18. Create an upward surge that gradually decays within future steps 20 to 33. 
+
+History Condition 1 Condition 2 Condition 3 
+
+Figure 12. Additional text-controlled forecasts on held-out histories. All three predictions use the displayed textual conditions, quoted from the full inputs. The constructed scenarios vary trends, levels, and local changes; they illustrate the model’s responses to distinct instructions. Both axes use the same vertical scale and display the complete input and output sequences. TimeBraid: Unifying Time Series and Language 50 −30 −15 0
+
+Full history (36 steps) 
+
+360 15 30 
+
+Future steps (same y scale) 
+
+36−30 −15 0
+
+Full history (36 steps) 
+
+2.5 5.0 7.5 0 8 16 24 
+
+Future steps (same y scale) 
+
+2.5 5.0 7.5 −30 −15 0
+
+Full history (36 steps) 
+
+2.0 2.4 0 4 8 12 
+
+Future steps (same y scale) 
+
+2.0 2.4 
+
+Forecasting with contextual text 
+
+Selected test examples | Actual context excerpts and complete forecast horizons 
+
+INFLUENZA ACTIVITY 
+
+Time-MMD | 2019-02-11 to 2019-10-14 | weekly | MAE: text 0.207, no context 5.16 | 96.0% lower in this example 
+
+User / Context 
+
+With contextual text - Excerpt: The CDC shows increasing flu activity for the United States, and vaccination is recommended to prevent influenza virus infection. 
+
+WINTER INFLUENZA SEASON 
+
+Time-MMD | 2019-08-12 to 2020-01-20 | weekly | MAE: text 0.608, no context 1.86 | 67.3% lower in this example 
+
+User / Context 
+
+With contextual text - Excerpt: Influenza virus infection is a common viral infection that occurs largely in the winter months, and pneumonia is a common complication among adults hospitalized with laboratory-confirmed seasonal influenza virus infection. 
+
+ENERGY MARKET RECOVERY 
+
+Time-MMD | 2020-08-31 to 2020-11-16 | weekly | MAE: text 0.0522, no context 0.166 | 68.6% lower in this example 
+
+User / Context 
+
+With contextual text - Excerpt: Oil prices have hit a 5-month high as the economy appears to recover and COVID cases fall in key U.S. states. 
+
+History Observed future With text No context 
+
+Figure 13. Selected Time-MMD test forecasts with matched contextual-text ablations. Orange uses the full dataset-provided textual context; dashed blue removes that context while retaining the same forecast instruction, numerical history, and horizon. Dashed gray is the observed future. Text below each panel is a verbatim excerpt of the full context used for prediction. MAE is measured over the complete future horizon in source units; reductions describe these selected examples. TimeBraid: Unifying Time Series and Language 51 −6 −3 0
+
+Full history (8 steps) 
+
+188 192 196 0 2 4 6
+
+Future steps (same y scale) 
+
+188 192 196 −6 −3 0
+
+Full history (8 steps) 
+
+186 189 192 0 4 8 12 
+
+Future steps (same y scale) 
+
+186 189 192 −30 −15 0
+
+Full history (36 steps) 
+
+3.2 4.0 4.8 0 15 30 
+
+Future steps (same y scale) 
+
+3.2 4.0 4.8 
+
+Forecasting with contextual text 
+
+Selected test examples | Actual context excerpts and complete forecast horizons 
+
+POULTRY MARKET CONTEXT 
+
+Time-MMD | 2016-04-01 to 2016-09-01 | monthly | MAE: text 1.08, no context 2.69 | 59.9% lower in this example 
+
+User / Context 
+
+With contextual text - Excerpt: The United States is a major exporter of food products, including poultry, and the implementation of the TPP will further boost demand for U.S. food exports. 
+
+HOLIDAY POULTRY DEMAND 
+
+Time-MMD | 2019-02-01 to 2020-01-01 | monthly | MAE: text 1.44, no context 2.35 | 38.8% lower in this example 
+
+User / Context 
+
+With contextual text - Excerpt: The demand for chicken wings is expected to spike on Super Bowl Sunday, stressing the poultry market. 
+
+FUEL PRICES AND SUPPLY 
+
+Time-MMD | 2022-06-27 to 2023-02-27 | weekly | MAE: text 0.284, no context 0.854 | 66.8% lower in this example 
+
+User / Context 
+
+With contextual text - Excerpt: The price of crude oil has reached $120 per barrel, and global refining capacity has shrunk since COVID. 
+
+History Observed future With text No context 
+
+Figure 14. Additional matched Time-MMD test forecasts with market context. Orange forecasts use textual context; dashed blue forecasts remove only that context. Displayed excerpts are taken from the full inputs. The same checkpoint and inference settings are used for both arms. Complete histories and future horizons are shown, and the two axes in each example share their vertical scale. TimeBraid: Unifying Time Series and Language 52 −100 −50 0
+
+Full history (120 steps)    
+
+> 80 160 240 0816 24
+
+Future steps (same y scale)   
+
+> 80 160 240 −100 −50 0
+
+Full history (120 steps)    
+
+> 200 400 600 0816 24
+
+Future steps (same y scale)   
+
+> 200 400 600 −200 −100 0
+
+Full history (240 steps)   
+
+> 0.05 0.10 0.15 020 40
+
+Future steps (same y scale) 
+
+> 0.05 0.10 0.15
+
+Forecasting with contextual text 
+
+Selected test examples | Actual context excerpts and complete forecast horizons 
+
+TRAFFIC DURING SNOWFALL 
+
+CGTSF 
+
+User / Context 
+
+With contextual text - Excerpt: This sequence records traffic flow at a highway in Paris, France, with a collection granularity of 1 hour. The target date for prediction is Wednesday, December 14, 2022. It is a weekday with moderate snow fall and light breeze. The minimum temperature is -3 degrees, and the maximum temperature is 0 degrees. The sun will rise at 9:36 and set at 17:54. 
+
+PARIS HIGHWAY TRAFFIC 
+
+CGTSF 
+
+User / Context 
+
+With contextual text - Excerpt: This sequence records traffic flow at a highway in Paris, France, with a collection granularity of 1 hour. The target date for prediction is Thursday, October 27, 2022. It is a weekday with overcast and gentle breeze. The minimum temperature is 13 degrees, and the maximum temperature is 22 degrees. The sun will rise at 8:29 and set at 18:39. 
+
+LONDON HOUSEHOLD ELECTRICITY 
+
+CGTSF 
+
+User / Context 
+
+With contextual text - Excerpt: This sequence records electricity usage at a household in London, United Kingdom, with a collection granularity of 30 minutes. The target date for prediction is Sunday, August 11, 2013. It is a weekend with light drizzle and gentle breeze. The minimum temperature is 15 degrees, and the maximum temperature is 21 degrees. The sun will rise at 5:40 and set at 20:31. 
+
+History Observed future With text 
+
+Figure 15. Selected CGTSF test forecasts using weather, calendar, and location text together with the numerical history. The contextual passages supplied to the model are displayed below the curves. Orange is the recorded text-conditioned prediction and dashed gray is the observed future. These examples show conditional forecast quality; a matched context-removal comparison is not included for this page. TimeBraid: Unifying Time Series and Language 53 0 40 80 120 -2.5 02.5 0 20 40 60 020 40 80 120 0510 0 400 800 1200 04-8.12 7.19 Cluster Autoscaler Metrics -55.4 11.8 Node Memory Usage -298 219 Pod CPU and Memory Usage -130 318 Namespace Resource Quotas -2.1e+06 3.15e+06 Horizontal Pod Autoscaler Metrics 0 80 160 240 -66.5 -16.2 Service Endpoint Counts 
+
+Understanding 
+
+User Given the following definitions: Constant volatility: The time series shows relatively consistent fluctuation magnitude throughout the period. Increased volatility: The time series shows a rise in the magnitude of fluctuation over time. Decreased volatility: The time series shows a reduction in the magnitude of fluctuations over time. Select one of the following answers that best describes the provided time series: (a) This time series has a constant volatility. (b) This time series has an increased volatility. (c) This time series has a decreased volatility. Only answer (a), (b), or (c). Predict the Volatility Answer: b
+
+User Given the following definitions: Seasonal pattern: The time series shows a repetitive and predictable fluctuation throughout the period. Fixed seasonal pattern: The timing and magnitude of the seasonal fluctuation remain constant over time. Shifting seasonal pattern: The timing or magnitude of the seasonal fluctuation changes over time. Select one of the following answers that best describes the provided time series: (a) This time series has no obvious seasonal pattern. (b) This time series has a fixed seasonal pattern. (c) This time series has a shifting seasonal pattern. Only answer (a), (b), or (c). Predict the Seasonality Answer: a
+
+User Given the following definitions: Outlier: The data point that significantly differs from other observations in a time series. Sudden spike: The rapid and significant increase in the value of a variable over a short period, followed by a return to the original baseline. Level shift: The significant and sustained change in the average level of a time series. Select one of the following answers that best describes the provided time series: (a) This time series has no obvious outlier. (b) This time series has a sudden spike. (c) This time series has a level shift. Only answer (a), (b), or (c). Predict the Outliers Answer: b
+
+User You are given a 30-second EEG time series segment. Your task is to classify the sleep stage based on analysis of the data. Answer: REM sleep. 
+
+User In a Kubernetes Cluster system, there are 6 metrics: Cluster Autoscaler Metrics is of length 256: ; Node Memory Usage is of length 256: ; Pod CPU and Memory Usage is of length 256: ; Namespace Resource Quotas is of length 256: ; Horizontal Pod Autoscaler Metrics is of length 256: ; Service Endpoint Counts is of length 256: . Based on the trend characteristics analyze whether there may be a correlation of trend between Cluster Autoscaler Metrics and Horizontal Pod Autoscaler Metrics. Conclude the physical meaning of the trend correlation (or no correlation) in one sentence. Both time series are showing similar trends, indicating a possible correlation in terms of trend: From point 13 to point 73, there is a decreasing trend. From point 73 to point 139, there is an increasing trend. From point 139 to point 195, there is a decreasing trend. From point 195 to point 253, there is an increasing trend. Both Cluster Autoscaler Metrics and Horizontal Pod Autoscaler Metrics are autoscaler-related, as they monitor and adjust the number of nodes or pods in a Kubernetes cluster to maintain optimal resource utilization and workload performance. 
+
+input series reference / gold landmark answer   
+
+> RISING VOLATILITY SEASONALITY OUTLIER TYPE SLEEP STAGING CHATTS RELATION
+
+TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid 
+
+TimeBraid 
+
+Figure 16. Series-property QA, sleep-stage classification, and multivariate relation analysis. TimeBraid: Unifying Time Series and Language 54 0 80 160 240 012-0.089 -0.02 1.28 0 20 40 60 -2.5 02.5 0.515 -2.12 1.97 0 60 120 180 -3 032.04 -2.32 -2.82 0 80 160 240 -3 03-2.39 2.69 -1.55 
+
+Reasoning and Description 
+
+User You are a time series expert. Given the time series data, considering among the overall pattern, precise numerical values and semantic logic, which of the following scenarios best fits the given time series? You need first to check the overall pattern, then verify the precise values, and finally think whether the series exactly matches the given background knowledge. After analyzing each option, you MUST exactly follow the output format as: <answer>X</answer> where X is the index of the option that best fits the time series. Options: Which of the following statements describes a feature of the atrial fibrillation time series based on the recorded measurements? A: A global maximum occurs at index 211 with a value of 1.284, corresponding to a relative timestamp of 1.688 seconds. B: The time series exhibits a local minimum at index 152 with a value of -0.02, immediately followed by a sustained rise over the next 10 samples. C: At index 57, the signal reaches a value of -0.089, representing the highest amplitude deflection in the first 60 milliseconds and occurring at a relative time of 0.456 seconds. D: A stable plateau is observed between indices 90 and 95 where the values remain constant at 0.04. Time series: 
+
+Reasoning trace (A) Option A: pattern shows a global peak at index 211, consistent with the data's maximum; numerical value 1.284 at index 211 is correct; timestamp 211 * 0.008 = 1.688 seconds is accurate; semantics of atrial fibrillation with a prominent P wave are plausible. Option B: pattern does not show a sustained rise after index 152-values fluctuate including a drop to -0.03 at index 153; numerical value -0.02 at index 152 is correct; semantics of a local minimum are reasonable but pattern claim is false. Option C: pattern includes a negative deflection at index 57, but it is not the highest amplitude in the first 60 ms; numerical value -0.089 is correct but claim of being the highest amplitude is false; semantics of atrial activity are plausible but numerical claim is incorrect. Option D: pattern shows no plateau-values vary from 0.04 to 0.03 between indices 90-95; numerical constancy is false; semantics of a stable baseline are invalid due to variation. 
+
+(A) 
+
+User You are an expert in time series analysis. Please generate a detailed caption for this time-series, describing it as accurately as possible. The time-series graph illustrates data points over a period, showcasing fluctuations in values. Initially, the series starts around -0.5, experiencing a gradual increase with minor oscillations, peaking near 0.5 around the 10th data point. A decline follows, reaching a low near -2.5 around the 40th data point. Subsequently, the series exhibits a sharp upward trend, culminating in a peak above 1.5 near the 60th data point. The graph concludes with a slight dip and a minor rise, indicating volatility and dynamic changes throughout the observed period. 
+
+User You are an expert in time series analysis. Please generate a detailed caption for this time-series, describing it as accurately as possible. The time-series graph displays data points over a period, showcasing a clear downward trend with periodic fluctuations. Initially, the values start above 2.0, experiencing a sharp drop around the 40th data point, reaching below -2.0. This is followed by a series of oscillations, with peaks and troughs becoming more pronounced as the series progresses. The overall pattern indicates a gradual decline with intermittent spikes, suggesting potential cyclical behavior or external influences affecting the data. The graph is plotted on a grid, with the x-axis representing the time index and the y-axis indicating the magnitude of the data points. 
+
+User You are an expert in time series analysis. Please generate a detailed caption for this time-series, describing it as accurately as possible. The time-series graph displays data points over a period of approximately 310 units, illustrating fluctuations in value ranging from around -2.5 to 2.5. Initially, the series shows a gradual upward trend, peaking near the 100-unit mark. This is followed by a sharp decline, reaching a low point around the 150-unit mark. Subsequently, the data exhibits a series of oscillations with moderate volatility, maintaining a range between -1 and 1.5. Towards the end, the series experiences another decline, settling near -1.5. The overall pattern suggests periods of growth, sharp declines, and stabilization, indicative of a dynamic and possibly cyclical process. 
+
+input series reference / gold landmark answer index the answer names 
+
+SIGNAL-EXTREMUM SCENARIO DROP AND RECOVERY DECLINING CYCLES GROWTH AND DECLINE 
+
+TimeBraid TimeBraid TimeBraid TimeBraid 
+
+TimeBraid 
+
+Figure 17. Scenario-based reasoning and time-series captioning. TimeBraid: Unifying Time Series and Language 55 0 20 40 60 -2.5 02.5 0 4 8 12 6.5 70 8 16 24 0.2 0.3 -2.88 2.9 -2.17 2.22 0 40 80 120 -1.99 2.79 0 4 8 12 39 42 0 25 50 75 020 60 120 180 02.5 0 60 120 180 06 79 80 0 60 120 180 02.5 94 94 0 60 120 180 010 82 85 
+
+Domain Tasks and Detection 
+
+User The following data represents ECG (Electrocardiogram) signals, which record the electrical activity of the heart during each heartbeat and serve as an important tool for diagnosing heart diseases. Using a signal sampled at a frequency of 500 Hz, we can determine whether abnormalities are present in the human body. Based on the given information, this time series includes Anomaly Point. 
+
+User The following data is derived from an environmental monitoring wireless sensor network system designed to collect environmental data with high spatial and temporal resolution. It has been deployed in mountainous and urban areas. Specifically, it includes environmental parameters such as temperature, humidity, wind speed, and soil moisture. Using this data, it is possible to determine whether abnormal events are present in the environment. Based on the given information, this time series includes Normal Point. 
+
+User This data originates from machine system, and it is used to evaluate system condition. Using this data, we can determine whether anomalies have occurred within the system. Based on the given information, this time series includes Anomaly Point. 
+
+User You are given accelerometer data in all three dimensions. Your task is to classify the activity based on analysis of the data. Answer: standing. 
+
+User This data originates from monitoring systems and devices, and it is used to evaluate system performance or detect anomalies in time series. It also assesses the health and operational performance of devices or services. The dataset includes IOPS metrics recorded during the operation of storage systems or servers. Using this data, we can determine whether anomalies have occurred within the system. Based on the given information, this time series includes Normal Point. 
+
+User Context: This time series comes from a dataset representing automated hand and finger bone outline extractions, used to evaluate outline detection accuracy, predict subject age groups, and assign Tanner-Whitehouse developmental scores based on hand radiographs for bone age analysis. Classify the given time series into one of the categories below. Respond ONLY with the letter of the correct choice (A, B, C). Choices: A: 0-6 years old B: 7-12 years old C: 13-19 years old B
+
+User Does this series contain an anomaly? Answer yes or no, and if yes give the index where it starts. No, the series does not contain an anomaly. The data shows a consistent upward trend with no significant deviations or outliers. 
+
+User Does this series contain an anomaly? Answer yes or no, and if yes give the index where it starts. Yes, it contains an anomaly. The series starts with negative values and then suddenly shifts to positive values around index 80, indicating a significant change in the data pattern. 
+
+User Does this series contain an anomaly? Answer yes or no, and if yes give the index where it starts. Yes, the series contains an anomaly. An upward spike with an amplitude of 2.00 occurred between point 94 and point 96, where the value rapidly rose from around -0.50 to around 1.50 and then quickly fell back to around -0.40. 
+
+User Does this series contain an anomaly? Answer yes or no, and if yes give the index where it starts. Yes, the series contains an anomaly. The anomaly starts around index 85, where there is a sudden and significant deviation from the surrounding values, with extreme positive and negative spikes.         
+
+> input series reference / gold landmark answer index the answer names
+> ECG SIGNAL ENVIRONMENT SENSOR MACHINE SYSTEM HAR · 3-AXIS STORAGE IOPS BONE-AGE QA CLEAN CONTROL LEVEL SHIFT SPIKE VARIANCE BURST
+
+TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid 
+
+> TimeBraid
+
+Figure 18. Sensor anomalies, human activity, bone age, and anomaly localization. TimeBraid: Unifying Time Series and Language 56 0 6 12 18 20 40 12 90 3 60.25 0.5 0.75 0 6 12 18 04,000 8,000 0 6 12 18 00.6 1.2 0 6 12 18 050 100 0 6 12 18 1,080 1,100 1 2 3 4 5 6 7 8 9-1,000 01,000                         
+
+> 1234567890800
+> 1234567890600 1,200
+> 1234567890800
+
+Where It Fails: Consistency and Trivial Baselines 
+
+User Does the maximum occur before the minimum? Answer yes or no. No, the maximum does not occur before the minimum. The maximum value of 36.0 is at index 1, while the minimum value of 7.0 is at index 10. 
+
+User Does the minimum occur before the maximum? Answer yes or no. No, the minimum does not occur before the maximum. The maximum is 36.0, and the minimum is 7.0, which occurs before the maximum. 
+
+User Is this series more volatile in its first half than its second half? Answer yes or no. No, the series is not more volatile in its first half than in its second half. The first half shows a gradual increase from 0.27 to 0.41, while the second half shows a more stable increase from 0.41 to 0.64. 
+
+User Is this series more volatile in its second half than its first half? Answer yes or no. No, the series is not more volatile in its second half than in its first half. The changes in the second half are gradual and consistent, similar to the first half. 
+
+User Over the whole window, does this series mostly rise, mostly fall, or stay put? The series mostly falls. The data starts at 4100.0 and generally decreases to 110.0, indicating a downward trend. 
+
+User Summarise the long-run direction of this series in one word. The series shows an overall upward trend, as it starts at 3900.0 and ends at 5100.0, despite some fluctuations in between. 
+
+User Summarise the long-run direction of this series in one word. The series shows an overall decreasing trend with some fluctuations. 
+
+User Over the whole window, does this series mostly rise, mostly fall, or stay put? The series mostly stays put. There are periods of slight increases and decreases, but no consistent upward or downward trend. 
+
+User Would you describe the general direction of this series as up, down, or level? The series is not level. It contains a few high values like 87.0 and 67.0, which disrupt the level of the series. 
+
+User Over the whole window, does this series mostly rise, mostly fall, or stay put? The series does not show a clear upward or downward trend. It fluctuates with no consistent direction, indicating it stays put. 
+
+User Is the overall trend of this series increasing, decreasing, or flat? The overall trend is decreasing. The series starts at 1081.18 and ends at 1071.18, showing a general downward trend over the period. 
+
+User Summarise the long-run direction of this series in one word. The series shows a general upward trend initially, peaking around the middle, followed by a decline towards the end. 
+
+User Please judge whether this data corresponds to No freeze or Freeze. Based on the given information, the answer is No freeze. 
+
+User Please judge whether this data corresponds to No freeze or Freeze. Based on the given information, the answer is No freeze. 
+
+User Please judge whether this data corresponds to No freeze or Freeze. Based on the given information, the answer is No freeze. 
+
+User Please judge whether this data corresponds to No freeze or Freeze. Based on the given information, the answer is No freeze.    
+
+> input series reference / gold landmark output the input rules out
+> EXTREMUM ORDER VOLATILITY HALVES TREND WORDING TIMEMQA CLASSIFICATION TEST
+
+TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid TimeBraid 
+
+Figure 19. Question answering, paraphrase consistency, and time-series classification. TimeBraid: Unifying Time Series and Language 57 0 80 160 240 024
+
+0 30 60 90 2,000 4,000 
+
+0 80 160 240 01.5 3
+
+0 80 160 240 -1.5 01.5 
+
+0 80 160 240 03,000 6,000 
+
+0 80 160 240 02,000 4,000 
+
+0 40 80 120 1,000 2,000 
+
+0 80 160 240 01,000 2,000 
+
+0 80 160 240 0.5 0.75 
+
+0 80 160 240 -502 -500 
+
+0 80 160 240 -294 -292.5 -291 
+
+0 80 160 240 0.08 0.16 0.24 
+
+0 40 80 120 18 24 30 
+
+0 80 160 240 00.8 1.6 
+
+0 40 80 120 050 100 
+
+0 50 100 150 015 30 
+
+0 80 160 240 015 30 
+
+0 50 100 150 -2.5 02.5 
+
+0 80 160 240 0300 600 
+
+0 80 160 240 02,000 4,000 
+
+0 40 80 120 050 100 
+
+Imputation 
+
+12 masked | median error 0.054 sd 10 masked | median error 0.101 sd 10 masked | median error 0.105 sd 4 masked | median error 0.112 sd 10 masked | median error 0.121 sd 4 masked | median error 0.141 sd 5 masked | median error 0.164 sd 12 masked | median error 0.168 sd 6 masked | median error 0.207 sd 4 masked | median error 0.236 sd 6 masked | median error 0.240 sd 8 masked | median error 0.252 sd 5 masked | median error 0.761 sd 8 masked | median error 0.768 sd 5 masked | median error 0.849 sd 11 masked | median error 0.898 sd 11 masked | median error 0.960 sd 4 masked | median error 1.488 sd 10 masked | median error 1.629 sd 6 masked | median error 1.697 sd 4 masked | median error 1.790 sd observed input held-out value at a masked index answer at a masked index TimeBraid 
+
+Figure 20. Imputation examples.

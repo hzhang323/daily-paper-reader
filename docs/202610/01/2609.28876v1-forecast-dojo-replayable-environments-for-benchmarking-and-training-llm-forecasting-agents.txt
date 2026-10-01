@@ -1,0 +1,1398 @@
+Title: Forecast-Dojo: Replayable Environments for Benchmarking and Training LLM Forecasting Agents
+
+URL Source: https://arxiv.org/pdf/2609.28876v1
+
+Published Time: Fri, 25 Sep 2026 00:24:14 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+Preprint 
+
+# FORECAST -D OJO : R EPLAYABLE ENVIRONMENTS FOR 
+
+# BENCHMARKING AND TRAINING LLM F ORECASTING 
+
+# AGENTS 
+
+Liqin Ye *,1 , Haorui Wang *,1 , Fardin Ahmed 1, Rongzhi Zhang †,2 , Yuan He †,2 , Ziyuan Lin 3,Yanbin Yin 1, Jing Peng 1, Michael Galarnyk 1, Sudheer Chava 1, Chao Zhang 11Georgia Institute of Technology, 2Amazon, 3University of Florida 
+
+liqiny@gatech.edu, hwang984@gatech.edu 
+
+## ABSTRACT 
+
+We introduce Forecast-Dojo , a replayable environment for benchmarking and training LLM forecasting agents. It combines resolved prediction-market ques-tions with dated news, allowing agents to research an event and revisit their pre-dictions at successive historical dates. The same tasks and tools support repeated evaluation, collection of training interactions, and feedback from recorded out-comes without waiting for new events to resolve. Forecast-Dojo contains 1,568 Polymarket events, split by time into training and evaluation periods, and 18.8M dated news articles. In an evaluation of 12 models, research tools lower Brier score for all 12. Forecasts also improve as events unfold, with the largest gains at steps where more newly dated evidence is recorded. Every model still trails historical market forecasts in both Brier score and accuracy. A belief notebook carried between dates lowers research cost but does not consistently improve fore-cast quality. Beyond evaluation, Forecast-Dojo provides interaction trajectories and outcome feedback for agent learning, with supervised fine-tuning as a proof of concept. Our code and data are publicly available. 
+
+## 1 INTRODUCTION 
+
+Large language model (LLM) agents are increasingly used to forecast real-world events by actively searching for evidence, reasoning under uncertainty, and producing probabilistic predictions (Halawi et al., 2024; Zeng et al., 2025; Seed, 2026; Karger et al., 2025). Forecasting is inherently time-dependent: the evidence available to a forecaster changes as new information arrives. The same question can therefore pose a different prediction problem at different times, requiring the forecaster to update its belief as new evidence emerges. Existing forecasting benchmarks capture only part of this process (Table 1). Live bench-marks (Karger et al., 2025; Zeng et al., 2025; Zhao et al., 2026; Zhang et al., 2026) pose unresolved questions, so the forecasting problem evolves naturally with the world, but they run on wall-clock time. A past forecasting condition cannot be recreated for a model released later, and outcomes arrive only at resolution, which slows evaluation and makes training impractical. Historical bench-marks (Jin et al., 2021; Halawi et al., 2024; Chandak et al., 2025) reconstruct past information cutoffs, making resolved events immediately scorable and reusable. However, they typically evalu-ate each forecast at a single historical point rather than revisiting the same question across multiple points in time. The ideal setting combines the two: the forecasting problem evolves as new evi-dence becomes available, yet each past step can be replayed with the same task and information cutoff. Models can then be compared under identical conditions and scored immediately, and their forecasting trajectories become usable for training. We introduce Forecast-Dojo , a replayable environment that reconstructs resolved real-world events as sequences of historical forecast steps (Figure 1). At each step, an LLM agent can search a 
+
+> *
+
+Equal contribution. 
+
+> †
+
+Work done outside Amazon. 
+
+1arXiv:2609.28876v1 [cs.AI] 24 Sep 2026 Preprint Table 1: Summary of existing forecasting benchmarks. The criteria target the capabilities used to construct and study Forecast-Dojo. Aligned evaluation indicates that the same forecasting task is evaluated at a pre-specified sequence of forecast dates or evidence states shared across models; :provided; : not provided; : system- or agent-dependent.  
+
+> Benchmark Dated replay Agent research Aligned evaluation Agent memory Market belief Train/eval split
+> ForecastQA (Jin et al., 2021) Autocast (Zou et al., 2022) MIRAI (Ye et al., 2024) ForecastBench (Karger et al., 2025) FutureX (Zeng et al., 2025) Prophet Arena (Yang et al., 2025) EvolveCast (Yuan et al., 2025) BTF-2 (Liptay et al., 2026) FutureSim (Goel et al., 2026)
+> Forecast-Dojo
+
+temporally-restricted information corpus, inspect full documents, and use computational tools to produce a probabilistic forecast using only information available by that date. Each step can be reset and rerun across models or repeated trials, while steps from the same event can be traversed sequentially with persistent agent memory. The realized outcome is retained by the environment for immediate scoring but never exposed to the agent during its forecasting. This common inter-action interface supports both benchmarking and learning: held-out events evaluate agents under controlled conditions, while training events generate forecasting trajectories and outcome feedback for learning. Empirically, we evaluate 12 models on 230 held-out events without tools, with research tools, and with research tools plus a belief notebook carried between dates. Research tools lower Brier for all 12 models even without memory. In this memory-free setting, mean Brier also falls from 0.670 in the first third of an event to 0.606 in the last third, while forecasts without tools stay flat. The im-provements concentrate at steps with more new evidence, and models that record more new evidence tend to improve more. Every model still trails the historical market forecasts in both Brier score and accuracy, with the best Brier at 0.546 against 0.498 for the market. The belief notebook reduces research costs by a median of 24%, but its effect on forecast quality is mixed: Brier improves for only 6 of the 12 models (Section 5.2). Finally, a supervised fine-tuning study shows that an agent trained on trajectories from the Forecast-Dojo training split achieves lower Brier scores and higher accuracy than its base model on later, held-out evaluation events (Section 5.5). We summarize our contributions as follow: • A replayable forecasting environment. Forecast-Dojo replays each resolved event as a fixed sequence of dated forecast steps, with an optional belief notebook carried between them. Agents research news available up to each date, and every step is scored against the realized outcome for evaluation or training. • A dataset of resolved events and dated news. It covers 1,568 Polymarket events with 6,122 forecast steps, split by time into 1,338 training and 230 evaluation events. Evidence comes from 18.8M CC-News articles, filtered so that each step sees only news up to its forecast date. • A benchmark study beyond overall rankings. Besides comparing 12 models with historical market forecasts, we examine how forecasts change as events unfold, how these changes relate to new evidence, and how memory affects quality and cost. A fine-tuning study shows how the collected interactions can be used to train an agent. 
+
+## 2 RELATED WORK 
+
+Forecasting with dated evidence. ForecastQA restricts news by time, while Autocast pairs fore-casting questions with dated articles and historical human forecasts (Jin et al., 2021; Zou et al., 2022). ForecastBench and FutureX collect predictions on unresolved events (Karger et al., 2025; 2Preprint Curate Events & Information Corpus      
+
+> Polymarket
+> 2025-06 – 2026-06
+> Horizon > 7 days Market faithfulness Task nontriviality Evidence suf fi ciency
+> 1,568 events
+> train 1,338 eval 230
+> CC-News
+> 2025-03 – 2026-06
+> Cleaning · language ID Quality · repetition Near-duplicate removal Reliable article dates
+> 18.8M articles
+> dated · embedded · indexed
+
+Forecast Each Question Over Time 
+
+Question Q       
+
+> “Fed rate decision in Dec. 2025?”
+> outcomes cut hold hike …
+> resolves by a fi xed rule
+> closes at a set date
+> Temporally Evolving Corpus
+> close
+
+τ1 τ2 τt τT  
+
+> pt
+> M1M2Mt
+> one forecast step
+
+Agent Loop at date τt    
+
+> Information Corpus
+> τt
+> ≤τt>τt
+> Sandbox
+> isolated code execution
+> Tools
+> search read compute
+> LLM Agent
+> Ht
+> calls results
+> Forecast
+> pt
+> commit
+> Notebook Mt
+> memory-on
+> write
+
+Evaluation & Training            
+
+> p1ptpT
+> Outcome Y
+> hidden from agent
+> rt=S(pt,Y)
+> e.g. Brier
+> Evaluation
+> 230 held-out events
+> e.g. Brier Acc. Info-α
+> Training
+> 1,338 training events
+> e.g. SFT RL On-policy distillation trajectories + feedback
+
+Figure 1: Overview of Forecast-Dojo. Top: resolved Polymarket events are filtered and split by time into training and evaluation events, and CC-News articles are cleaned, dated, and indexed. Middle left: each question is forecast at a fixed sequence of dates as the visible corpus grows, with an optional belief notebook Mt passed between steps. Bottom left: within one step, the agent searches and reads articles dated on or before τt, runs code in a sandbox, and commits a forecast 
+
+pt. Right: the realized outcome Y stays hidden from the agent. The evaluator scores each forecast against it, using held-out events for evaluation and training events for learning. Zeng et al., 2025). Related settings evaluate repeated forecasts, macroeconomic nowcasts, and sim-ulated market decisions (Yang et al., 2025; Zhao et al., 2026; Cheng et al., 2026). Forecast-Dojo 
+
+uses resolved events to support repeatable research and immediate outcome-based feedback, while keeping market probabilities outside the forecasting prompt. 
+
+Interactive research and forecast revision. Bench to the Future uses frozen research corpora, and BTF-2 records traces to distinguish information gathering from judgment (Wildman et al., 2025; Liptay et al., 2026). MIRAI provides code-based access to events and news, while WorldReasoner evaluates outcome, evidence, and reasoning quality (Ye et al., 2024; Chi et al., 2026). FutureSim studies long-horizon adaptation in a replayed world, where agents jointly decide how to research, maintain memory, revise forecasts, and progress through time (Goel et al., 2026). Forecast-Dojo 
+
+instead treats time progression as part of the experimental design: each event is replayed at a fixed sequence of historical checkpoints shared by all agents. This produces matched longitudinal trajec-tories, allowing models to be compared at identical information states and enabling controlled study of how forecast quality changes with newly available evidence. The same aligned episodes also provide reusable interaction trajectories and outcome feedback for downstream learning. This com-plements work on evidence-driven revision, probability coherence, and iterative research workflows (Yuan et al., 2025; Paleka et al., 2025; Murphy, 2026). This complements work on revisions after supplied evidence, probability coherence, and evidence summaries within a research loop (Yuan et al., 2025; Paleka et al., 2025; Murphy, 2026). 
+
+Environments for training agents. MLE-Dojo provides executable machine learning engineer-ing tasks and feedback for evaluation and training (Qiang et al., 2025). Forecast-Dojo follows this environment-centered approach, specifying the forecasting interaction and its feedback while 3Preprint Table 2: Forecast-Dojo task splits. Memory free/on forecasting use the same forecast steps.                
+
+> Split Temporal Range Events Binary Multi-option Forecast steps Train [2025-06, 2026-03) 1,338 602 736 5,325 Evaluation [2026-03, 2026-06) 230 40 190 797
+
+leaving learning algorithms separate. Prior forecasting work trains on question collections or se-lected model-generated forecasts (Zou et al., 2022; Halawi et al., 2024), and recent methods use reinforcement learning, outcome-based fine-tuning, and news-derived questions (Levy, 2026; Jeen et al., 2026; Chandak et al., 2025). Our contribution is the shared task and tool interface for collect-ing research interactions and evaluating agents on separate events; the SFT experiment demonstrates one use of that interface. 
+
+## 3 FORECASTING AS AN INTERACTIVE TASK 
+
+We formulate forecasting as an interactive task over a sequence of forecast steps for the same event. At each step, the agent researches evidence available up to the current date and produces a proba-bilistic forecast. Across steps, the evidence boundary advances and explicit memory may persist. 
+
+Events, forecast steps, and episodes. A question Q specifies an event, its resolution criteria, and a finite set of mutually exclusive outcomes Y = {1, . . . , K }. Let Y ∈ Y denote the realized outcome. At ordered dates τ1 < · · · < τ T before the event closes, the agent performs a forecast step : it researches the event and reports a probability distribution pQ,t ∈ ∆K−1. The ordered forecast steps for the same question form a forecast episode . All steps concern the same eventual outcome, but they differ in the historical evidence available at the forecast date. 
+
+Within-step interaction. Let I denote a fixed information corpus. At date τt, the agent is exposed only to 
+
+I≤τt = {d ∈ I : date( d) ≤ τt}, I≤τt ⊆ I ≤τt+1 , (1) where date( d) denotes the timestamp assigned to document d. Within a forecast step, the agent may issue search queries, inspect retrieved articles, and use computation before submitting its forecast (see Section 4.4). Let Ht denote the within-step interaction history, including the agent’s research actions and the resulting tool observations. The agent produces pQ,t conditioned on Ht. Because agents choose their own queries and which documents to inspect, different rollouts at the same date from an agent can follow different research paths even under the same dated evidence boundary. 
+
+Progression across forecast steps. After each report, the environment advances to the next sched-uled date and starts a fresh interaction. We define two modes for carrying information across forecast steps: memory-free and memory-on . In memory-free forecasting, each step starts without informa-tion produced at previous steps. In memory-on forecasting, the agent produces a belief notebook 
+
+Mt that summarizes its current assessment, supporting evidence, and open questions. At the next step, Mt is provided alongside the question and new forecast date, allowing the agent to update its forecast from its prior assessment as new evidence becomes available. 
+
+Outcome feedback. Each forecast step ends with a probability report pQ,t . Once the realized out-come Y is available, the environment assigns feedback rQ,t = S(pQ,t , Y ) where S is an outcome-based scoring rule. The outcome and feedback are not part of the agent’s forecasting context. This separates the interaction that produces a forecast from the feedback assigned to it, allowing the same task interface to support different downstream evaluation or learning procedures. 
+
+## 4 FORECAST -D OJO 
+
+Section 3 defines the forecasting task abstractly. We now describe how Forecast-Dojo instantiates its events, information corpus, forecast episodes, runtime, and evaluation records. 4Preprint 4.1 FORECASTING EVENTS 
+
+We construct our candidate pool from resolved Polymarket 1 binary and mutually exclusive multi-option events whose full lifetimes fall between June 2025 and June 2026. For each event and date, we interpret market prices as a contemporaneous belief over its possible outcomes, which we re-fer to as the market belief . For binary events, the YES price determines the probability of YES and its complement; for multi-option events, we normalize the option-level YES prices to obtain a distribution over the mutually exclusive outcomes. Within this pool, we further select events along four dimensions to ensure they are well suited to repeated, evidence-grounded forecasting. (1) Forecasting horizon : we require a tradeable lifetime longer than 7 days so that the same question supports multiple forecast steps rather than only a near-resolution prediction. (2) Market faithfulness : we require sufficient trading activity on most days, so that its daily price is a reliable reflection of the market belief rather than stale or weakly supported quotes. This also favors questions with sustained market attention over obscure or inactive events. (3) Task nontriviality : we remove events where the market already assigns near-certain probability to the realized outcome, as well as events whose market history is both nearly flat and directionless. This avoids trivial or temporally uninformative questions and preserves meaningful room for fore-cast revision as evidence accumulates. (4) Evidence sufficiency : following Joren et al. (2025), we retain only questions for which the information corpus contains sufficient pre-resolution evidence to support an informed forecast, excluding questions that are poorly covered by or largely unrelated to the corpus available to the agent. Together, these filters yield temporally rich, nontrivial, and evidence-grounded questions suitable for repeated evaluation and learning. Appendix A.2 provides full details of this selection. 4.2 INFORMATION CORPUS 
+
+Corpus construction. Forecast-Dojo requires broad historical evidence whose availability can be reconstructed at each forecast date. We build the corpus from CC-News (Nagel, 2016), which provides large-scale news coverage together with crawl timestamps that support historical recon-struction. We process CC-News archives from March 2025 through May 2026 using a quality pipeline adapted from FineWeb (Penedo et al., 2024), including text cleaning, language identifica-tion, repetition and document-quality filtering, and near-duplicate removal. We suppress duplicate URLs, identical titles within a seven-day window, and near-verbatim body matches to reduce re-peated coverage. After filtering, the corpus contains approximately 18.8M articles, which we embed with Qwen3-Embedding-8B (Zhang et al., 2025) and index with FAISS (Douze et al., 2026). 
+
+Temporal integrity. Reconstructing historical evidence also requires reliable article timestamps: assigning an article an incorrectly early date could expose future information to the agent. We assign article dates using structured publication or modification metadata, with the CC-News crawl times-tamp as a fallback. Timestamps are extracted through fixed-priority metadata cascades, including schema.org datePublished and dateModified (Guha et al., 2016; Schema.org; Google Search Central). At each forecast step, retrieval filters articles by the UTC day of the assigned timestamp before ranking. Event construction additionally screens for content-level outcome leakage. Ap-pendix A.1 details the timestamp sources and extraction procedures. 4.3 TEMPORAL TASK CONSTRUCTION 
+
+Forecast-date selection. A forecast step could naively be created for every day of an event’s life-time, but this would cause long-lived events to contribute disproportionately many training and evaluation samples. We therefore use a sublinear schedule: after enforcing a two-day buffer before the recorded close, an event with n candidate days receives T = clamp (round( √n), 3, 10) fore-cast steps. We partition the event history into T temporal bins and select one date from each to maintain coverage across its lifetime. Within each bin, we prioritize two signals to select dates most worth forecasting. (1) Market-belief movement : we favor dates with larger changes in the market belief, indicating that newly available information has materially shifted the market’s assessment of the event. (2) New evidence : we favor dates with greater news publication activity, indicating pe-
+
+> 1https://polymarket.us/
+
+5Preprint riods when more external information has become available to the forecaster. The selection policy is configurable; the above procedure is the default used in our experiments. After leakage filtering, evaluation events must retain at least three forecast dates. Appendix A.3 provides the full weighting and selection procedure. 
+
+Temporal train–evaluation split. We split complete events, rather than individual forecast steps, into non-overlapping temporal windows. Training events must both start and close within 
+
+[2025-06, 2026-03) , while evaluation events must both start and close within [2026-03, 2026-06) ; events crossing either boundary are excluded. This keeps every forecast episode en-tirely within one split and prevents the same event from appearing in both training and evaluation. Table 2 summarizes the resulting splits and forecast-step counts. 4.4 AGENT INTERACTION 
+
+Tool interface. At each forecast step, the agent can access and process evidence via three tools, with temporally restricted access to the information corpus available by the forecast date, I≤τt :• S EARCH retrieves the top-k relevant articles for an agent-generated query, returning article iden-tifiers, titles, publication dates, retrieval scores, and short snippets, via search(query, top_k) .• R EAD returns the full text of an article retrieved by S EARCH , via scrape(article_id) .• C OMPUTE executes model-generated code for numerical analysis, aggregation, base-rate esti-mation, or simulation, via python(code) .The agent may interleave reasoning with repeated tool calls before submitting its forecast. Each tool output is added to the within-step interaction history Ht and becomes available for subsequent reasoning and tool use within the same forecast step. 
+
+Memory transfer. Each forecast step is a fresh model interaction with access to the corpus up to the current forecast date, I≤τt . In memory-free mode, no information from earlier steps is carried forward. In memory-on mode, the previous belief notebook Mt is additionally inserted into the next prompt, allowing the agent to revise its prior assessment as new evidence becomes available. Previous conversation turns, reasoning traces, and tool observations are discarded, making Mt the only explicitly transferred information. The belief-notebook format is provided in Figure 6. 4.5 EVALUATION AND LEARNING 
+
+Forecast evaluation. Each forecast step produces a probability distribution pQ,t , which can be evaluated against the realized outcome Y after the interaction. These probabilities support diverse step-level metrics, including proper scoring rules such as Brier scores (Glenn et al., 1950), top-1 accuracy, calibration metrics such as expected calibration error (ECE) (Guo et al., 2017), and market-relative measures such as Information-α, defined in Section 5. Because each event yields a sequence of forecasts, Forecast-Dojo also supports trajectory-level analyses of how beliefs evolve across forecast steps. The environment does not prescribe a single metric. Section B.3 specifies the metrics used in our experiments. 
+
+Learning from interactions. With trajectory logging enabled, each completed forecast step re-tains its available within-step interaction history Ht, including model messages and tool interac-tions, and, in memory-on mode, the belief notebook Mt. Once the realized outcome is available, outcome-based feedback can be attached to the same interaction. Evaluation events use these out-puts for benchmarking, while training events provide trajectories and feedback that can be consumed by diverse learning methods. The same forecasting interaction supports both evaluation and learn-ing without changing the task or tool interface. We demonstrate this capability with supervised fine-tuning in Section 5.5. 6Preprint Table 3: Main Results. Main values average recorded forecasts; smaller ± values show standard deviations of the four rollout means. Unusable forecasts are replaced by uniform distributions for all metrics; accuracy uses fractional ties and is reported in percent. Info-α requires an available market probability. Bold and underlining indicate the best and second-best model in each column. Superscripts †, ‡, and § flag configurations with more than 5% unusable forecasts. Uniform and market forecasts serve as contextual references. 
+
+No tools Tools, memory-free Tools, memory-on Model Brier ↓ Acc. ↑ Info-α ↑ Brier ↓ Acc. ↑ Info-α ↑ Brier ↓ Acc. ↑ Info-α ↑
+
+Proprietary 
+
+GPT-5.6 Sol 0.650 
+
+> ± 0.004
+
+47 .03 
+
+> ± 0.5
+
+−0.422 
+
+> ± 0.006
+
+0.554 
+
+> ± 0.008
+
+56 .36 
+
+> ± 0.9
+
+−0.138 
+
+> ± 0.023
+
+0.546 
+
+> ± 0.004
+
+57 .59 
+
+> ± 1.3
+
+−0.104 
+
+> ± 0.017
+
+GPT-5.5 0.698 
+
+> ± 0.001
+
+43 .85 
+
+> ± 0.6
+
+−0.603 
+
+> ± 0.008
+
+0.564 
+
+> ± 0.002
+
+57 .69 
+
+> ± 0.7
+
+−0.186 
+
+> ± 0.010
+
+0.571 
+
+> ± 0.005
+
+57 .68 
+
+> ± 1.0
+
+−0.198 
+
+> ± 0.013
+
+GPT-5.4 0.708 
+
+> ± 0.002
+
+41 .34 
+
+> ± 0.8
+
+−0.633 
+
+> ± 0.015
+
+0.586 
+
+> ± 0.002
+
+53 .12 
+
+> ± 0.4
+
+−0.237 
+
+> ± 0.006
+
+0.583 
+
+> ± 0.005
+
+52 .87 
+
+> ± 1.0
+
+−0.222 
+
+> ± 0.021
+
+Claude Opus 4.8 0.725 
+
+> ± 0.002
+
+40 .30 
+
+> ± 0.8
+
+−0.643 
+
+> ± 0.004
+
+0.589 
+
+> ± 0.006
+
+52 .63 
+
+> ± 0.8
+
+−0.254 
+
+> ± 0.023
+
+0.605 
+
+> ± 0.008
+
+50 .94 
+
+> ± 1.1
+
+−0.300 
+
+> ± 0.019
+
+Claude Opus 4.6 0.762 
+
+> ± 0.002
+
+35 .16 
+
+> ± 0.5
+
+−0.788 
+
+> ± 0.007
+
+0.603 
+
+> ± 0.003
+
+52 .35 
+
+> ± 0.9
+
+−0.282 
+
+> ± 0.008
+
+0.598 
+
+> ± 0.002
+
+53 .32 
+
+> ± 0.5
+
+−0.263 
+
+> ± 0.006
+
+Open-weight 
+
+GLM-5 0.731 
+
+> ± 0.006
+
+38 .54 
+
+> ± 0.6
+
+−0.686 
+
+> ± 0.016
+
+0.625 
+
+> ± 0.004
+
+50 .02 
+
+> ± 1.0
+
+−0.372 
+
+> ± 0.024
+
+0.632 
+
+> ± 0.002
+
+49 .96 
+
+> ± 0.4
+
+−0.398 
+
+> ± 0.017
+
+Qwen3.5-397B 0.759 
+
+> ± 0.005
+
+36 .54 
+
+> ± 0.7
+
+−0.796 
+
+> ± 0.021
+
+0.639 
+
+> ± 0.004
+
+48 .49 
+
+> ± 1.2
+
+−0.422 
+
+> ± 0.007
+
+0.643 
+
+> ± 0.010
+
+48 .90 
+
+> ± 0.9
+
+−0.441 
+
+> ± 0.027
+
+Kimi K2.5 0.773 
+
+> ± 0.002
+
+36 .30 
+
+> ± 0.8
+
+−0.837 
+
+> ± 0.011
+
+0.637 
+
+> ± 0.010
+
+49 .37 
+
+> ± 2.2
+
+−0.420 
+
+> ± 0.024
+
+0.658 
+
+> ± 0.009
+
+48 .07 
+
+> ± 1.7
+
+−0.439 
+
+> ± 0.005
+
+MiniMax M2.5 0.758 
+
+> ± 0.005
+
+35 .68 
+
+> ± 0.9
+
+−0.797 
+
+> ± 0.011
+
+0.654 ‡
+
+> ± 0.012
+
+46 .87 
+
+> ± 0.7
+
+−0.461 
+
+> ± 0.031
+
+0.640 
+
+> ± 0.007
+
+47 .19 
+
+> ± 1.6
+
+−0.413 
+
+> ± 0.022
+
+DeepSeek-V3.2 0.805 
+
+> ± 0.004
+
+34 .34 
+
+> ± 1.0
+
+−0.991 
+
+> ± 0.017
+
+0.655 
+
+> ± 0.012
+
+47 .73 
+
+> ± 1.9
+
+−0.464 
+
+> ± 0.042
+
+0.666 
+
+> ± 0.019
+
+47 .65 
+
+> ± 1.5
+
+−0.508 
+
+> ± 0.064
+
+gpt-oss-120b 0.896 
+
+> ± 0.004
+
+32 .44 
+
+> ± 0.5
+
+−1.378 
+
+> ± 0.023
+
+0.699 ‡
+
+> ± 0.010
+
+41 .95 
+
+> ± 0.6
+
+−0.594 
+
+> ± 0.020
+
+0.696 §
+
+> ± 0.012
+
+43 .03 
+
+> ± 0.7
+
+−0.584 
+
+> ± 0.052
+
+Nemotron 3 Super 0.882 †
+
+> ± 0.006
+
+30 .84 
+
+> ± 0.5
+
+−1.516 
+
+> ± 0.021
+
+0.695 ‡
+
+> ± 0.011
+
+43 .49 
+
+> ± 1.2
+
+−0.743 
+
+> ± 0.038
+
+0.688 §
+
+> ± 0.019
+
+44 .89 
+
+> ± 2.7
+
+−0.720 
+
+> ± 0.031
+
+Uniform reference 0.771 22 .9 — 0.771 22 .9 — 0.771 22 .9 —Market reference 0.498 64 .5 — 0.498 64 .5 — 0.498 64 .5 —
+
+## 5 EXPERIMENTS 
+
+5.1 EXPERIMENTAL SETUP 
+
+We evaluate 12 proprietary and open-weight models on 230 held-out events comprising 797 event– date pairs, with four rollouts per pair. For every model, either its reported knowledge or training-data cutoff or, when unavailable, its checkpoint release date predates the evaluation period (see Table 9). We compare three settings on the same scheduled tasks. In the no-tools setting (Figure 4), the model predicts in a single call without research tools. In the memory-free setting (Figure 5), it uses date-restricted search, article retrieval, and Python, starting from a fresh context at each forecast date. The memory-on setting additionally passes the agent’s previous belief notebook to the next date. Each rollout maintains its own notebook; earlier conversations and raw tool outputs are not carried forward. Model configurations and tool budgets are given in Appendix B.2. We report multiclass Brier score, top-label accuracy, and Information-α. Brier measures error in the predicted probability distribution, while accuracy measures whether the highest-probability out-come is correct. Information-α compares the agent’s and market’s log scores on the realized out-come; positive values favor the agent. Uniform forecasts and historical market probabilities serve as references. The market may use information outside the news archive, and its probabilities are never shown to the agents. Table 3 reports averages over recorded forecasts and standard deviations across four rollouts. An unusable recorded forecast is replaced by a uniform distribution over its K offered outcomes, giving Brier 1 − 1/K and fractional-tie accuracy 1/K . For the longitudinal analysis, we average within 7Preprint 0–1/3 1/3–2/3 2/3–1 
+
+(a) Forecast Step Position    
+
+> 0.4 0.5 0.6 0.7 0.8
+> Brier
+> Q1 Q2 Q3 Q4
+
+(b) New Evidence |ΔE t|   
+
+> 0.00 −0.05 −0.10
+> ΔBrier t
+> 0.0 0.5 1.0 1.5
+
+(c) Evidence Capture κ       
+
+> 0.00 0.05 0.10
+> −ΔBrier 1 → T
+> ρ = 0.74 κ = 1
+> Opus4.6 GPT-5.6 GPT-5.5 Opus4.8 GPT-5.4 GLM-5 Kimi2.5 DS-V3.2 Qwen3.5 MiniMax gpt-oss Nemotron
+> Memory-Free Memory-On No Tools Market Proprietary Open-Weight
+
+Figure 2: Forecast improvements track newly available evidence. (a) Brier at early, middle, and late stages, defined by thirds of relative forecast-step position; each event receives equal weight. Shading shows the range of model means. (b) Consecutive-step Brier change by new-evidence quartile. Each model’s index is computed from the other available models’ notebooks. (c) Evidence capture κ versus first-to-last Brier improvement with memory on. The correlation is computed across 12 models; the no-tools cross is a reference, with no defined capture value. Scores use the main table’s exact label matching and uniform fallback; (a,b) show 95% event-bootstrap CIs. Definitions and scoring sensitivity: Appendix B.7. each event before averaging across events and estimate 95% confidence intervals by resampling events. Metric definitions are provided in Appendix B.3. 5.2 OVERALL FORECASTING PERFORMANCE 
+
+Research tools improve forecasting across model families. Table 3 compares the three settings on the same forecasting tasks. Relative to no tools, memory-free research lowers Brier and improves accuracy for all 12 models. For GPT-5.5, Brier decreases from 0.698 to 0.564, while accuracy increases from 43.85% to 57.69%. The gains also extend to open-weight models: DeepSeek-V3.2 improves from 0.805 to 0.655 in Brier and from 34.34% to 47.73% in accuracy. Because each date starts from a fresh context, these gains show the value of dated information even without persistent memory. 
+
+Proprietary models achieve lower Brier scores with tools. In both tool-enabled settings, all five proprietary models have lower mean Brier scores than every open-weight model evaluated. GPT-5.6 Sol achieves the lowest Brier in both the memory-free (0.554) and memory-on (0.546) settings. GLM-5 is the strongest open-weight model by Brier in both settings, scoring 0.625 and 0.632, respectively. The corresponding gaps to the best proprietary model are 0.071 and 0.086. Tool access helps both groups but leaves a gap in forecast quality. 
+
+Higher accuracy does not always imply lower Brier. GPT-5.5 has the highest memory-free ac-curacy (57.69%), whereas GPT-5.6 Sol is less accurate (56.36%) but has lower Brier (0.554 versus 0.564) and higher Information-α (−0.138 versus −0.186 ). The most accurate model is therefore not the strongest by either probability score. With uniform fallback, all 12 models beat the uniform ref-erence in Brier under both tool-enabled settings. This scoring convention does not imply successful output: for example, 19.45% of gpt-oss-120b’s memory-free reports are unusable. Appendix B.4 reports failure rates separately. 
+
+Memory yields model-dependent changes in forecast quality. Adding a belief notebook lowers mean Brier for six models but raises it for the other six. For example, GPT-5.5 changes from 0.564 to 0.571, whereas GPT-5.6 Sol improves from 0.554 to 0.546. The latter improvement coincides with a reduction in unusable reports from 4.49% to 0.53%. When both settings produce a usable forecast, however, the paired memory-on-minus-memory-free Brier difference for GPT-5.6 Sol is only +0 .0010 . This comparison shows why an improvement in the overall score need not imply 8Preprint 1 2 3 4 5           
+
+> (a) Forecast Step t
+> 01234
+> Cost per Forecast (USD)
+> Q1 Q2 Q3 Q4
+> (b) New Evidence |ΔE t|
+> −50 −25 0
+> Δ vs. Memory-Free (%)
+> Cost Input Tokens Tool Calls
+> −50 −25 0
+> (c) Δ vs. Memory-Free (%)
+> Input Tokens Output Tokens Tool Iterations Tool Calls Searches Scrapes Python Calls Carried Steps First Step Memory-Free Memory-On No Tools
+
+Figure 3: Memory lowers research cost, mostly after the first forecast. (a) Mean estimated API cost per forecast (USD) at each forecast step, averaged over the five proprietary models. Only 67 of the 230 events have a fourth step and 25 have a fifth, so later points average over fewer events. (b) Percentage change of memory-on relative to memory-free execution in cost, input tokens, and tool calls at later steps ( t ≥ 2), grouped by the new-evidence quartiles of Figure 2(b). (c) The same change for each resource, split into the first step and later steps that carry a notebook. No notebook exists at the first step; first-step differences can reflect prompt and sampling variation. Negative values indicate reductions. Tokens and calls use all 12 models; intervals are 95% event-bootstrap CIs. Appendix B.5 defines and reports per-model resource use. better probability estimates among successful forecasts. We therefore distinguish memory’s effects on forecast quality and output reliability from its effect on research cost, examined in Section 5.4. 
+
+The market reference remains ahead across scoring rules. The market achieves Brier 0.498 and accuracy 64.55%, compared with the best model scores of 0.546 and 57.69%. These correspond to gaps of 0.048 in Brier and 6.85 percentage points in accuracy. Information-α is also negative for every model in all three settings, indicating lower average log scores than the market on forecasts where this metric is available. The gap therefore extends beyond top-label accuracy. The market may incorporate information outside the agents’ archive, so it serves as an external reference rather than an information-matched baseline. We next examine how agent forecasts improve over an event and how these gains relate to newly available evidence. 5.3 FORECASTING OVER TIME 
+
+Forecasts improve over time with research tools. Figure 2(a) compares forecasts at the early, middle, and late stages of each event. Mean Brier decreases from 0.670 to 0.606 with memory-free research and from 0.671 to 0.612 with memory-on research. In contrast, the no-tools baseline remains nearly unchanged near 0.769. All 12 models improve from the first to the last stage with memory-free research. The market improves more sharply, from 0.597 to 0.438. These results show that agents benefit from access to dated information as events unfold, even without retaining their previous research. 
+
+Larger improvements coincide with more new evidence. We estimate the amount of new evi-dence between consecutive forecast dates using dated entries in belief notebooks. For each evaluated model, the new-evidence index , |∆Et|, is computed from the other available models’ notebooks. A higher index indicates that these models recorded more evidence dated within the interval. For memory-free agents, the mean step-to-step Brier change is −0.007 in the lowest evidence quartile and −0.071 in the highest (Figure 2(b)). Memory-on agents show a similar pattern, whereas no-tools forecasts change little in every quartile. Forecast improvements are therefore concentrated at steps with more newly recorded evidence. Appendix B.6 gives the index definition and aggregation procedure. 9Preprint 
+
+Models that capture more evidence tend to improve more. We measure evidence capture , κ, by how much newly dated evidence a model records relative to the other models; κ = 1 corresponds to their average recording rate. Across the 12 models, κ ranges from 0.36 to 1.74 and correlates with first-to-last Brier improvement in the memory-on setting (Spearman ρ = 0 .74 ; Figure 2(c)). The corresponding correlations for search and article-retrieval counts are weaker, at 0.31 and 0.49. Thus, recording newly relevant evidence is more closely associated with forecast improvement than the number of research calls. The definition and limitations of this notebook-based measure are given in Appendix B.7. 5.4 COST ANALYSIS 
+
+Savings are larger after the initial forecast. In Figure 3(a), the two tool-using settings cost about the same at the first forecast, and memory-on execution becomes cheaper from the second forecast onward. The saving is largest when little new evidence has appeared since the previous forecast and shrinks as more becomes available (Figure 3(b)). Figure 3(c) shows that resource use is similar at the first step, where neither setting has a notebook, while later steps show the largest reductions in input tokens, tool iterations, and research calls. This pattern is consistent with agents reusing earlier findings instead of repeating the same research at each date. Given the mixed effects on Brier in Section 5.2, lower research cost is memory’s clearest benefit in the evaluated protocols. 
+
+Memory reduces the cost of repeated forecasting. For the five proprietary models, memory-on execution costs less per forecast than memory-free execution in every case. The reduction ranges from 8% for Claude Opus 4.6 to 33% for GPT-5.5, with a median of 24% (Table 12). GPT-5.5 costs a third less, $3.90 instead of $5.85 per forecast, while its paired Brier difference is +0 .007 with a 95% confidence interval that includes zero. These costs cover retained forecast records and exclude discarded retry attempts. Table 4: Supervised fine-tuning on Forecast-Dojo trajectories. Qwen3-30B-A3B-Thinking-2507 is evaluated on 3,188 forecasts from 230 held-out events. Paired SFT −base differences ( ∆) are computed before rounding; 95% CIs resample events. All scores use uniform fallback for unusable forecasts.                                
+
+> Model Brier ↓Log loss ↓Acc. ↑Parsed Tool calls All Binary Multi-choice (%) (%) / forecast Student (base) 0.924 0.704 0.975 2.74 34.8 100.0 1.4
+> + Dojo SFT 0.749 0.539 0.797 1.89 42.8 99.5 3.7 Paired ∆
+> 95% CI
+> −0.176
+> [−0.214 ,−0.139]
+> −0.165 −0.178 −0.86
+> [−1.03 ,−0.70]
+> +8 .1
+> [+5 .1,+11 .2]
+> −0.5+2 .3
+
+5.5 TRAINING PROOF OF CONCEPT 
+
+We next test whether Forecast-Dojo interactions can directly support agent training. We collect tra-jectories from Qwen3-235B-A22B-Thinking-2507 (Qwen Team, 2025) on Forecast-Dojo ’s train set, and supervised fine-tune Qwen3-30B-A3B-Thinking-2507 (Qwen Team, 2025) for three epochs over the full assistant trajectory. As Qwen3-30B-A3B-Thinking-2507 has no officially reported knowledge cutoff and was released in July 2025, we use a subset of the Forecast-Dojo training split spanning August 2025 to February 2026, comprising 1,028 unique events and 3,965 forecast steps. On 230 held-out events, the fine-tuned student outperforms the base across probabilistic and cate-gorical metrics (Table 4). Overall Brier decreases from 0.924 to 0.749, a paired improvement of 
+
+−0.176 (95% CI [−0.214 , −0.139] ), with consistent gains on both binary ( 0.704 → 0.539 ) and multi-choice ( 0.975 → 0.797 ) forecasts. Log loss falls from 2.74 to 1.89, while accuracy rises from 34.8% to 42.8% ( +8 .1 points, 95% CI [+5 .1, +11 .2] ). These gains come with increased tool use (1.4 to 3.7 calls per forecast), while parser acceptance remains near-perfect at 99.5%. Together, these results provide a proof of concept that Forecast-Dojo trajectories can support training agents with improved held-out forecasting performance. 10 Preprint 
+
+## 6 CONCLUSION 
+
+Forecast-Dojo replays resolved prediction-market events as fixed sequences of historical forecast states, enabling agents to be compared under the same information conditions and evaluated through-out an event’s evolution. Access to research tools improves Brier and accuracy for all 12 models, with larger step-wise gains when more new evidence becomes available. Models that record more newly dated evidence also tend to improve more over an episode. Yet all evaluated agents remain behind historical market forecasts, while persistent memory reduces research cost more consistently than it improves forecast quality. Beyond evaluation, Forecast-Dojo produces outcome-grounded interaction trajectories that can support a broad range of learning algorithms, from supervised fine-tuning to trajectory-level and reward-based optimization. 
+
+## REFERENCES 
+
+Anthropic. Claude opus 4.6 system card. https://www.anthropic.com/system-cards , February 2026a. Claude Opus 4.6. Anthropic. Introducing claude opus 4.8. https://www.anthropic.com/news/claude-opus-4-8 ,May 2026b. Accessed 2026-09-22. Nikhil Chandak, Shashwat Goel, Ameya Prabhu, Moritz Hardt, and Jonas Geiping. Scaling open-ended reasoning to predict the future. CoRR , abs/2512.25070, 2025. doi: 10.48550/ARXIV.2512. 25070. URL https://doi.org/10.48550/arXiv.2512.25070 .Pu Cheng, Juncheng Liu, and Yunshen Long. Polybench: Benchmarking llm forecasting and trading capabilities on live prediction market data. arXiv preprint arXiv:2604.14199 , 2026. Yizhou Chi, Eric Chamoun, Zifeng Ding, and Andreas Vlachos. Worldreasoner: Evaluating whether language model agents forecast events with valid reasoning. arXiv preprint arXiv:2606.11816 ,2026. Matthijs Douze, Alexandr Guzhva, Chengqi Deng, Jeff Johnson, Gergely Szilvasy, Pierre-Emmanuel Mazaré, Maria Lomeli, Lucas Hosseini, and Hervé Jégou. The faiss library. IEEE Trans. Big Data , 12(2):346–361, 2026. doi: 10.1109/TBDATA.2025.3618474. URL https: //doi.org/10.1109/TBDATA.2025.3618474 .W Brier Glenn et al. Verification of forecasts expressed in terms of probability. Monthly weather review , 78(1):1–3, 1950. Shashwat Goel, Nikhil Chandak, Arvindh Arun, Ameya Prabhu, Steffen Staab, Moritz Hardt, Maksym Andriushchenko, and Jonas Geiping. Futuresim: Replaying world events to evaluate adaptive agents. arXiv preprint arXiv:2605.15188 , 2026. Google Search Central. Article structured data. https://developers.google.com/search/ docs/appearance/structured-data/article . Accessed 2026. Ramanathan V. Guha, Dan Brickley, and Steve Macbeth. Schema.org: evolution of structured data on the web. Commun. ACM , 59(2):44–51, 2016. doi: 10.1145/2844544. URL https://doi. org/10.1145/2844544 .Chuan Guo, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. On calibration of modern neural networks. In Doina Precup and Yee Whye Teh (eds.), Proceedings of the 34th International Conference on Machine Learning, ICML 2017, Sydney, NSW, Australia, 6-11 August 2017 , vol-ume 70 of Proceedings of Machine Learning Research , pp. 1321–1330. PMLR, 2017. URL 
+
+http://proceedings.mlr.press/v70/guo17a.html .Danny Halawi, Fred Zhang, Yueh-Han Chen, and Jacob Steinhardt. Approaching human-level forecasting with language models. In Amir Globersons, Lester Mackey, Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng Zhang (eds.), Ad-vances in Neural Information Processing Systems 37: Annual Conference on Neural In-formation Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. URL http://papers.nips.cc/paper_files/paper/2024/hash/ 5a5acfd0876c940d81619c1dc60e7748-Abstract-Conference.html .11 Preprint Scott Jeen, Matthew Aitchison, Maximilian Anthony Hugh Clark, Toby Shevlane, and Ben Day. Reaching the frontier of ai forecasting with reinforcement learning. In Forecasting as a New Frontier of Intelligence , 2026. Woojeong Jin, Rahul Khanna, Suji Kim, Dong-Ho Lee, Fred Morstatter, Aram Galstyan, and Xiang Ren. Forecastqa: A question answering challenge for event forecasting with temporal text data. In Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli (eds.), Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Con-ference on Natural Language Processing, ACL/IJCNLP 2021, (Volume 1: Long Papers), Virtual Event, August 1-6, 2021 , pp. 4636–4650. Association for Computational Linguistics, 2021. doi: 10.18653/V1/2021.ACL-LONG.357. URL https://doi.org/10.18653/v1/2021.acl-long. 357 .Hailey Joren, Jianyi Zhang, Chun-Sung Ferng, Da-Cheng Juan, Ankur Taly, and Cyrus Rashtchian. Sufficient context: A new lens on retrieval augmented generation systems. In The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 .OpenReview.net, 2025. URL https://openreview.net/forum?id=Jjr2Odj8DJ .Armand Joulin, Edouard Grave, Piotr Bojanowski, Matthijs Douze, Hervé Jégou, and Tomás Mikolov. Fasttext.zip: Compressing text classification models. CoRR , abs/1612.03651, 2016. URL http://arxiv.org/abs/1612.03651 .Armand Joulin, Edouard Grave, Piotr Bojanowski, and Tomás Mikolov. Bag of tricks for efficient text classification. In Mirella Lapata, Phil Blunsom, and Alexander Koller (eds.), Proceedings of the 15th Conference of the European Chapter of the Association for Computational Linguistics, EACL 2017, Valencia, Spain, April 3-7, 2017, Volume 2: Short Papers , pp. 427–431. Association for Computational Linguistics, 2017. doi: 10.18653/V1/E17-2068. URL https://doi.org/10. 18653/v1/e17-2068 .Ezra Karger, Houtan Bastani, Yueh-Han Chen, Zachary Jacobs, Danny Halawi, Fred Zhang, and Philip Tetlock. Forecastbench: A dynamic benchmark of AI forecasting capabilities. In The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 . OpenReview.net, 2025. URL https://openreview.net/forum?id=lfPkGWXLLf .Amit Arnold Levy. Reinforcement learning for llm-based event forecasting. arXiv preprint arXiv:2606.15917 , 2026. Tom Liptay, Dan Schwarz, Rafael Poyiadzi, Jack Wildman, and Nikos I Bosse. Evaluating strategic reasoning in forecasting agents. arXiv preprint arXiv:2604.26106 , 2026. Kevin Murphy. Agentic forecasting using sequential bayesian updating of linguistic beliefs. arXiv preprint arXiv:2604.18576 , 2026. Sebastian Nagel. Common crawl news dataset, 2016. URL https://data.commoncrawl.org/ crawl-data/CC-NEWS/index.html .Daniel Paleka, Abhimanyu Pallavi Sudhir, Alejandro Alvarez, Vineeth Bhat, Adam Shen, Evan Wang, and Florian Tramèr. Consistency checks for language model forecasters. arXiv preprint arXiv:2412.18544 , 2025. Guilherme Penedo, Hynek Kydlícek, Loubna Ben Allal, Anton Lozhkov, Margaret Mitchell, Colin A. Raffel, Leandro von Werra, and Thomas Wolf. The fineweb datasets: Decant-ing the web for the finest text data at scale. In Amir Globersons, Lester Mackey, Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng Zhang (eds.), Ad-vances in Neural Information Processing Systems 37: Annual Conference on Neural In-formation Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. URL http://papers.nips.cc/paper_files/paper/2024/hash/ 370df50ccfdf8bde18f8f9c2d9151bda-Abstract-Datasets_and_Benchmarks_Track.html .Rushi Qiang, Yuchen Zhuang, Yinghao Li, Dingu Sagar V K, Rongzhi Zhang, Changhao Li, Ian Shu-Hei Wong, Sherry Yang, Percy Liang, Chao Zhang, and Bo Dai. Mle-dojo: Interac-tive environments for empowering llm agents in machine learning engineering. arXiv preprint arXiv:2505.07782 , 2025. 12 Preprint Qwen Team. Qwen3 technical report, 2025. URL https://arxiv.org/abs/2505.09388 .Jack W. Rae, Sebastian Borgeaud, Trevor Cai, Katie Millican, Jordan Hoffmann, H. Francis Song, John Aslanides, Sarah Henderson, Roman Ring, Susannah Young, Eliza Rutherford, Tom Hennigan, Jacob Menick, Albin Cassirer, Richard Powell, George van den Driessche, Lisa Anne Hendricks, Maribeth Rauh, Po-Sen Huang, Amelia Glaese, Johannes Welbl, Sumanth Dathathri, Saffron Huang, Jonathan Uesato, John Mellor, Irina Higgins, Antonia Creswell, Nat McAleese, Amy Wu, Erich Elsen, Siddhant M. Jayakumar, Elena Buchatskaya, David Budden, Esme Sutherland, Karen Simonyan, Michela Paganini, Laurent Sifre, Lena Martens, Xiang Lor-raine Li, Adhiguna Kuncoro, Aida Nematzadeh, Elena Gribovskaya, Domenic Donato, Ange-liki Lazaridou, Arthur Mensch, Jean-Baptiste Lespiau, Maria Tsimpoukelli, Nikolai Grigorev, Doug Fritz, Thibault Sottiaux, Mantas Pajarskas, Toby Pohlen, Zhitao Gong, Daniel Toyama, Cy-prien de Masson d’Autume, Yujia Li, Tayfun Terzi, Vladimir Mikulik, Igor Babuschkin, Aidan Clark, Diego de Las Casas, Aurelia Guy, Chris Jones, James Bradbury, Matthew J. Johnson, Blake A. Hechtman, Laura Weidinger, Iason Gabriel, William Isaac, Edward Lockhart, Simon Osindero, Laura Rimell, Chris Dyer, Oriol Vinyals, Kareem Ayoub, Jeff Stanway, Lorrayne Bennett, Demis Hassabis, Koray Kavukcuoglu, and Geoffrey Irving. Scaling language mod-els: Methods, analysis & insights from training gopher. CoRR , abs/2112.11446, 2021. URL 
+
+https://arxiv.org/abs/2112.11446 .Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J. Liu. Exploring the limits of transfer learning with a unified text-to-text transformer. J. Mach. Learn. Res. , 21:140:1–140:67, 2020. URL https://jmlr.org/papers/ v21/20-074.html .Stephen E. Robertson and Hugo Zaragoza. The probabilistic relevance framework: BM25 and beyond. Found. Trends Inf. Retr. , 3(4):333–389, 2009. doi: 10.1561/1500000019. URL https: //doi.org/10.1561/1500000019 .Schema.org. datePublished. https://schema.org/datePublished . Accessed 2026. ByteDance Seed. Futurex-pro: Extending future prediction to high-value vertical domains. CoRR ,abs/2601.12259, 2026. doi: 10.48550/ARXIV.2601.12259. URL https://doi.org/10.48550/ arXiv.2601.12259 .Jack Wildman, Nikos I Bosse, Daniel Hnyk, Peter Mühlbacher, Finn Hambly, Jon Evans, Dan Schwarz, Lawrence Phillips, et al. Bench to the future: A pastcasting benchmark for forecasting agents. arXiv preprint arXiv:2506.21558 , 2025. Qingchuan Yang, Simon Mahns, Sida Li, Anri Gu, Jibang Wu, and Haifeng Xu. Llm-as-a-prophet: Understanding predictive intelligence with prophet arena. arXiv preprint arXiv:2510.17638 ,2025. Chenchen Ye, Ziniu Hu, Yihe Deng, Zijie Huang, Mingyu Derek Ma, Yanqiao Zhu, and Wei Wang. Mirai: Evaluating llm agents for event forecasting. arXiv preprint arXiv:2407.01231 , 2024. Zhangdie Yuan, Zifeng Ding, and Andreas Vlachos. Do language models update their forecasts with new information? arXiv preprint arXiv:2509.23936 , 2025. Zhiyuan Zeng, Jiashuo Liu, Siyuan Chen, Tianci He, Yali Liao, Jinpeng Wang, Zaiyuan Wang, Yang Yang, Lingyue Yin, Mingren Yin, Zhenwei Zhu, Tianle Cai, Zehui Chen, Jiecao Chen, Yantao Du, Xiang Gao, Jiacheng Guo, Liang Hu, Jianpeng Jiao, Xiangsheng Li, Jingkai Liu, Shuang Ni, Zhoufutu Wen, Ge Zhang, Kaiyuan Zhang, Xin Zhou, Jose H. Blanchet, Xipeng Qiu, Mengdi Wang, and Wenhao Huang. Futurex: An advanced live benchmark for LLM agents in future prediction. CoRR , abs/2508.11987, 2025. doi: 10.48550/ARXIV.2508.11987. URL 
+
+https://doi.org/10.48550/arXiv.2508.11987 .Jaden Zhang, Gardenia Liu, Oliver Johansson, Hileamlak Yitayew, Kamryn Ohly, and Grace Li. Prediction arena: Benchmarking AI models on real-world prediction markets. CoRR ,abs/2604.07355, 2026. doi: 10.48550/ARXIV.2604.07355. URL https://doi.org/10.48550/ arXiv.2604.07355 .13 Preprint Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, Fei Huang, and Jingren Zhou. Qwen3 embedding: Ad-vancing text embedding and reranking through foundation models. CoRR , abs/2506.05176, 2025. doi: 10.48550/ARXIV.2506.05176. URL https://doi.org/10.48550/arXiv.2506.05176 .Xinyue Zhao, Ruiyi Zhang, Liqin Ye, Rui Cao, Pengtao Xie, and Sudheer Chava. Can llms take the pulse of the economy? A real-time evaluation of LLM nowcasts on macroeconomic indicators. 
+
+CoRR , abs/2608.30110, 2026. doi: 10.48550/ARXIV.2608.30110. URL https://doi.org/10. 48550/arXiv.2608.30110 .Andy Zou, Tristan Xiao, Ryan Jia, Joe Kwon, Mantas Mazeika, Richard Li, Dawn Song, Jacob Steinhardt, Owain Evans, and Dan Hendrycks. Forecasting future world events with neural net-works. In Advances in Neural Information Processing Systems (NeurIPS), Datasets and Bench-marks Track , 2022. 14 Preprint 
+
+# Appendix for Forecast-Dojo 
+
+A Dataset and Benchmark Details 15 
+
+A.1 Information Corpus . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.2 Event Collection and Filtering . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 A.3 Forecast-Step Construction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 
+
+B Experiment Details 18 
+
+B.1 Knowledge Cutoffs and Checkpoint Dates . . . . . . . . . . . . . . . . . . . . . . 18 B.2 Models and Execution Protocols . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 B.3 Evaluation Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.4 Aggregation and Failures . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.5 Inference Cost and Tool Usage . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.6 Measuring Newly Available Evidence . . . . . . . . . . . . . . . . . . . . . . . . 20 B.7 Evidence Capture and Forecast Improvement . . . . . . . . . . . . . . . . . . . . 22 
+
+C Prompts 23 
+
+## A DATASET AND BENCHMARK DETAILS 
+
+We describe in detail how we construct our information corpus (§A.1), collect and filter forecasting events (§A.2), and select forecast dates for each task (§A.3). A.1 INFORMATION CORPUS 
+
+Corpus source. We construct the retrieval corpus from 15 monthly Common Crawl CC-NEWS releases (Nagel, 2016), spanning March 2025 through May 2026 and comprising 7,163 WARC files. For each eligible HTML response, we extract the article title, summary, body text, URL metadata, crawl timestamp, and structured publication metadata. 
+
+Text and quality filtering. Our filtering pipeline is summarized in Table 5. The first two stages normalize the extracted text and retain English-language documents using fastText (Joulin et al., 2017; 2016), matching the language of the benchmark questions. The remaining stages adapt quality filters from Gopher (Rae et al., 2021), C4 (Raffel et al., 2020), and FineWeb (Penedo et al., 2024). 
+
+Publication dates and temporal integrity. For each document d, we extract one publication timestamp tp(d) and one modification timestamp tm(d) using the fixed-priority metadata cascades in Table 6. Within each cascade, we use the first available timestamp. We discard timestamps whose year falls outside [2010 , 2030] and use the document crawl timestamp tc(d) as a fallback. The re-trieval system uses the UTC calendar day of t(d). Across the final corpus, 58 .6% of articles use a publication timestamp, 28 .3% use a modification timestamp, and 13 .1% fall back to the crawl timestamp. We treat this timestamp assignment as the primary temporal boundary for retrieval. As an additional safeguard, event construction also applies a content-level leakage screen (Section A.2) to detect cases where the article content is inconsistent with the assigned temporal boundary, for example when a page is updated without a corresponding change in its structured metadata. 
+
+Duplicate suppression. We remove repeated coverage using canonical-URL matching, same-title suppression within a seven-day window, and MinHash-LSH over lower-cased word 5-grams. The body-level stage uses 128 MinHash values arranged as eight bands of 16 hashes and retains the earliest-published representative of each connected duplicate component. Because the title stage 15 Preprint 
+
+Stage Deployed criterion 
+
+1. Cleaning Normalize whitespace and inline URLs; drop documents with an empty cleaned title or body. 2. Language fastText lid.176 ; retain top-1 English predictions with confidence ≥ 0.5.3. Gopher repetition Apply duplicate-line, duplicate-paragraph, and repeated n-gram checks. 4. Gopher quality Require 50–100,000 non-symbol tokens, mean word length in [3 , 10] ,bounded symbol, bullet, and ellipsis ratios, alphabetic-word ratio ≥ 0.75 ,and at least two stop-word occurrences. 5. C4 quality Apply line/document cleanup with at least five retained sentences; disable terminal-punctuation line filtering. 6. FineWeb quality Require at least 12% terminal-punctuation lines and at most 80% short lines; disable character-duplicate and newline-ratio rules. 7a. URL deduplication Canonicalize URLs; retain one document for each identical canonical URL. 7b. Title deduplication Suppress identical normalized titles appearing within a seven-day window, retaining the earliest-published document. 7c. MinHash deduplica-tion Apply MinHash-LSH over word 5-grams and retain the earliest-published rep-resentative of each near-duplicate component. 8. Serving-date window Retain documents whose resolved publication date falls within March 1, 2025 through May 31, 2026. 
+
+Table 5: Corpus filtering pipeline. The aggregate post-quality count is reported in Table 8a. 
+
+Timestamp Metadata priority 
+
+Publication tp Article JSON-LD datePublished /dateCreated → generic JSON-LD →
+
+OpenGraph article:published_time → microdata datePublished →
+
+HTML <time datetime> 
+
+Modification tm Article JSON-LD dateModified → generic JSON-LD → OpenGraph 
+
+article:modified_time → microdata dateModified 
+
+Table 6: Priority order for extracting structured publication and modification timestamps. does not require body-level equivalence, we refer to this procedure as duplicate suppression rather than semantic deduplication. 
+
+Indexing and temporal restriction. Each retained article is embedded with Qwen3-Embedding-8B (Zhang et al., 2025) using its title, summary, and body. The 4096-dimensional representation is L2-normalized and stored in exact inner-product indices sharded by publication month. Rows within each shard are sorted by publication date. At forecast date τt, search is restricted to 
+
+I≤τt = {d ∈ I : 2025 -03 -01 ≤ date( d) ≤ τt}.
+
+The date restriction is applied before similarity ranking, and full-article access independently rechecks the same temporal constraint. A.2 EVENT COLLECTION AND FILTERING 
+
+Event collection and market beliefs. We construct forecasting questions from resolved Polymar-ket events. A single non-negative-risk market defines a binary event, while a negative-risk bundle of at least two markets defines a mutually exclusive multi-option event; other layouts are excluded. For market leg k, let tstart  
+
+> k
+
+and tclose  
+
+> k
+
+denote its recorded start and close times. We define the complete tradeable span as 
+
+[tstart , t close ] = 
+
+
+
+min  
+
+> k
+
+tstart  
+
+> k
+
+, max  
+
+> k
+
+tclose 
+
+> k
+
+
+
+.
+
+Ground-truth labels are derived from terminal YES prices: binary markets resolve to YES at ≥ 0.99 
+
+and to NO at ≤ 0.01 , while multi-option events require exactly one YES-resolved option. We reconstruct the daily market belief mQ,t ∈ ∆K−1 from the UTC-day mean of CLOB YES-price observations. For a multi-option event with priced options At,
+
+mQ,t (k) = xt,k 
+
+P 
+
+> j∈At
+
+xt,j 
+
+, k ∈ At,
+
+16 Preprint                                                  
+
+> Criterion Binary Multi-option
+> Forecasting horizon ≥8days ≥8days Faithful day ≥6trades, ≥200 shares ≥5trades, ≥50 shares Faithful coverage ρQ≥0.80 ρQ≥0.70
+> Max. unfaithful run SQ≤3SQ≤5
+> Residual uncertainty aQ≥0.05 aQ≥0.05
+> Temporal signal VQ≥10 −6and (CQ≥0.20 ∨VQ≥0.50)
+
+Table 7: Market-side event-selection criteria. with missing options left undefined rather than imputed. 
+
+Market-side filtering. We first filter events for a meaningful forecasting horizon and a reliable, nontrivial market-belief trajectory. Events must span at least eight UTC calendar days. We then define a day as faithful when the trade count and share volume on the market leg corresponding to the realized outcome exceed the type-specific thresholds in Table 7. Let ρQ denote the fraction of faithful days and SQ the longest consecutive run of unfaithful days. Among events passing this activity filter, we measure learning signal from the market probability assigned to the realized outcome, mQ,t (Y ). Let FQ denote faithful days with an observed belief, and let ∆t = mQ,t (Y ) − mQ,t −1(Y ) for adjacent calendar days with valid faithful observations. We define 
+
+aQ = 1
+
+|F Q|
+
+X
+
+> t∈F Q
+
+− log clip  mQ,t (Y ), 10 −6, 1 − 10 −6 , VQ = X
+
+> t
+
+|∆t|, CQ =
+
+P 
+
+> t
+
+∆t
+
+P 
+
+> t
+
+|∆t| .
+
+These remove events that are already nearly certain or have little meaningful temporal variation. 
+
+Corpus-side filtering. Market-side filtering identifies events with usable forecasting trajectories, but does not establish whether the frozen information environment is suitable for forecasting. We therefore apply a complementary corpus-side screen that evaluates both the sufficiency of pre-resolution evidence and potential information leakage. 
+
+Evidence sufficiency. Following the sufficient-context framework of Joren et al. (2025), we as-sess whether the retrieved information contains enough evidence to support an informed forecast. We adapt this protocol to historical forecasting by first decomposing each event into targeted in-formation needs. For each event surviving the market-side filters, we use Claude Opus 4.8 with maximum reasoning effort (Anthropic, 2026b) to generate 4–7 predictive-evidence queries and 4–7 background/reference-class queries. Query generation explicitly targets information available be-fore resolution and forbids searches for the realized outcome or post-resolution reports. See the full decomposition prompt in Figure 7. Sufficiency is evaluated once at the latest eligible forecasting state, 
+
+τ ⋆ = tclose − 2 days .
+
+The two-day buffer provides a conservative pre-resolution cutoff: close-day reporting may already reveal resolution-relevant information, while UTC normalization and timezone differences can blur the adjacent calendar-day boundary. For each query, we retrieve dense (Qwen3-Embedding-8B) and BM25 (Robertson & Zaragoza, 2009) top-10 results restricted to [2025 -03 -01 , τ ⋆] and combine them using reciprocal-rank fusion, 
+
+RRF( d) = X
+
+> q
+
+X
+
+> r∈{ dense ,BM25 }
+
+1[d ∈ Lq,r ]60 + rank q,r (d) .
+
+The 15 highest-ranked unique documents form the evidence set EQ. We then use Claude Opus 4.6 (Anthropic, 2026a) to classify the available evidence as {S UFFICIENT , P ARTIAL , I NSUFFI -
+
+> CIENT
+
+}. Only events receiving a S UFFICIENT verdict are eligible for the final benchmark. 
+
+Leakage control. The same judge additionally screens the retrieved evidence for potential outcome leakage. This content-level check complements the metadata-level temporal restriction on retrieval 17 Preprint 
+
+(a) Corpus construction             
+
+> Stage Removed Remaining
+> Stages 1–6 –26,533,747 Stage 7a 194,940 26,338,807 Stage 7b 5,563,879 20,774,928 Stage 7c 1,124,734 19,650,194 Stage 8 823,254 18,826,940
+
+(b) Event selection             
+
+> Stage Train Eval
+> Temporal split pool 13,671 13,920 Forecasting horizon 9,051 7,590 Market faithfulness 1,965 423 Learning signal 1,777 378 Evidence sufficiency & leakage 1,338 230
+
+Table 8: Construction waterfalls for the deployed news corpus and forecasting events. Event counts use the final June–March training and March–June evaluation splits. and provides an additional safeguard when the visible content of a page may not be fully reflected by its assigned publication timestamp. The judge does not receive the structured realized outcome, final market prices, or crowd trajectory. Let vQ denote the evidence-sufficiency verdict and ℓQ the leakage flag. An event is retained iff 
+
+vQ = SUFFICIENT and ℓQ = false .
+
+See Figure 8 for the judge prompt and Table 8 for event filtering funnels. A.3 FORECAST -S TEP CONSTRUCTION 
+
+Temporal split. We split at the event level using the complete tradeable lifetime. An event enters training iff tstart ≥ 2025 -06 -01 and tclose < 2026 -03 -01 , and enters evaluation iff tstart ≥
+
+2026 -03 -01 and tclose < 2026 -06 -01 . Events that cross the March 1 boundary are excluded from both splits. 
+
+Number of forecast steps. For event Q, let DQ be its contiguous UTC daily grid. We reserve a two-day buffer before the recorded close date and define 
+
+EQ = {d ∈ DQ : date( tclose ) − d ≥ 2}, nQ = |EQ|.
+
+The number of forecast steps is 
+
+TQ = clamp  round √nQ, 3, 10  .
+
+Date selection. Within the eligible grid, market movement is 
+
+bt =
+
+(|mQ,t (YES) − mQ,t −1(YES) |, binary ,
+
+> 12
+
+P 
+
+> k
+
+|mQ,t (k) − mQ,t −1(k)|, multi-option ,
+
+with zero assigned when an adjacent belief is unavailable. Corpus activity ct is the total number of indexed news articles published on calendar day t. It is a global news-volume signal rather than an event-specific relevance score. After independently max-normalizing both signals, eligible date ej
+
+receives 
+
+sj = 0 .7 ˜bej + 0 .3 ˜ cej + 10 −3 jnQ − 1 .
+
+We partition the eligible sequence into TQ contiguous equal-count bins and choose the highest-scoring date from each bin. This preserves temporal coverage while favoring dates with larger belief changes or greater overall news activity. 
+
+## B EXPERIMENT DETAILS 
+
+B.1 KNOWLEDGE CUTOFFS AND CHECKPOINT DATES 
+
+Table 9 lists each model’s reported knowledge cutoff or checkpoint date. All dates precede the evaluation period, which begins on March 1, 2026. 18 Preprint Table 9: Knowledge and release dates of evaluated models. We report an official knowledge or training-data cutoff when available; otherwise, we use the public checkpoint release date. 
+
+Model Date Basis 
+
+Proprietary 
+
+GPT-5.6 Sol 2026-02-16 Cutoff GPT-5.5 2025-12-01 Cutoff GPT-5.4 2025-08-31 Cutoff Claude Opus 4.8 2026-01 Cutoff Claude Opus 4.6 2025-05 Cutoff 
+
+Open-weight 
+
+GLM-5 2026-02-11 Release Qwen3.5-397B 2026-02-16 Release Kimi K2.5 2026-01-27 Release MiniMax M2.5 2026-02-12 Release DeepSeek-V3.2 2025-12-01 Release gpt-oss-120b 2024-06-01 Cutoff Nemotron 3 Super 2026-02 Post-train 
+
+Note. “Release” denotes the public checkpoint release date when no official knowledge cutoff is reported. 
+
+Table 10: Model Evaluation Configurations. Max output tokens is the cap per model call and includes reasoning tokens. default marks a field that was not sent, so the provider’s default applied. Tool budgets are per forecast step and identical in memory-free and memory-on mode; no-tool runs disable all tools. 
+
+Max output tokens Temperature / top-p / top-k Tool budget Model Reasoning Tools No tools Tools No tools iters / calls GPT-5.6 Sol max 32,768 65,536 default default 120 / 400 GPT-5.5 xhigh 32,768 65,536 default default 120 / 400 GPT-5.4 xhigh 32,768 65,536 default default 120 / 400 Opus 4.8 max 32,768 65,536 default default 120 / 400 Opus 4.6 max 32,768 65,536 default default 120 / 400 GLM-5 high 32,768 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400 Kimi K2.5 high 32,768 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400 DeepSeek V3.2 high 32,768 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400 MiniMax M2.5 native a 32,768 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400 Nemotron 3 Super high 32,768 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400 gpt-oss-120b high 32,768 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400 Qwen3.5-397B native a 65,536 65,536 1.0 / 1.0 / default 1.0 / 1.0 / default 120 / 400  
+
+> a
+
+The model reasons by default; the request carries no effort parameter. 
+
+B.2 MODELS AND EXECUTION PROTOCOLS 
+
+Table 10 lists the request-side settings of the 12 default model configurations. All runs use the same 230 held-out events, four rollouts per date. Tool runs share a budget of 120 tool iterations and 400 calls per forecast step; recency reranking is off. No-tool runs remove the tools and the corpus and raise the output cap to 65,536 tokens, since the whole forecast is then produced in a single call. The training use case in Table 4 uses memory-free execution, the same no-belief system prompt, Python, and a budget of 80 tool iterations and 200 tool calls per forecast for both models. Both use temperature 0.6, a 32,768-token output cap, top-p = 1 .0, and no top-k restriction. Log loss uses natural logarithms with a probability floor of 10 −3.19 Preprint B.3 EVALUATION METRICS 
+
+Brier score. Let i = ( e, t, r ) index an event, forecast date, and rollout, and let Yi denote the real-ized outcome. For a usable probability report, negative entries are clipped to zero and the remaining positive mass is normalized. Labels are matched exactly. Let Ui be the union of the reported labels and the truth label; unreported labels receive zero probability, while unsupported reported labels retain their probability mass. The multiclass Brier score is 
+
+Bi = X
+
+> c∈U i
+
+(pic − 1{c = Yi})2 .
+
+We use the standard [0 , 2] scale, without normalization by the number of outcomes or an additional binary-event factor. A uniform forecast over Ki offered outcomes has Brier score 1 − 1/K i.
+
+Accuracy. Let Ti = arg max c pic denote the set of outcomes assigned maximal probability. We use fractional-tie accuracy, 
+
+ai = 1{Yi ∈ T i}|T i| .
+
+Thus, a correct unique top prediction receives accuracy 1, while ties split credit uniformly among tied outcomes. A uniform forecast over Ki outcomes therefore has accuracy 1/K i.
+
+Information-α. We measure improvement over the contemporaneous market belief using 
+
+αi = log max {pi(Yi), ϵ } − log max {pmarket ,i (Yi), ϵ }, ϵ = 10 −3,
+
+with natural logarithms; positive values favor the agent. We compute this difference for every recorded forecast with an available scalar market probability, including uniform fallback for un-usable reports. Scalar market probabilities may have different availability from the reconstructed full market vectors used in longitudinal Brier analyses. Neither realized outcomes nor market prob-abilities are provided to the forecasting agent. B.4 AGGREGATION AND FAILURES 
+
+Not every scheduled forecast produces a valid probability report. An output is unusable if the parser rejects it or it has no positive finite probability mass. We replace a recorded unusable report by the uniform distribution over its Ki offered outcomes for all scores: Bi = 1 − 1/K i, ai = 1 /K i, and log loss log Ki. Main-table means average recorded forecasts, not missing records. GPT-5.6 Sol and Nemotron 3 Super have 3,184 and 3,170 recorded memory-on forecasts, respectively; all other configurations have 3,188. Table 11 additionally counts missing records as failures, using all 3,188 scheduled forecasts as its denominator. The same fallback applies to the main table, longitudinal analyses, and SFT evaluation. Information-
+
+α is omitted only when the scalar market probability is unavailable. Imputation does not change whether an output is counted as a failure. B.5 INFERENCE COST AND TOOL USAGE 
+
+Table 12 summarizes average inference cost and tool usage per recorded forecast. Dollar columns show proprietary-model provider estimates; NR marks open-weight models whose absolute prices are not compared across serving arrangements. Within-model cost reductions in the main text use the five proprietary models with provider-reported prices. Research calls sum the logged search, scrape, and Python calls, including tool errors. In the memory-on setting, the first forecast of each episode starts without prior memory, while later forecasts receive the notebook produced at the preceding step. These statistics are intended as descriptive resource estimates rather than hardware-normalized efficiency comparisons. Changes in Figure 3 use ratios of summed resources over matched model– event–date–rollout records; intervals use 4,000 bootstrap resamples of events. B.6 MEASURING NEWLY AVAILABLE EVIDENCE 
+
+Longitudinal scores and support. Figure 2 uses the same exact label matching and uniform fall-back as the main table. Unrecorded forecasts are omitted. Relative step position is (t − 1) /(Te − 1) 
+
+20 Preprint Table 11: Failure rate of scheduled forecasts by condition (%) for the 12 default model config-urations. A failure is a missing output, parser rejection, or no positive finite probability mass. Each cell covers 3,188 scheduled forecasts (797 event–dates, four rollouts). Recorded unusable outputs are scored as uniform forecasts; missing records are excluded from score means.                                        
+
+> Model No tools Memory-free Memory-on GPT-5.6 Sol 0.03 4.49 0.53 GPT-5.5 0.06 0.25 0.03 GPT-5.4 0.00 0.09 0.00 Opus 4.8 0.00 0.00 0.00 Opus 4.6 0.38 0.03 0.00 GLM-5 0.28 1.47 1.13 Kimi K2.5 0.00 2.16 2.45 DeepSeek V3.2 0.25 1.76 1.88 MiniMax M2.5 0.63 5.52 1.85 Nemotron 3 Super 9.16 18.07 11.39 gpt-oss-120b 0.00 19.45 13.64 Qwen3.5-397B 0.03 1.10 1.16
+
+Table 12: Inference cost and tool usage by model. Average provider-estimated cost and research calls per recorded forecast. Research calls sum search, scrape, and Python calls, including errors. No-tools forecasts make no research calls.                                                                    
+
+> USD per forecast aResearch calls per forecast Model No tools Memory-free Memory-on Memory-free Memory-on GPT-5.6 Sol 0.18 4.45 3.38 136.6 118.3 GPT-5.5 0.25 5.85 3.90 70.3 56.8 GPT-5.4 0.20 4.49 3.52 89.9 76.6 Opus 4.8 0.25 2.74 2.02 22.9 17.0 Opus 4.6 0.28 2.91 2.66 33.2 29.5 GLM-5 NR NR NR 24.9 22.3 Kimi K2.5 NR NR NR 24.3 20.1 DeepSeek V3.2 NR NR NR 39.6 34.4 MiniMax M2.5 NR NR NR 16.7 12.5 Nemotron 3 Super NR NR NR 33.9 30.6 gpt-oss-120b NR NR NR 21.7 17.2 Qwen3.5-397B NR NR NR 19.1 20.7
+> aNR: not reported; the open-weight models are served without a comparable per-forecast price.
+
+on the retained date sequence. Panel (a) retains dates with available scalar market probabilities for agents and complete market vectors for the market, then events represented in all three thirds (223 agent events; 224 market events). Event means receive equal weight; 95% percentile intervals use 4,000 event-clustered bootstrap draws with seed 0. 
+
+Newly dated evidence. We estimate how much new event-specific evidence becomes available between two consecutive forecast dates using the evidence ledgers in the memory-on notebooks. For model k, rollout r, event e, and step t ≥ 2, let 
+
+nk,r (e, t ) = X 
+
+> a∈ledger( Mk,r (e,t ))
+
+1{τe,t −1 < d (a) ≤ τe,t } ,
+
+where d(a) is the recorded date_observed of ledger entry a. Thus, an entry counts only when its recorded evidence date falls between the previous and current forecast dates. Earlier evidence discovered late is not counted, and carried entries are not counted again at later steps. We count both active and superseded entries and exclude entries with invalid or future dates. 21 Preprint We first average across the available notebook chains of each model, 
+
+own k(e, t ) = 1
+
+|R k(e, t )|
+
+X 
+
+> r∈R k(e,t )
+
+nk,r (e, t ).
+
+Leave-one-model-out evidence availability. To estimate how much new evidence was available at an event-step without using the evaluated model’s own notebook, we average the corresponding counts over the set Pk(e, t ) of other models with available notebook counts: 
+
+Ak(e, t ) = 1
+
+|P k(e, t )|
+
+X 
+
+> j∈P k(e,t )
+
+own j (e, t ).
+
+We use Ak(e, t ) as the evidence-availability index for model k, including when analyzing its memory-free forecasts. This leave-one-model-out construction avoids directly coupling a model’s forecast change to its own recording behavior. The peer count is normally 11; 33 indexed model– date rows at three event–date states have 10 peers. For consecutive forecasts, we define 
+
+∆BAk,r (e, t ) = BAk,r (e, t ) − BAk,r (e, t − 1) ,
+
+where negative values indicate improvement. The schedule has 567 consecutive-date transitions; the index has quartile cut points 1.4924, 2.4545, and 3.9848. Panel (b) retains adjacent recorded forecasts with available scalar market probabilities and groups transitions by quartiles of Ak(e, t )
+
+and averages first within events and then equally across events; confidence intervals use event-clustered bootstrap resampling. The index should be interpreted as a proxy for newly available, event-relevant evidence rather than an exhaustive corpus count. It depends on what the other agents record in their notebooks and may miss relevant evidence that no model retrieves. B.7 EVIDENCE CAPTURE AND FORECAST IMPROVEMENT 
+
+Evidence capture. The availability index above measures how much new evidence appears to be available at an event-step. To measure how much of that evidence each model captures, we compare the model’s own newly dated entries with the leave-one-model-out availability index. For event–step pairs Sk with own and peer counts, the no-intercept slope is 
+
+κk =
+
+P 
+
+> (e,t )∈S k
+
+own k(e, t )Ak(e, t )
+
+P 
+
+> (e,t )∈S k
+
+Ak(e, t )2 .
+
+A value of κk = 1 means that the model records newly dated evidence at the peer-average rate; values above or below one indicate higher or lower capture, respectively. For example, κk = 1 .5
+
+corresponds to a fitted recording rate 50% above the peer average. Importantly, κk is a relative rate, not the fraction of an exhaustive evidence set that the model retrieves. 
+
+Episode gain. We measure how much a model improves over an episode using its scheduled first and last retained memory-on forecasts, pairing recorded endpoints within each rollout: 
+
+Gk = 1
+
+|E k|
+
+X
+
+> e∈E k
+
+1
+
+|R end  
+
+> k
+
+(e)|
+
+X 
+
+> r∈R end
+> k(e)
+
+Bon  
+
+> k,r
+
+(e, 1) − Bon  
+
+> k,r
+
+(e, T e) .
+
+Positive values indicate improvement. We first average endpoint pairs across rollouts within each event and then average equally across events. Panel (c) compares κk with Gk across the 12 models and reports their Spearman correlation. 
+
+Interpretation. Under our uniform-fallback scoring rule, evidence capture is associated with episode-level improvement (Spearman ρ = 0 .74 ), more than search or scrape counts ( 0.31 and 
+
+0.49 ). As a sensitivity check, typographic label normalization gives ρ = 0 .60 with uniform fallback. These relationships are correlational. Notebook entries are self-reported, their recorded dates need not always be correct, and evidence missed by all models is invisible to the measure. We therefore interpret κk as a diagnostic of relative evidence capture, not as a complete or causal measure of information acquisition. 22 Preprint 
+
+## C PROMPTS 
+
+No-Tools Forecasting Agent Prompt 
+
+ROLE 
+
+You are an expert forecasting agent. For a binary question you output the probability the event occurs; for a multiple-choice question, a probability per option summing to one. Reason like a superforecaster and commit to numbers that reflect your real uncertainty. You are scored by a proper scoring rule. Both overconfidence and reflexive hedging cost you. Forecast solely from the question and what is known as of the forecast date, never from prior memory of how this event turned out. 
+
+WHAT YOU ARE GIVEN 
+
+• question : the event to forecast—binary ( YES /NO ) or multiple-choice. • resolution criteria : the exact event (or full set of options), the measurement source, and the resolution date that settles the question. • forecast date : treat this as today. Reason as a forecaster standing on that date would, using only what was known up to this date. 
+
+FORECASTING STRATEGY 
+
+1. Pin down what resolves the question 
+
+Read the resolution criteria exactly: the precise event (or the full set of options), the measurement source, and the resolution date. A forecast of the wrong quantity scores zero however sound the reasoning. Note the forecast date and how much time remains. 
+
+2. Set the outside view first 
+
+Before the specifics, establish what the base rate or typical outcome split looks like for the relevant reference class, and anchor your initial estimate there. The outside view keeps a vivid but unrepresentative story from dominating. 
+
+3. Weigh the evidence systematically 
+
+• Decompose the question into the few sub-questions that would most move your estimate, and work through each. Start with the most distinctive, decisive consideration, not the most generic. • For each sub-question, lay out the relevant facts: the actors and their incentives, the rules and schedule that govern the event, the historical pattern for comparable cases, and the most recent developments as of the forecast date. If the resolution criterion names a particular source or measurement, reason about what that source is likely to show. • Be explicit about how solid each piece of evidence is—a well-established fact, a plausible inference, or a guess—and weight it accordingly. Do not invent specifics you do not have. 
+
+4. Compute what can be computed 
+
+A forecast question is a judgment problem with computable parts—settle those parts with explicit arithmetic rather than by feel. Mental arithmetic is unreliable, calendar math above all, so write the steps out. The computations that recur: • Extrapolation : take the recent rate of a running total and project it to the resolution date—required pace vs. current pace often settles a threshold question. • Base rates : turn historical counts into a probability for your window ( k events in n years, t years left → 1 − exp( −kt/n )). • Probability algebra : chained conditionals, at-least-one-of-k, scenario weighting, Bayes updates—combine the numbers step by step, never in your head. • Buckets : when multiple-choice options slice a numeric range, set a central estimate and spread, then read each option’s probability off an explicit distribution rather than by feel. Compute only with numbers you actually know or can reasonably bound; a guess run through a formula is still a guess. And a computed result is not your final answer: it is one more piece of evidence, only as good as the assumptions behind it. 
+
+5. Reason toward the forecast (the inside view) 
+
+• Lay out the main drivers for and against each outcome, weighting recent, direct, high-quality evidence most. • Consider the realistic scenarios and how likely each is, then ask the opposite: what would have to be true for this forecast to be wrong? This checks confirmation bias. • Move from your base rate only as far as the evidence justifies—strong specific evidence moves you far, weak or ambiguous evidence barely at all. 
+
+6. Calibrate and commit 
+
+• Be granular—distinguish 0.6 from 0.7, and on multiple-choice let the evidence pull the distribution away from a reflexive uniform split. This precision is where forecasting skill lives. • Never assign 0 or 1 to an outcome that is not truly impossible or certain; a confident error is the costliest mistake under the scoring rule. Multiple-choice probabilities must sum to 1.• You must commit. “Uncertain” is not an answer—express your uncertainty as the probabilities themselves. 
+
+OUTPUT FORMAT 
+
+Conclude with your forecast as a strict-JSON dictionary inside <answer>...</answer> —keys in double quotes, values numeric, and no trailing commas. This is the only format the parser accepts. 
+
+Binary. Keys are exactly "YES" and "NO" , and values sum to 1. Format example (numbers are illustrative): 
+
+<answer>{"YES": 0.63, "NO": 0.37}</answer> 
+
+Multiple-choice. Include one key per option, with the label copied verbatim from the question (including spaces, punctuation, and casing) and double-quoted; values sum to 1. Format example (labels and numbers are illustrative): 
+
+<answer>{"Manchester City FC": 0.33, "Draw (Leeds United FC vs. Manchester City FC)": 0.17, "Leeds United FC": 0.50}</answer> 
+
+23 Preprint Figure 4: No-tools forecasting-agent system prompt. 
+
+Memory-Free Forecasting Agent Prompt 
+
+ROLE 
+
+You are an expert forecasting agent. For a binary question, you output the probability that the event occurs; for a multiple-choice question, you output one probability per option, with probabilities summing to one. Gather evidence, reason like a superforecaster, and commit to numbers that reflect your real uncertainty. You are scored by a proper scoring rule. Both overconfidence and reflexive hedging cost you. Forecast solely from the question and the evidence you retrieve, never from prior memory of how this event turned out. 
+
+WHAT YOU ARE GIVEN 
+
+• question : the event to forecast—binary ( YES /NO ) or multiple-choice. • resolution criteria : the exact event (or full set of options), the measurement source, and the resolution date that settles the question. • forecast date : treat this as today. Everything you can retrieve reflects the world only up to this date, so reason as a forecaster standing on that date would. 
+
+TOOLS 
+
+• search(query, top_k=5) : Returns the top_k articles in the corpus most relevant to query , ranked by score. Each hit shows id ,title, URL, published date, score, and an approximately 280-character snippet (summary). Raise top_k when you need to judge coverage rather than find a single article. • scrape(article_id) : Returns the full body of one article, including its id , title, URL, published date, and text. Pass an id 
+
+copied verbatim from one of your own prior search hits; IDs you did not receive, and articles published after the forecast date, are rejected. • python(code) : Executes code as Python in a fresh interpreter process ( numpy , pandas , scipy ; killed after 10 seconds) and returns what it prints, plus any error. Print every value you need; a bare final expression is echoed automatically. Nothing persists between calls, so send one self-contained script per call, typing in the numbers from your research. 
+
+FORECASTING STRATEGY 
+
+1. Pin down what resolves the question 
+
+Read the resolution criteria exactly: the precise event (or full set of options), the measurement source, and the resolution date. A forecast of the wrong quantity scores zero however sound the reasoning. Note the forecast date and how much time remains. 
+
+2. Set the outside view first 
+
+Before considering the specifics, establish the base rate or typical outcome split for the relevant reference class and anchor your initial estimate there. The outside view prevents a vivid but unrepresentative story from dominating. 
+
+3. Gather evidence systematically 
+
+• Decompose the question into the few sub-questions that would most move your estimate, and research each. Start with the most distinctive, decisive clue rather than the most generic. • Use specific, targeted queries—names, dates, and exact phrases in quotes when available. If the resolution criterion names a particular source (e.g., USGS, FDIC, AFRICOM, Apple Store, an official press release, or a specific tracker), include that source in your queries to surface authoritative evidence first. • If a search returns nothing useful, reformulate it using synonyms, related terms, or a different angle; never repeat a query that already failed. Try multiple independent search strategies for the same sub-problem; if one path fails, try another. 
+
+• Use scrape liberally. When a search snippet appears decisive or nearly decisive, retrieve the full article. The detail that settles the answer is often in the full text. Corroborate decisive facts across more than one article. 
+
+4. Compute what can be computed 
+
+A forecasting question is a judgment problem with computable parts. Settle those parts in code rather than prose; mental arithmetic, especially calendar arithmetic, is unreliable. Common computations include: • Extrapolation : fit the recent rate of a running total and project it to the resolution date. Comparing required pace with current pace often resolves threshold questions. • Base rates : turn historical counts into a probability for the remaining window, e.g., 1 − exp( −kt/n ) for k events observed over 
+
+n years with t years remaining. • Probability algebra : compute chained conditionals, at-least-one-of-k probabilities, scenario mixtures, and Bayesian updates ex-plicitly rather than mentally. • Simulation : when uncertain quantities interact (e.g., remaining games, polling error, or a volatile series relative to a barrier), simulate the possible paths and count outcomes. • Buckets : when multiple-choice options partition a numeric range, form an explicit distribution around a central estimate and derive each option’s probability from it rather than assigning probabilities by feel. Compute only with numbers actually obtained from your research. If the inputs would need to be invented, skip the computation—a guess passed through a simulation remains a guess. A computed result is also not the final answer by itself; it is one piece of evidence whose value depends on its assumptions. 
+
+5. Reason toward the forecast (the inside view) 
+
+• Lay out the main drivers for and against each outcome, weighting recent, direct, and high-quality evidence most heavily. • Consider realistic scenarios and their probabilities, then ask the opposite question: what would have to be true for this forecast to be wrong? Use this to check confirmation bias. • Move away from the base rate only as far as the evidence justifies. Strong, specific evidence should move the forecast substantially; weak or ambiguous evidence should move it little. 
+
+24 Preprint 
+
+6. Calibrate and commit 
+
+• Be granular: distinguish 0.6 from 0.7, and for multiple-choice questions let the evidence move the distribution away from a reflexive uniform split. This precision is where forecasting skill lives. • Never assign 0 or 1 to an outcome that is not truly impossible or certain; a confident error is the costliest mistake under the scoring rule. Multiple-choice probabilities must sum to one. • You must commit. “Uncertain” is not an answer—express uncertainty through the probabilities themselves. 
+
+OUTPUT FORMAT 
+
+Conclude with the forecast as a strict JSON dictionary inside <answer>...</answer> . Keys must use double quotes, values must be numeric, and trailing commas are not allowed. This is the only format accepted by the parser. 
+
+Binary. Keys are exactly "YES" and "NO" , and their values must sum to one. The following numbers are illustrative: 
+
+<answer>{"YES": 0.63, "NO": 0.37}</answer> 
+
+Multiple-choice. Include one key per option, copying each option label verbatim from the question, including spaces, punctuation, and casing. Values must sum to one. The following labels and probabilities are illustrative: 
+
+<answer>{"Manchester City FC": 0.33, "Draw (Leeds United FC vs. Manchester City FC)": 0.17, "Leeds United FC": 0.50}</answer> ,→
+
+Figure 5: Memory-free forecasting-agent system prompt. 
+
+Memory-On Forecasting Agent Prompt 
+
+ROLE 
+
+You are an expert forecasting agent. For a binary question you output the probability the event occurs; for a multiple-choice question, a probability per option summing to one. Gather evidence, reason like a superforecaster, and commit to numbers that reflect your real uncertainty. You are scored by a proper scoring rule. Both overconfidence and reflexive hedging cost you. Forecast solely from the question and the evidence you retrieve, never from prior memory of how this event turned out. 
+
+WHAT YOU ARE GIVEN 
+
+• question : the event to forecast—binary ( YES /NO ) or multiple-choice. • resolution criteria : the exact event (or full set of options), the measurement source, and the resolution date that settles the question. • forecast date : treat this as today. Everything you can retrieve reflects the world only up to this date, so reason as a forecaster standing on that date would. • belief notebook (only on a later forecast of the same question): your accumulated research from an earlier forecast date—build on it and revise it (see below). 
+
+TOOLS 
+
+• search(query, top_k=5) : Returns the top_k articles in the corpus most relevant to query , ranked by score. Each hit shows id ,title, URL, published date, score, and an approximately 280-character snippet (summary). Raise top_k when you need to judge coverage rather than just find one article. • scrape(article_id) : Returns the full body of one article, including its id , title, URL, published date, and text. Pass an id 
+
+copied verbatim from one of your own prior search hits; IDs you did not receive, and articles published after the forecast date, are rejected. • python(code) : Executes code as Python in a fresh interpreter process ( numpy , pandas , scipy ; killed after 10 seconds) and returns what it prints, plus any error. print every value you need (a bare final expression is echoed automatically). Nothing persists between calls, so send one self-contained script per call, typing in the numbers from your research. 
+
+FORECASTING STRATEGY 
+
+1. Pin down what resolves the question 
+
+Read the resolution criteria exactly: the precise event (or the full set of options), the measurement source, and the resolution date. A forecast of the wrong quantity scores zero however sound the reasoning. Note the forecast date and how much time remains. 
+
+2. Set the outside view first 
+
+Before the specifics, establish what the base rate or typical outcome split looks like for the relevant reference class, and anchor your initial estimate there. The outside view keeps a vivid but unrepresentative story from dominating. 
+
+3. Gather evidence systematically 
+
+• Decompose the question into the few sub-questions that would most move your estimate, and research each. Start with the most distinctive, decisive clue, not the most generic. • Use specific, targeted queries—names, dates, exact phrases in quotes when you have them. If the resolution criterion names a particular source (e.g., USGS, FDIC, AFRICOM, Apple Store, an official press release, a specific tracker), include that source in your queries to surface authoritative evidence first. If a search returns nothing useful, reformulate—try synonyms, related terms, or a different angle; never repeat a query that already failed. Try multiple independent search strategies for the same sub-problem; if one path fails, try another. 
+
+• Use scrape liberally: when a snippet returned by search looks decisive or close to decisive, scrape that article for its full text. The detail that settles the answer is usually in the full text. Corroborate any decisive fact across more than one article. 
+
+4. Compute what can be computed 
+
+A forecast question is a judgment problem with computable parts—settle those parts in code, not in prose. Mental arithmetic is unreliable, calendar math above all. The computations that recur: 
+
+25 Preprint 
+
+• Extrapolation : fit the recent rate of a running total and project it to the resolution date—required pace vs. current pace often settles a threshold question. • Base rates : turn historical counts into a probability for your window ( k events in n years, t years left → 1 − exp( −kt/n )). • Probability algebra : chained conditionals, at-least-one-of-k, scenario weighting, Bayes updates—never combine probabilities in your head. • Simulation : when uncertain quantities interact (remaining games, polling error, a volatile series against a barrier), Monte Carlo the paths and count outcomes. • Buckets : when multiple-choice options slice a numeric range, set a central estimate and spread, then read each option’s probability off an explicit distribution rather than by feel. Compute only with numbers you actually found in your research; if you would have to invent the inputs, skip code—a guess run through a simulation is still a guess. And a computed result is not your final answer: it is one more piece of evidence, only as good as the assumptions behind it. 
+
+5. Reason toward the forecast (the inside view) 
+
+• Lay out the main drivers for and against each outcome, weighting recent, direct, high-quality evidence most. • Consider the realistic scenarios and how likely each is, then ask the opposite: what would have to be true for this forecast to be wrong? This checks confirmation bias. • Move from your base rate only as far as the evidence justifies—strong specific evidence moves you far, weak or ambiguous evidence barely at all. 
+
+6. Calibrate and commit 
+
+• Be granular—distinguish 0.6 from 0.7, and on multiple-choice let the evidence pull the distribution away from a reflexive uniform split. This precision is where forecasting skill lives. • Never assign 0 or 1 to an outcome that is not truly impossible or certain; a confident error is the costliest mistake under the scoring rule. Multiple-choice probabilities must sum to 1.• You must commit. “Uncertain” is not an answer—express your uncertainty as the probabilities themselves. 
+
+BELIEF NOTEBOOK 
+
+Maintain a belief notebook : a structured running record of your current estimate and the evidence behind it. If you are given a notebook from an earlier forecast of this same question, treat it as your accumulated research—build on it and revise it; otherwise start a fresh one. On any later update you will see only this notebook, not your past searches, so anything you do not record is lost. Keep it complete enough to reconstruct your forecast from the notebook alone. The notebook is a JSON object with two parts. Its structure is identical for binary and multiple-choice questions—binary is simply the case where the options are "YES" and "NO" .
+
+assessment — your current view 
+
+• p: the probability you assign to each outcome. Keys are the option labels ( "YES" /"NO" for binary; the verbatim option labels for multiple-choice); values sum to 1. Must equal the forecast in your <answer> tag exactly. • open_questions : the few unresolved questions that would most move your estimate, to pursue on the next update. Omit if none. 
+
+evidence_ledger — established evidence 
+
+The evidence_ledger is an append-only list of the facts you have established. Each entry contains: • claim : the fact, stated concisely. • supports : the option label(s) this fact points toward—makes more likely. • rules_out : the option label(s) this fact points away from—makes less likely or eliminates. • date_observed : the date carried by the evidence itself, for recency—not the date you searched. • status : "active" , or "superseded" once later evidence overrides it. • note : brief provenance or quality caveat—the source, whether it was corroborated, or a judgment such as several reports tracing back to one original. 
+
+supports and rules_out are always present but need not cover every option. An option the fact does not directly bear on appears in neither list, and both may be [] for a purely contextual fact. 
+
+Maintaining the notebook 
+
+• Append, don’t overwrite. Add new facts as new entries. When later evidence contradicts or updates an earlier entry, mark the old one "superseded" rather than deleting it; never silently drop a fact you once recorded. • Put interpretation in the notes. Your step-by-step reasoning is not carried forward, so if a judgment about evidence quality matters (e.g., “three articles, but all cite the same press release”), record it in the entry’s note or it is lost. • Keep p consistent with the active ledger. Your probabilities should follow from the active (non-superseded) evidence, moved only as far as that evidence justifies. 
+
+OUTPUT FORMAT 
+
+Conclude with two things, in order, each in its own tag: 1. Your belief notebook, as a JSON object inside <belief_notebook>...</belief_notebook> .2. Your forecast, as a strict-JSON dictionary inside <answer>...</answer> —keys in double quotes, values numeric, no trailing commas. This is the only format the parser accepts, and its probabilities must equal your notebook’s p exactly. 
+
+Example output (illustrative): 
+
+<belief_notebook> {"assessment": {"p": {"YES": 0.32, "NO": 0.68}, "open_questions": ["Has the agency confirmed a revised timeline?"]}, "evidence_ledger": [ {"claim": "Regulator opened a formal review on 2025-05-12", "supports": ["YES"], "date_observed": "2025-05-13", 
+
+26 Preprint 
+
+"status": "active", "note": "official press release; primary source"}, {"claim": "Agency spokesperson said no decision is expected this quarter", "rules_out": ["YES"], "date_observed": "2025-05-20", "status": "active", "note": "direct quote, official"}, {"claim": "Early rumor of imminent approval", "supports": ["YES"], "date_observed": "2025-04-02", "status": "superseded", "note": "single blog; contradicted by the 05-12 review"}]} </belief_notebook> 
+
+Binary. Keys are exactly "YES" and "NO" , and values sum to 1. Format example (numbers are illustrative): 
+
+<answer>{"YES": 0.63, "NO": 0.37}</answer> 
+
+Multiple-choice. Include one key per option, with the label copied verbatim from the question (including spaces, punctuation, and casing) and double-quoted; values sum to 1. Format example (labels and numbers are illustrative): 
+
+<answer>{"Manchester City FC": 0.33, "Draw (Leeds United FC vs. Manchester City FC)": 0.17, "Leeds United FC": 0.50}</answer> 
+
+Figure 6: Memory-on forecasting-agent system prompt. 
+
+Query Decomposition Prompt 
+
+You are an expert forecasting analyst. Given an event forecasting question, your job is to break it down into the specific information a forecaster would need to assess it before the question resolves .
+
+CRITICAL CONSTRAINT 
+
+The agent that uses your queries can only see articles published before the forecast date (i.e., before the question resolves). Do NOT 
+
+generate queries aimed at the outcome of the event—post-event reports, official resolution announcements, election results, the actual launch price, the actual rate decision, etc. If those documents existed in the search corpus, that would be data leakage; we are not trying to surface them. Generate queries aimed at material that legitimately exists before resolution: leading signals, expert analysis, prior trends, structural context, and base rates. 
+
+WHAT YOU PRODUCE 
+
+Return a JSON object with exactly two lists of search queries: • evidence : pre-resolution signals that move a forecaster’s belief. Examples include polls, official announcements made before the event, earnings guidance, regulator statements, expert commentary, industry analyst notes, related-event coverage, market data, prior trends, and leading indicators. Time-anchor these queries where useful. • context : time-independent background needed to interpret the question. Examples include the actors involved, the rules or mechanism governing resolution, comparable past events (the reference class and their known outcomes—these are history, not leakage), incentives, and base rates. Each list must contain 4–7 queries; the total number of queries must be 8–14. 
+
+RULES FOR THE QUERIES 
+
+• Use proper nouns wherever possible (entity names, locations, institution names). Avoid generic phrases such as “company earnings” or “election results”—they retrieve little useful information. • For evidence queries, date-anchor when the question is time-sensitive (e.g., “Apple iPhone 17 Pro pricing rumor August 2025”, rather than simply “iPhone pricing”). • Aim for diverse phrasings across the two lists. Do not repeat the same query in both angles. The goal is broad coverage of the pre-resolution information landscape, not redundancy. • Each query should contain 3–10 words. Long queries match worse on dense retrieval and BM25 alike. • Do NOT include the question’s title verbatim. The title is already a query; you are producing complementary alternatives. • Do NOT generate queries that aim at the post-resolution answer (e.g., “FOMC September 2025 rate decision announcement” or “iPhone 17 Pro launch price”). If the question has already resolved, such queries could surface the answer directly—not what we want. 
+
+OUTPUT FORMAT 
+
+Return ONLY a JSON object. No prose, no Markdown fences, and no preamble. Schema: 
+
+{"evidence": ["q1", "q2", ...], "context": ["q1", "q2", ...] }
+
+Each list must contain 4–7 strings. The total number of queries across both lists should be 8–14. 
+
+EXAMPLE 
+
+Question: Will the Federal Reserve cut interest rates in September 2025? 
+
+Resolution criteria: This market resolves YES if the FOMC announces a rate cut at its September 2025 meeting. NO otherwise. 
+
+Output: 
+
+27 Preprint 
+
+{"evidence": [ "Federal Reserve August 2025 CPI inflation report", "FOMC July 2025 minutes dot plot", "Jerome Powell Jackson Hole 2025 speech", "treasury yield curve August 2025", "Fed officials hawkish dovish remarks August 2025", "labor market jobs report August 2025" ], "context": [ "FOMC voting members 2025 composition", "Federal Reserve dual mandate inflation employment", "Fed rate cut history 2024 pause cycle", "FOMC meeting calendar 2025 schedule" ]}
+
+Figure 7: Query-decomposition prompt used for corpus-side evidence retrieval. 
+
+Evidence Sufficiency and Leakage Judge Prompt 
+
+You are an expert judge evaluating whether a small offline news corpus carries enough signal to forecast an event question. You will be shown: 1. The forecasting question (title, resolution criteria, and the recorded close date). 2. A retrieval window [corpus_start_date, close_date - 2 days] —the lower bound is the corpus’s earliest indexed date; the upper bound leaves a two-day buffer before the recorded close date. 3. A ranked list of articles retrieved from the offline corpus for this question. Your job is not to forecast the answer. Your job is to decide whether a competent forecaster, given only these articles and reasoning from them , could form a calibrated belief about the question’s outcome—without relying on knowledge from outside the corpus. 
+
+WHAT YOU MUST PRODUCE 
+
+Return a single JSON object with this exact shape. No fences and no prose around it: 
+
+{"verdict": "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT", "informativeness": 0 | 1 | 2 | 3, "leakage_detected": true | false, "leakage_reason": null | "<short string>", "confident_lean": null | "YES" | "NO" | "<leg-label>", "key_hits": ["<article_id>", ...], "reasoning": "<one or two sentences>" }
+
+HOW TO DECIDE EACH FIELD 
+
+verdict — three buckets 
+
+• SUFFICIENT — the corpus contains direct or strong indirect evidence about the question’s outcome. A well-reasoned agent reading these articles would end up with a confident, well-calibrated belief (closer to 0 or 1, in the binary case) by resolution date. • PARTIAL — the corpus contains some signal: relevant background, related entities, partial evidence, or one weak indicator. Areasoning agent would move from a 50/50 prior toward the right answer but could not be highly confident from this corpus alone. • INSUFFICIENT — the corpus contains no useful signal: hits are off-topic, only superficially related, or the window is empty of substantive coverage. The agent would have no basis to update from the prior. 
+
+informativeness — 0–3 ordinal 
+
+A finer-grained score representing how much these articles would move a competent forecaster from a 50/50 prior: • 0 = no movement (corpus is noise, off-topic, or irrelevant). • 1 = small movement (some related context, no decisive evidence). • 2 = moderate movement (multiple corroborating leading indicators, or one strong indirect signal). • 3 = large movement (one or more articles that, while published before resolution, essentially answer the question). Map this to verdict consistently: • 0 → INSUFFICIENT 
+
+• 1 → PARTIAL 
+
+• 2 or 3 → SUFFICIENT 
+
+Recency — does the evidence cover the right time period? 
+
+Some questions require recent evidence to be informative; others do not. Apply this test before scoring: 1. Determine the question’s predictive horizon from the title and resolution criteria. • Snapshot or count over a fixed window (e.g., “# tweets Feb 17–24”, “weekly views”, “ranking on Feb 5”, “price on close”) →
+
+predictive horizon of approximately days to two weeks. • Trajectory needing fresh data points (e.g., “will X reach $N by date”, “will polls move K points”) → requires evidence within roughly the last month. • One-shot event whose preconditions persist (e.g., “will Apple announce X”, “will Russia capture town Y”) → older articles describing the actors or mechanism are acceptable. 
+
+28 Preprint 
+
+2. Compare against the median age of the retrieved hits in the retrieval stats line: median_hit_age_days ,
+
+freshest_hit_age_days , and hits_within_30d . The retrieval cutoff is close_date - 2 days .3. If the question requires recent evidence but the corpus has none in the relevant window (e.g., hits_within_30d == 0 for a snapshot question), the verdict is INSUFFICIENT regardless of how many topically related but stale articles exist. Background articles about the entity do not substitute for missing recent data. When in doubt, a snapshot/count question with no hits in the last approximately two weeks is INSUFFICIENT ; a one-shot event question with strong older articles can still be SUFFICIENT .
+
+leakage_detected — corpus integrity check 
+
+Before judging informativeness, verify that the corpus respects the retrieval window. The question’s close_date is the market’s 
+
+recorded close date . If ANY hit’s published_date is after close_date - 2 days , set leakage_detected: true and populate 
+
+leakage_reason with a short string identifying the offending article. Do NOT use those hits when judging sufficiency—score the corpus as if those hits were absent .If an article dated before close already states the resolved outcome (e.g., an article dated close_date - 2 days that reports the match score because the metadata date is the prior day’s late edition), treat that as content leakage and flag it in the same way. 
+
+confident_lean — optional directional read 
+
+If the in-window corpus gives a clear directional answer: • For binary questions, set confident_lean to "YES" or "NO" .• For multi-leg questions, set it to the leg label that the evidence most strongly supports (e.g., "Manchester City FC" ). • If the evidence is mixed, weak, or absent, set it to null .This is a sanity-check field—it allows us to measure later whether SUFFICIENT verdicts actually correlate with correct calibration. 
+
+key_hits — citations 
+
+Provide up to five article_id values from the retrieved hits that most influenced your verdict. Order them by importance, with the most decisive first. If verdict == "INSUFFICIENT" , this can be an empty list. 
+
+reasoning — one or two sentences 
+
+Provide a short justification for the verdict. Mention the strongest signal, or the strongest gap, by article title or topic. Keep it concise—this is read for spot-checking, not by the forecasting agent. 
+
+IMPORTANT RULES 
+
+• Use ONLY the retrieved articles. Do not bring in outside knowledge of the event’s actual outcome, even if you happen to remember it. The point of this judge is to score the corpus , not your prior. • Be conservative on SUFFICIENT . If the only “evidence” is one article that mentions the entities involved without addressing the resolution criteria, that is PARTIAL at best. • Recognize the difference between relevant background (PARTIAL ) and predictive evidence (SUFFICIENT ). Background tells you who the actors are; predictive evidence tells you which way the outcome is likely to break. • When in doubt between two adjacent buckets, choose the lower one: 
+
+INSUFFICIENT < PARTIAL < SUFFICIENT .
+
+OUTPUT FORMAT REMINDER 
+
+Return ONLY the JSON object. No Markdown fences, no preamble, and no prose outside the JSON. The object must validate against the schema above. 
+
+Figure 8: Evidence-sufficiency and leakage judge prompt used for corpus-side filtering. 29

@@ -1,0 +1,355 @@
+Title: MASCIT: A Mask-Aware State Space Classifier for Naturally Irregular Time Series
+
+URL Source: https://arxiv.org/pdf/2609.34409v1
+
+Published Time: Tue, 29 Sep 2026 03:32:19 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+Proceedings of the Asia Pacific Industrial Engineering & Management Systems Conference 2026 
+
+# MASCIT: A Mask-Aware State Space Classifier for Naturally Irregular Time Series 
+
+Yoo-Min Jung 
+
+Department of Industrial Engineering Seoul National University, Seoul, Republic of Korea Tel: (+82) 2-880-7361, Email: pamela7384@gmail.com 
+
+Hyeon-Gi Kim 
+
+Department of Industrial Engineering Seoul National University, Seoul, Republic of Korea Tel: (+82) 2-880-7361, Email: kimhun0505@snu.ac.kr 
+
+Jonghun Park 
+
+Department of Industrial Engineering Seoul National University, Seoul, Republic of Korea Tel: (+82) 2-880-7361, Email: jonghun@snu.ac.kr 
+
+Abstract. Naturally irregular time series combine asynchronous observations, missing values, unequal lengths, and nonuniform sampling, while dense adapters can discard temporal structure. We propose a mask-aware state space classifier for irregular time series (MASCIT), which supplies observation masks to the encoder and excludes invalid steps from gated temporal aggregation. Across 34 irregular time series datasets, MASCIT yielded the strongest aggregate point estimate and was the only evaluated neural model with three-seed results on every dataset. MASCIT retained the lowest point rank across six overlapping irregularity indicators, while factorial ablations favored partial over full selectivity. These results support selective state space models as effective, executable backbones for naturally irregular time series classification. 
+
+Keywords: irregular time series, time series classification, Mamba, observation masks, partial selectivity 
+
+1. INTRODUCTION 
+
+Event-driven clinical, mobility, and wearable time se-ries combine asynchronous channels, missing observations, un-equal lengths, and nonuniform sampling intervals (Spinnato and Landi, 2026). Their classification depends on both the se-quence model and the temporal information retained by a learn-able representation. Structured state space models (SSMs) combine recurrent state updates with parallelizable training, providing an efficient backbone for long-sequence modeling (Gu et al., 2021, 2022). Mamba introduces input-conditioned selection, allowing the re-currence to retain or discard information according to sequence content while preserving linear sequence complexity (Gu and Dao, 2024). This general-purpose mechanism does not itself represent irregular observations, nor does time series classifi-cation (TSC) necessarily benefit from applying selectivity uni-formly throughout the state space layer. Partial selectivity in-stead treats input dependence as an architectural choice, allow-ing adaptive and invariant dynamics to coexist. Our previous work adapted Mamba to multivariate classification with one partially selective layer and gated temporal aggregation (Jung and Kim, 2026). That work used regularly sampled archives, so its value-only input hid observation patterns and its gate normal-ization retained padding. Transfer to naturally irregular data therefore requires mask-aware encoder and readout interfaces, consistent with missingness-aware recurrent classifiers (Che et al., 2018; Cao et al., 2018). PYRREGULAR provides a shared representation and pro-tocol for this evaluation (Spinnato and Landi, 2026). Its 34 datasets span multiple irregularity forms but include related variants and resource-limited failures. Performance, execution, and statistical dependence must therefore remain distinct. We introduce the mask-aware state space classifier for ir-regular time series (MASCIT), a partially selective SSM-based model for naturally irregular TSC. MASCIT feeds channel-wise observation masks to the selective recurrence and propa-gates a valid-step mask into multi-head adaptive pooling, align-ing encoding and aggregation with the dense representation. It retains a shallow unidirectional backbone without separate im-1arXiv:2609.34409v1 [cs.LG] 28 Sep 2026 Jung, Kim & Park putation or bidirectional encoding. Without elapsed-time input, MASCIT models the order and mask geometry of compacted observations rather than physical gaps. We evaluate predictive and execution performance, capacity ablation, and representa-tion boundaries. Our contributions are as follows: • We introduce the first Mamba-based classifier for naturally irregular TSC by conditioning unidirectional selective recur-rence on observation masks and excluding invalid steps from multi-head adaptive pooling. • Across 34 datasets and 12 published baselines, MASCIT yielded the strongest aggregate point estimate and was the only evaluated neural model with complete data coverage, es-tablishing Mamba as an effective backbone. • Through regime-wise comparisons and factorial ablations, we show that MASCIT remained first across six irregularity indicators and that partial selectivity was more effective than making all SSM factors input dependent. 
+
+2. RELATED WORK 
+
+Irregular-series methods differ chiefly in how they encode missingness and time. Bidirectional recurrent imputation for time series (BRITS) and gated recurrent units with decay (GRU-D) combine recurrence with imputation or decay (Cao et al., 2018; Che et al., 2018), continuous-time models evolve hid-den states between observations (Rubanova et al., 2019; Kidger et al., 2020), and attention or graph models learn temporal and inter-sensor relations (Shukla and Marlin, 2021; Zhang et al., 2022; Du et al., 2023). General-purpose transforms, dictio-naries, tree ensembles, and temporal convolutions instead rely on representations that need not model irregular time explic-itly (Dempster et al., 2020; Spinnato et al., 2024; Wu et al., 2023). PYRREGULAR compares these alternatives under a shared representation and protocol (Spinnato and Landi, 2026). Mamba conditions selected state space parameters on the current input while retaining linear sequence complexity (Gu and Dao, 2024). Our previous work adapted this mechanism to classification through a shallow backbone, gated temporal aggregation, and separate selectivity choices for discretization and input/output projections (Jung and Kim, 2026). MASCIT retains this backbone for dense irregular data. Benchmark conclusions also depend on dataset compo-sition, preprocessing, and tuning budget (Ruiz et al., 2021). For naturally irregular data, resource-limited runs further bias completed-case averages. Selective SSM comparisons must therefore separate predictive quality, execution coverage, and temporal information exposed by the input (Wen et al., 2025). 
+
+3. METHOD 
+
+3.1 Irregular Time Series Representation 
+
+While PYRREGULAR described five irregularity forms, Channel 1 Channel 2 Channel 3            
+
+> t₁ t₂ t₃ t₄ t₅ t₆ t₇
+> sample 1
+> 𝐿 != 6
+> sample 2
+> 𝐿 "= 7
+> time Uneven sampling (US) Variable length (VL)
+> Partial observation (PO) Shift (SH) Ragged sampling (RS) Unequal channel length (UL)
+
+Figure 1: Six irregularity indicators used in this study. its unequal-length category conflated cross-instance variation with unequal channel lengths within an instance despite defin-ing them distinctly (Spinnato and Landi, 2026). As shown in Figure 1, we separate them into variable length and un-equal channel length, yielding six overlapping indicators. Un-even sampling (US) denotes inconstant successive intervals, whereas partial observation (PO) denotes a missing value at an expected timestamp. Variable length (VL) denotes differ-ent compacted lengths across instances, while unequal chan-nel length (UL) denotes different channel observation counts within an instance. Shift (SH) denotes displaced channel time ranges, and ragged sampling (RS) denotes channel-specific in-terval sequences. US, PO, and VL describe irregularity at the instance level, whereas UL, SH, and RS describe mis-matched temporal support across channels within a multivari-ate instance. Let D = {(Xi, Mi, y i)}Ni=1 , where N counts instances, 
+
+Xi is the dense value matrix, Mi ∈ {0, 1}L×C is the bi-nary observation mask derived from its observed entries, and 
+
+yi ∈ { 1, . . . , K } is the class label. The adapter constructs Xi
+
+by sorting the union of timestamps from all C channels and assigning consecutive positions to observed events (Spinnato and Landi, 2026); the model input retains their observedness in Mi. Before padding, each matrix has shape Li × C, where 
+
+Li is the compacted length; unobserved values are zeroed and instances are padded to L = max i Li. Compaction preserves values, event order, length, and channel-wise mask geometry but replaces elapsed-time gaps with consecutive indices. 
+
+3.2 State Space and Selective State Space Models 
+
+An SSM maps a scalar input u(t) to a state vector h(t) of size dstate and a scalar output o(t) (Gu et al., 2021): 
+
+˙h(t) = Ah (t) + Bu(t), o(t) = Ch (t). (1) Here, A ∈ Rdstate ×dstate evolves the state, B ∈ Rdstate writes the input, and C ∈ R1×dstate reads the output. With fixed step size 
+
+∆, its discrete form is 
+
+ht = Ah t−1 + But, ot = Ch t, (2) where A = FA(∆ , A) and B = FB (∆ , A, B) are discretized 2Jung, Kim & Park Table 1: Dataset taxonomy based on six irregularity indicators for the 34 datasets used in this study. UL 0 denotes the original unequal-length indicator reported by PYRREGULAR and is retained for comparison with the refined taxonomy. type health human activity recognition mobility sensor other synthetic dataset 
+
+> MI3 P12 P19 CT GM1 GM2 GM3 GP1 GP2 GX GY GZ LPA PAM PGZ SGZ AN AOC APT ARC GSS MP SE TA VE DD DG DW IW JV PGE PL SAD ABF
+
+US 3 3 3 7 7 7 7 7 7 7 7 7 3 3 7 7 3 7 7 7 3 7 3 3 3 7 7 7 7 7 3 7 7 3
+
+PO 3 3 3 7 7 7 7 7 7 7 7 7 7 3 7 7 7 7 7 7 7 3 7 7 7 3 3 3 7 7 7 7 7 7
+
+VL 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 7 3 3 3 7 7 7 3 3 3 3 3 7
+
+UL 3 3 3 7 7 7 7 7 7 7 7 7 3 3 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7
+
+SH 3 3 3 7 7 7 7 7 7 7 7 7 3 3 7 7 7 7 7 7 3 7 3 3 7 7 7 7 7 7 3 7 7 7
+
+RS 3 3 3 7 7 7 7 7 7 7 7 7 3 3 7 7 3 7 7 7 3 7 3 3 3 7 7 7 7 7 3 7 7 7
+
+UL 0 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 7 7 7 3 3 3 3 3 7
+
+parameters. Fixed parameters make this system time invariant. For multivariate input, the input projection maps each po-sition to ut ∈ Rdmodel , where dmodel is the projected input dimen-sion. The componentwise scalar recurrence yields ot ∈ Rdmodel .Mamba linearly projects ut to parameterize ∆t, Bt, and Ct,yielding an input-dependent, time-varying system (Gu and Dao, 2024). Our previous work replaced full input dependence with independent time-invariant or time-varying choices for these parameters (Jung and Kim, 2026). For each P ∈ { ∆, B, C},let ϕP be its input-conditioned projection and θP ∈ { 0, 1} its selectivity switch: 
+
+Pt = (1 − θP )P + θP ϕP (ut), P ∈ { ∆, B, C}. (3) Here, θP = 0 selects the time-invariant (TI) form and θP =1 the input-dependent, time-varying (TV) form. The three switches define eight patterns; ∆ controls the state-update timescale, while B and C govern input-to-state and state-to-output routing. MASCIT retains this factorization and adapts its input and readout to dense irregular series. 
+
+3.3 MASCIT Classifier 
+
+As shown in Figure 2, MASCIT adapts our previous clas-sifier to dense irregular series through two mask-aware opera-tions. First, the input projection embeds [Xi∥Mi] ∈ RL×2C ,where ∥ denotes feature-wise concatenation, before the par-tially selective SSM. For each instance, mt ∈ { 0, 1} indicates whether position t is valid rather than padded. Second, this valid-step mask excludes padding from gated temporal aggrega-tion. The length-scaled temporal projection, ordinal positional encoding, single partially selective SSM, and gated readout fol-low our previous work (Jung and Kim, 2026). The output projection converts each recurrent feature ot
+
+into class logits lt ∈ RK . For H gating heads, head h ∈{1, . . . , H } has weight wh ∈ Rdmodel and bias bh ∈ R. The largest head score gt, normalized temporal weight αt, and ag-X M
+
+Conv1D + Dropout Partially Selective SSM LayerNorm + SiLU Linear Linear Dropout Softmax Adaptive Max Pooling 
+
+> ∑
+
+!𝑦 
+
+per-time weight ( 𝑎 !)per-time logits ( 𝒍 !)Output projection  Input projection 
+
+Figure 2: Overall structure of MASCIT. MASCIT applies masks to the encoder input and temporal aggregation. gregate logits l are 
+
+gt = max  
+
+> h
+
+(w⊤ 
+
+> h
+
+ot + bh),αt = mt exp (gt)
+
+∑ 
+
+> r
+
+mr exp (gr ) , l = ∑
+
+> t
+
+αtlt. (4) The denominator spans r ∈ { 1, . . . , L }, so mr = 0 excludes in-valid positions from the readout. This aggregation ranges from distributed averaging to localized max-like pooling without a length-dependent fully connected readout. Without timestamp or time-gap input, ∆t controls internal state transitions rather than physical elapsed time. 3Jung, Kim & Park Table 2: Aggregate F1 (%) performance and execution coverage across 34 irregular time series classification datasets. Bold : best, underline: second-best. non-deep learning deep learning distance/kernel tree transform + tree recurrent neural CDE graph transformer convolution SSM KNN (1978) SVM (2016) LGBM (2017) ROCKET (2020) BORF (2024) RIFC (2026) BRITS (2018) GRU-D (2018) NCDE (2020) Raindrop (2022) SAITS (2023) TimesNet (2023) MASCIT (ours) avg. F1 (%) 59.405 26.880 60.562 66.890 62.505 57.099 51.218 46.246 42.052 55.232 55.008 55.769 69.200                                                                                
+
+> avg. rank 7.309 11.353 5.750 4.118 5.574 6.338 7.618 8.574 9.441 7.294 7.574 6.941 3.118
+> top-1 20482300200013
+> top-3 82924 13 473204423 data coverage 29/34 31/34 34/34 34/34 34/34 34/34 32/34 32/34 32/34 32/34 32/34 32/34 34/34 W/L 24/5 29/2 24/10 19/15 25/9 26/8 29/3 29/3 28/4 28/4 27/5 28/4 –Wilcoxon p.002 <.001 .006 .394 .026 .006 <.001 <.001 <.001 <.001 <.001 <.001 –
+
+4. EXPERIMENTAL SETUP 
+
+4.1 Datasets and Baselines 
+
+We evaluate all 34 PYRREGULAR datasets spanning healthcare, activity recognition, mobility, sensor, other real-world, and synthetic domains (Spinnato and Landi, 2026). Ta-ble 1 summarizes their six overlapping irregularity indicators, and Appendix A gives their full names. We denote the number of instances, maximum sequence length, and channels by N ,
+
+L, and C. We use the official train–test partitions provided by PYRREGULAR. The 12 baselines span non-deep and deep learning struc-tures. Non-deep methods comprise k-nearest neighbors with dynamic time warping (KNN), a support vector machine with a longest-common-subsequence kernel (SVM), Light-GBM (LGBM), bag-of-receptive-fields (BORF), the random interval feature classifier (RIFC), and the random convo-lutional kernel transform (ROCKET), implemented through MiniRocket (Sakoe and Chiba, 1978; Bagheri et al., 2016; Ke et al., 2017; Spinnato et al., 2024; Spinnato and Landi, 2026; Dempster et al., 2020, 2021). Deep methods com-prise BRITS, GRU-D, a neural controlled differential equation (NCDE), Raindrop, self-attention-based imputation for time se-ries (SAITS), and TimesNet (Cao et al., 2018; Che et al., 2018; Kidger et al., 2020; Zhang et al., 2022; Du et al., 2023; Wu et al., 2023). We use benchmark-recommended settings, aver-aging neural and selected stochastic methods over three runs and evaluating the remainder once (Spinnato and Landi, 2026). 
+
+4.2 Implementation and Evaluation 
+
+MASCIT uses one partially selective Mamba layer with fixed dmodel = 128 and dstate = 16 on every dataset. For each dataset, we evaluate all eight prespecified TI/TV configurations and report the highest test macro-F1 averaged over three seeds. Macro-F1 (%) is the primary metric. We report data cov-erage and available-case average F1 (%); ranks span all 34 datasets, with unavailable runs tied last. Top-1 and Top-3 count dataset-level placements, while W/L denotes MASCIT wins versus losses over each baseline’s available paired datasets. We apply one-sided Holm-corrected Wilcoxon signed-rank tests for the alternative that MASCIT has a higher F1 (Wilcoxon, 1945; Holm, 1979). To reduce cross-dataset scale heterogene-ity, Wilcoxon tests use within-dataset z-normalized F1 scores before Holm correction. Runtime includes fitting and predic-tion; MASCIT uses the closest available setup to PYRREGU-LAR. 1
+
+5. RESULTS AND DISCUSSION 
+
+5.1 Performance and Efficiency in Irregular TSC 
+
+Table 2 summarizes classification performance, execution coverage, and paired comparisons for MASCIT and 12 base-lines across 34 PYRREGULAR benchmark datasets. MASCIT achieves the best average F1 score and rank, as well as the largest number of Top-1 finishes, while ROCKET is the closest published competitor. The Holm-corrected Wilcoxon tests con-firmed statistically significant gains ( p < . 05 ) over all models except ROCKET. In addition, MASCIT was the only evaluated neural method with results on all 34 datasets. Together, these results demonstrate both the inherent capability of Mamba and the effectiveness of the mask-aware selective design for natu-rally irregular time series classification. To examine whether the predictive gains in Table 2 require additional computational cost, Figure 3 relates average rank to mean fit-plus-predict runtime on the 29 datasets successfully evaluated by all models. MASCIT occupied the most favor-able region of the plot, attaining the best average rank at the lowest recorded runtime rather than exchanging efficiency for classification performance. This pattern supports the efficiency of the shallow selective design, although the mixed hardware prevents a controlled Pareto comparison. 
+
+> 1PYRREGULAR used an NVIDIA Tesla V100 32 GB GPU; we used an NVIDIA L4 24 GB GPU.
+
+4Jung, Kim & Park 10 1 10 2 10 3 10 4 10 5
+
+total runtime (s) 
+
+46810 12 
+
+> average rank
+> MASCIT
+> ROCKET BORF LightGBM RIFC KNN TimesNet Raindrop BRITS SAITS GRU-D NCDE SVM
+> Data coverage
+> 29/34 31/34 32/34 34/34
+
+Figure 3: Runtime versus average rank on the 29 datasets evalu-ated by all models; marker area shows data coverage. 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 
+
+length heterogeneity (IQR/median) 
+
+-40 -20 020 40 
+
+> macro-F1 gap (%)
+
+LPA 
+
+w/o LPA ( ρ = 0.815 )w/ LPA ( ρ = 0.747 )
+
+Figure 4: Dataset-level relative length dispersion versus the unadjusted generalist–irregular-neural macro-F1 gap (%p) on 29 common datasets. 
+
+5.2 Model Structures and Dataset Regimes Length heterogeneity. Figure 4 plots the instance-length interquartile range divided by its median against the performance gap between generalist transform/tree pipelines (BORF, LightGBM, RIFC, and ROCKET) and irregularity-oriented neural models (BRITS, GRU-D, NCDE, Raindrop, and SAITS). The Spearman correlation was positive (Spear-man, 1904), indicating that greater length heterogeneity is as-sociated with a larger advantage for generalist transform/tree pipelines in this comparison. The rightmost point, LPA , was a high-leverage person-held-out dataset and visibly flattened the unadjusted line; the result therefore supports a regime associa-tion, not a causal benefit of length variation. 
+
+Dataset scale. Figure 5(a) compares ranks across splits at 
+
+N = 500 , L = 360 , and C = 1 . MASCIT ranked first on both sides and became relatively stronger on larger, multivariate, and longer series, whereas ROCKET shifted most clearly toward longer series. The ordering is therefore regime dependent even when the aggregate comparison set is held fixed. 
+
+Irregularity composition. Figure 5(b) exposes a sharper composition effect. MASCIT had the lowest point rank within every indicator group, with its strongest values in the sparse 
+
+UL and SH subsets, whereas ROCKET was most competitive in the dominant VL group and ranked lower elsewhere. Al-small big Δ                                                                                                           
+
+> size ( N) 6.5 10.9 6.3 4.4 5.6 5.7 7.4 8.2 9.8 7.1 7.5 8.0 3.6 6.7 12.0 6.3 4.2 6.1 7.3 7.5 9.0 9.8 7.1 7.7 5.5 1.8 0.2 1.1 <0.1 -0.2 0.5 1.6 0.1 0.8 <0.1 <0.1 0.2 -2.6 -1.7
+> short long Δ
+> length ( L) 6.7 10.3 7.1 6.0 7.9 7.4 5.3 6.8 9.7 7.1 7.5 5.8 3.3 6.5 12.6 5.5 2.5 3.6 5.3 9.7 10.5 9.9 7.0 7.6 8.0 2.3 -0.2 2.3 -1.6 -3.5 -4.3 -2.1 4.4 3.7 0.2 -0.1 0.1 2.2 -1.0
+> KNN SVM LGBM ROCKET BORF RIFC BRITS GRU-D NCDE Raindrop SAITS TimesNet
+> MASCIT
+> uni multi Δ
+> channel ( C)
+> 5.5 10.8 6.2 3.4 5.3 6.8 8.1 9.4 10.0 7.4 7.9 7.1 3.1 7.9 12.3 6.5 5.4 6.5 5.8 6.6 7.6 9.5 6.7 7.2 6.7 2.4 2.4 1.5 0.4 2.0 1.1 -1.0 -1.5 -1.8 -0.5 -0.7 -0.8 -0.4 -0.7
+> 1713
+> rank
+> 0.0 2.5 5.0
+> |Δ|
+
+(a) Dataset size, length, and channel count. KNN SVM LGBM ROCKET BORF RIFC BRITS GRU-D NCDE Raindrop SAITS TimesNet                                                                          
+
+> MASCIT
+> US (8) PO (6) VL (24) UL (3) SH (5) RS (7)
+> 7.8 10.8 6.3 7.2 7.2 4.7 6.6 6.7 7.6 7.0 7.6 7.9 3.5 6.9 8.3 6.5 7.6 9.5 6.2 5.2 6.1 9.7 7.2 6.8 7.1 4.0 6.9 12.4 6.0 3.6 5.1 5.8 8.3 9.0 10.2 6.9 7.6 6.7 2.4 11.7 11.2 5.0 10.2 7.7 2.7 7.7 7.5 8.3 5.7 6.3 5.5 1.7 9.4 11.3 6.6 8.7 8.0 4.0 6.2 5.9 8.2 6.4 7.0 7.5 1.8 8.0 11.8 5.6 6.6 6.6 3.7 7.3 6.5 8.6 6.7 7.7 8.4 3.6 1713
+> rank
+
+(b) Irregularity indicators. 
+
+Figure 5: Average ranks on 29 common datasets; the ∆ in (a) reports the lower-row minus upper-row difference. Table 3: Model ablation for the two mask interfaces. Bold :best, underline: second-best. model concat mask input masked pooling avg. F1 (%) avg. rank W/L Wilcoxon 
+
+p
+
+MASCIT 3 3 69.200 1.71 – –
+
+7 3 68.308 2.81 26/8 .022 
+
+3 7 66.686 2.62 25/9 .006 
+
+7 7 67.060 2.87 27/7 .005 though ROCKET was the aggregate runner-up in Table 2, ex-cluding the 17 common-set datasets whose only indicator is VL 
+
+moved it from second to seventh, while MASCIT remained first. Thus, ROCKET’s aggregate position is composition-sensitive, whereas MASCIT is not confined to the dominant 
+
+VL stratum. 
+
+Mask ablation. Table 3 shows that MASCIT achieved the best average F1 and rank and outperformed every ablation on most datasets. Removing masked pooling produced the largest decrease in average F1, whereas removing both interfaces did not compound this loss, indicating a non-additive interaction. Nevertheless, all three ablations were inferior under the Holm-corrected Wilcoxon test ( p < . 05 ), supporting the joint use of mask-conditioned encoding and masked pooling. 
+
+5.3 Sensitivity Analyses Capacity sensitivity. Figure 6 compares dmodel ∈{32 , 64 , 128 , 256 , 512 , 1024 } and dstate ∈ { 1, 2, 4, 8, 16 } on the 34 datasets. The high-performing region from widths 64 to 256 remained broad, whereas performance declined at larger 5Jung, Kim & Park 32 64 128 256 512 1024                            
+
+> model width dmodel
+> 124816
+> state size  dstate
+> 65.904 67.693 67.907 67.595 66.425 65.783 67.171 68.631 68.444 67.963 66.683 67.121 66.652 68.150 68.411 67.711 66.790 66.955 67.155 68.487 68.438 67.675 67.382 66.880 66.786 68.095 69.200 68.112 67.744 67.012 66 67 68 69
+> F1 (%)
+
+Figure 6: Capacity ablation. Each cell value is an average F1 score (%). Red outlines 128 × 16 .10 2 10 3 10 4 10 5 
+
+> number of instances
+> 020 40
+> best  − ten-percentile F1 (%)  DW
+> all datasets ( ρ= − 0.775 )
+
+Figure 7: Configuration sensitivity versus sample size. Table 4: Noise-adjusted functional ANOVA shares. component share 95% interval 
+
+dmodel .411 [.336, .490] 
+
+dstate .013 [.008, .018] time-(in)variance of ∆ .228 [.155, .306] time-(in)variance of B .036 [.020, .057] time-(in)variance of C .015 [.008, .023] widths and changed comparatively little with state size. De-spite the visible color differences, MASCIT remained first in average rank across all dmodel and dstate combinations except 
+
+(dmodel , d state ) = (32 , 1) . In particular, for each dmodel ∈{64 , 128 , 256 }, the average rank difference between MASCIT and ROCKET exceeded 0.5 across the five dstate values. 
+
+Sample-size sensitivity. Figure 7 shows that small datasets have a much wider gap between the best and lower-tail configurations, whereas larger datasets are comparatively flat. This relationship persisted under source exclusions and also ap-peared in held-seed selection regret. This indicates selection uncertainty rather than transferable tuning gains. 
+
+Configuration sensitivity. Table 4 uses functional analy-sis of variance (ANOVA) to decompose configuration variation across the complete factorial grids (Hutter et al., 2014). Main effects accounted for 70.3% of the noise-adjusted variation, with the remaining 29.7% attributed to interactions. Among all individual functional ANOVA components, only dmodel 
+
+(41.1%), the time-(in)variance of ∆ (22.8%), and their inter-action, dmodel × ∆ (10.5%), exceeded 5%. After capacity, ∆ is P19 TA GP1 GM1 GM2 GP2 MP AN VE GM3 PL DG GZ DW DD    
+
+> Δ
+> GP1 LPA P19 MP SE DG PL PGZ GZ GY AOC
+> B
+> -1 (TI) 01(TV)
+> MP MI3 PGZ LPA AN DD
+> C
+> time-(in)variance dominance >=80% consistent stable only seed range
+
+Figure 8: Dataset-level TV-minus-TI effects for (top) ∆, (mid-dle) B, and (bottom) C. Only datasets with consis-tent directions across runs are shown. therefore the dominant source of configuration variation. Repeating the two datasets ( APT and GZ ) with train-only convolution windows preserved the broad capacity and selec-tivity patterns, indicating that the reported surface was not in-duced by test-length-dependent window construction. 
+
+5.4 Partial Selectivity 
+
+The capacity and configuration sensitivity analyses in Sec-tion 5.3 identify widths 64–256 as a broad high-performing re-gion and ∆ as the dominant selectivity-related source of varia-tion, motivating a dataset-level analysis of the three selectivity choices within this region. As shown in Figure 8, consistent ef-fects are more common and more strongly oriented toward TI for ∆, whereas B splits between TI and TV and C shows no strongly consistent direction. This dataset-level structure com-plements the aggregate functional ANOVA result and favors partial over full selectivity. Global averages conceal local structure. Within repeated source groups, Gesture-Mid-Air ( GM1 , GM2 , and GM3 ) and Gesture-Pebble ( GP1 and GP2 ) favored TI-∆, whereas Dodger-Loop ( DD , DG , and DW ) favored TV-∆. These contrasts suggest that source and task context shape the preferred form of selec-tivity beyond the irregularity indicators alone. 6Jung, Kim & Park As in our previous work, clear dataset-specific TI/TV pref-erences emerged for both ∆ and B, whereas C showed little consistent structure on regularly sampled TSC datasets (Jung and Kim, 2026). However, the distinguishing pattern here is the greater prevalence of TI-∆ cases despite natural irregular-ity. This result suggests that exposing observation irregularity through the mask allows fixed state transitions to remain effec-tive without making ∆ input dependent. 
+
+6. CONCLUSION 
+
+We proposed MASCIT, a mask-aware state space clas-sifier for irregular time series, which conditions its encoder on channel-wise observation masks and excludes invalid steps from gated aggregation. MASCIT attained the strongest aggre-gate point estimate and was the only evaluated neural model with completed results on all 34 datasets. Factorial analyses favored partial over full selectivity and identified ∆ as the dominant source of selectivity-related variation; together, these findings support a shallow selective state space backbone for dense irregular representations rather than explicit irregular-time modeling. Nevertheless, the dataset-wise same-test ora-cle over eight patterns makes the aggregate an optimistic upper envelope, motivating a test-independent selection rule. 
+
+REFERENCES 
+
+Bagheri, M. A., Gao, Q., and Escalera, S. (2016). Support vec-tor machines with time series distance kernels for action classification. In 2016 IEEE Winter Conference on Appli-cations of Computer Vision (WACV) , pages 1–7. IEEE. Cao, W., Wang, D., Li, J., Zhou, H., Li, L., and Li, Y. (2018). BRITS: Bidirectional recurrent imputation for time series. In Advances in Neural Information Processing Systems (NeurIPS) , volume 31. Che, Z., Purushotham, S., Cho, K., Sontag, D., and Liu, Y. (2018). Recurrent neural networks for multivariate time se-ries with missing values. Scientific Reports , 8:6085. Dempster, A., Petitjean, F., and Webb, G. I. (2020). ROCKET: Exceptionally fast and accurate time series classification us-ing random convolutional kernels. Data Mining and Knowl-edge Discovery (DMKD) , 34 :1454–1495. Dempster, A., Schmidt, D. F., and Webb, G. I. (2021). Minirocket: A very fast (almost) deterministic transform for time series classification. In Proceedings of the 27th ACM SIGKDD conference on knowledge discovery & data mining , pages 248–257. Du, W., Cote, D., and Liu, Y. (2023). SAITS: Self-attention-based imputation for time series. Expert Systems with Ap-plications , 219 :119619. Gu, A. and Dao, T. (2024). Mamba: Linear-time sequence mod-eling with selective state spaces. In The First Conference on Language Modeling .Gu, A., Goel, K., and Re, C. (2022). Efficiently modeling long sequences with structured state spaces. In International Conference on Learning Representations (ICLR) .Gu, A., Johnson, I., Goel, K., Saab, K., Dao, T., Rudra, A., and Ré, C. (2021). Combining recurrent, convolutional, and continuous-time models with linear state space layers. In 
+
+NeurIPS , pages 572–585. Holm, S. (1979). A simple sequentially rejective multiple test procedure. Scandinavian Journal of Statistics , 6:65–70. Hutter, F., Hoos, H., and Leyton-Brown, K. (2014). An ef-ficient approach for assessing hyperparameter importance. In Proceedings of the 31st International Conference on Ma-chine Learning , volume 32, pages 754–762. PMLR. Jung, Y.-M. and Kim, L. (2026). MambaSL: Exploring single-layer mamba for time series classification. In ICLR .Ke, G., Meng, Q., Finley, T., Wang, T., Chen, W., Ma, W., Ye, Q., and Liu, T.-Y. (2017). LightGBM: A highly efficient gradient boosting decision tree. In NeurIPS , volume 30. Kidger, P., Morrill, J., Foster, J., and Lyons, T. (2020). Neural controlled differential equations for irregular time series. In 
+
+NeurIPS , volume 33, pages 6696–6707. Rubanova, Y., Chen, R. T. Q., and Duvenaud, D. K. (2019). La-tent ordinary differential equations for irregularly-sampled time series. In NeurIPS , volume 32. Ruiz, A. P., Flynn, M., Large, J., Middlehurst, M., and Bagnall, A. (2021). The great multivariate time series classification bake off: a review and experimental evaluation of recent algorithmic advances. DMKD , 35 :401–449. Sakoe, H. and Chiba, S. (1978). Dynamic programming al-gorithm optimization for spoken word recognition. IEEE Transactions on Acoustics, Speech, and Signal Processing ,
+
+26 :43–49. Shukla, S. N. and Marlin, B. M. (2021). Multi-time attention networks for irregularly sampled time series. In ICLR .Spearman, C. (1904). The proof and measurement of associa-tion between two things. The American Journal of Psychol-ogy , 15 :72–101. Spinnato, F., Guidotti, R., Monreale, A., and Nanni, M. (2024). Fast, interpretable and deterministic time series classifica-tion with a bag-of-receptive-fields. IEEE Access .Spinnato, F. and Landi, C. (2026). PYRREGULAR: A uni-fied framework for irregular time series, with classification benchmarks. In ICLR .Wen, Y., Ma, T., Luss, R., Bhattacharjya, D., Fokoue, A., and Julius, A. A. (2025). Shedding light on time series classifi-cation using interpretability gated networks. In ICLR .Wilcoxon, F. (1945). Individual comparisons by ranking meth-ods. Biometrics bulletin , 1:80–83. Wu, H., Hu, T., Liu, Y., Zhou, H., Wang, J., and Long, M. (2023). TimesNet: Temporal 2d-variation modeling for general time series analysis. In ICLR .Zhang, X., Zeman, M., Tsiligkaridis, T., and Zitnik, M. (2022). Raindrop: Graph-guided network for irregularly sampled multivariate time series. In ICLR .7Jung, Kim & Park 
+
+Appendix A. Dataset-Level MASCIT Results 
+
+Table 5: Dataset-level MASCIT performance and runtime over three seeds. Values are mean ± sample standard deviation. dataset symbol macro-F1 (%) accuracy (%) runtime (s) MIMIC-III Clinical Database Demo MI3 46 .387 ± 19 .213 60 .606 ± 10 .497 1.9 ± 0.4
+
+PhysioNet 2012 P12 61 .111 ± 0.939 83 .488 ± 0.504 110 .9 ± 0.5
+
+PhysioNet 2019 P19 68 .562 ± 1.214 92 .159 ± 0.704 863 .9 ± 1.0
+
+Character-Trajectories CT 99 .131 ± 0.335 99 .188 ± 0.314 22 .4 ± 15 .4
+
+Gesture-Mid-Air-D1 GM1 63 .904 ± 3.519 64 .615 ± 2.665 7.0 ± 0.5
+
+Gesture-Mid-Air-D2 GM2 59 .743 ± 2.037 62 .564 ± 1.175 6.7 ± 0.3
+
+Gesture-Mid-Air-D3 GM3 24 .216 ± 2.663 27 .179 ± 1.776 7.1 ± 0.5
+
+Gesture-Pebble-Z1 GP1 87 .849 ± 2.540 88 .372 ± 2.664 5.1 ± 0.5
+
+Gesture-Pebble-Z2 GP2 81 .373 ± 0.944 82 .489 ± 0.731 5.4 ± 0.5
+
+All-Gesture-Wiimote-X GX 70 .390 ± 1.444 70 .286 ± 1.245 9.1 ± 2.2
+
+All-Gesture-Wiimote-Y GY 72 .356 ± 2.276 72 .571 ± 2.245 8.4 ± 1.9
+
+All-Gesture-Wiimote-Z GZ 65 .637 ± 2.525 65 .714 ± 2.199 8.5 ± 0.8
+
+Pickup-Gesture-Wiimote-Z PGZ 73 .828 ± 4.911 74 .667 ± 4.163 2.4 ± 0.5
+
+Shake-Gesture-Wiimote-Z SGZ 88 .226 ± 1.005 88 .667 ± 1.155 2.3 ± 0.5
+
+Localization Data for Person Activity LPA 79 .137 ± 2.981 80 .606 ± 2.777 30 .7 ± 0.4
+
+PAMAP2 Physical Activity Monitoring PAM 56 .513 ± 6.168 68 .421 ± 4.558 8306 .8 ± 1232 .9
+
+Animals AN 67 .548 ± 8.214 73 .118 ± 4.928 1.9 ± 0.7
+
+Asphalt-Obstacles-Coordinates AOC 84 .101 ± 0.842 84 .058 ± 0.822 13 .0 ± 2.1
+
+Asphalt-Pavement-Type-Coordinates APT 96 .086 ± 0.904 96 .338 ± 0.816 100 .5 ± 0.1
+
+Asphalt-Regularity-Coordinates ARC 99 .245 ± 0.077 99 .245 ± 0.077 102 .5 ± 36 .4
+
+GeoLife Supervised GSS 11 .094 ± 0.473 42 .735 ± 0.536 11512 .3 ± 8371 .3
+
+Melbourne Pedestrian MP 92 .683 ± 0.515 92 .770 ± 0.519 32 .6 ± 0.9
+
+GPS Data of Seabirds SE 61 .327 ± 0.528 73 .737 ± 1.750 16 .7 ± 0.5
+
+Taxi TA 24 .521 ± 0.452 51 .801 ± 0.004 799 .6 ± 325 .6
+
+Vehicles VE 61 .542 ± 2.011 76 .232 ± 0.502 7.0 ± 3.6
+
+Dodger-Loop-Day DD 44 .746 ± 7.296 47 .083 ± 6.884 3.3 ± 0.4
+
+Dodger-Loop-Game DG 61 .935 ± 25 .885 67 .150 ± 17 .123 1.1 ± 0.8
+
+Dodger-Loop-Weekend DW 95 .476 ± 2.651 96 .377 ± 2.174 1.2 ± 0.7
+
+Insect-Wingbeat IW 65 .525 ± 0.285 65 .633 ± 0.240 898 .2 ± 3.9
+
+Japanese-Vowels JV 97 .650 ± 0.397 97 .748 ± 0.312 6.1 ± 2.3
+
+Productivity Prediction of Garment Employees PGE 100 .000 ± 0.000 100 .000 ± 0.000 0.8 ± 0.4
+
+PLAID PL 59 .478 ± 1.574 63 .253 ± 0.919 27 .0 ± 4.0
+
+Spoken-Arabic-Digits SAD 99 .077 ± 0.264 99 .075 ± 0.266 83 .7 ± 22 .8
+
+Alembics Bowls Flasks ABF 32 .390 ± 1.711 33 .630 ± 2.478 1.8 ± 1.0
+
+8

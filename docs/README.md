@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-01</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-02</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 35 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 33 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>23</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>21</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-01 23:22:43 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-02 23:42:47 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-10-01 日报完成 35 篇筛选，精读 23 篇、速读 12 篇，重点聚焦时间序列与预测智能体。最值得看的是两篇 9.0 分精读：预算约束下的语言模型预测决策评测，以及能理解数据修订的时间序列基础模型。普通读者可优先从这两篇入手，再按兴趣补看速读中的间歇性预测与移动机器人故障检测。</p>
+<p>今日共生成 33 篇推荐（精读 21 篇，速读 12 篇）</p>
+<p>精读：《Latent Inference-Time Guidance of Time Series Foundation Models》（10.0/10）, 《DiffPTS: Rethinking Diffusion ELBO for Probabilistic Time Series Forecasting》（9.0/10）</p>
+<p>速读：《Neuralized Multi-Wavelet Decomposition for Time Series Classification and Forecasting》（8.0/10）, 《ViSTA: A Simple Bridge Extends Visual Alignment to Clinical Time-Series Understanding in Multimodal LLMs》（8.0/10）, 《Model-Agnostic Online Certificate-Driven Calibration for Time Series Forecasting Under Distribution Shift》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">23 篇</strong>
+    <strong class="dpr-home-dashboard-count">21 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Forecast Workflow Bench: Evaluating Language-Model Decisions with Budgeted Forecast Tools">Forecast Workflow Bench: Evaluating Language-Model Decisions with Budgeted Forecast Tools</span></li><li><span class="dpr-home-dashboard-paper-title" title="Time-Series Foundation Models That Understand Data Revisions">Time-Series Foundation Models That Understand Data Revisions</span></li><li><span class="dpr-home-dashboard-paper-title" title="SGA: Uncertainty Quantification for Multi-Step Forecasting in Time Series Foundation Models">SGA: Uncertainty Quantification for Multi-Step Forecasting in Time Series Foundation Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Latent Inference-Time Guidance of Time Series Foundation Models">Latent Inference-Time Guidance of Time Series Foundation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DiffPTS: Rethinking Diffusion ELBO for Probabilistic Time Series Forecasting">DiffPTS: Rethinking Diffusion ELBO for Probabilistic Time Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="AgentHop: A Diagnostic Benchmark for Agentic Multi-Hop Scientific Question Answering">AgentHop: A Diagnostic Benchmark for Agentic Multi-Hop Scientific Question Answering</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>21</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>17</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +90,9 @@
     <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TimeEvo: Failure-Driven Self-Evolution of a Time Series Agent">TimeEvo: Failure-Driven Self-Evolution of a Time Series Agent</span></li><li><span class="dpr-home-dashboard-paper-title" title="fable.intermittent: benchmarking probabilistic forecasting methods for intermittent time series">fable.intermittent: benchmarking probabilistic forecasting methods for intermittent time series</span></li><li><span class="dpr-home-dashboard-paper-title" title="Continuous Online Fault Detection for Mobile Robots via Adaptive Edge Models">Continuous Online Fault Detection for Mobile Robots via Adaptive Edge Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Neuralized Multi-Wavelet Decomposition for Time Series Classification and Forecasting">Neuralized Multi-Wavelet Decomposition for Time Series Classification and Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="ViSTA: A Simple Bridge Extends Visual Alignment to Clinical Time-Series Understanding in Multimodal LLMs">ViSTA: A Simple Bridge Extends Visual Alignment to Clinical Time-Series Understanding in Multimodal LLMs</span></li><li><span class="dpr-home-dashboard-paper-title" title="Model-Agnostic Online Certificate-Driven Calibration for Time Series Forecasting Under Distribution Shift">Model-Agnostic Online Certificate-Driven Calibration for Time Series Forecasting Under Distribution Shift</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>10</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>5</strong></span></div>
 </section>
 </div>
 

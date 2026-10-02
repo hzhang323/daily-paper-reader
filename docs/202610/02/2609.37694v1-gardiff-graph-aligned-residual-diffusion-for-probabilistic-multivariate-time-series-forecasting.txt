@@ -1,0 +1,383 @@
+Title: GARDiff: Graph-Aligned Residual Diffusion for Probabilistic Multivariate Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2609.37694v1
+
+Published Time: Wed, 30 Sep 2026 02:02:03 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# GARDiff: Graph-Aligned Residual Diffusion for Probabilistic Multivariate Time-Series Forecasting 
+
+## Rui Han 1, Min Yang 1, Xu Zhang 2, Xinghao Yang 3, Wei Liu 4, Yongshun Gong 1
+
+> 1
+
+Shandong University, Jinan, China 
+
+> 2
+
+Macquarie University, Sydney, Australia 
+
+> 3
+
+China University of Petroleum (East China), Qingdao, China 
+
+> 4
+
+University of Technology Sydney, Sydney, Australia {hanrui021, minyang}@mail.sdu.edu.cn, xu.zhang12@hdr.mq.edu.au, yangxh@upc.edu.cn, wei.liu@uts.edu.au, ysgong@sdu.edu.cn 
+
+Abstract 
+
+Diffusion models have recently shown strong potential for probabilistic multivariate time-series forecasting by modeling complex conditional distributions. Recent decoupled diffu-sion frameworks further separate forecasting into determin-istic prediction and stochastic residual generation, making it natural to derive dependency graphs from deterministic rep-resentations and use them to guide residual diffusion. How-ever, we show that this direct structural transfer is unreliable. Although deterministic-derived graphs encode useful global dependency priors, they exhibit substantial edge-level mis-alignment with residual dependency structures, introducing inaccurate or redundant conditions during residual genera-tion. This reveals a previously overlooked deterministic-to-residual structural alignment problem in decoupled diffusion forecasting. To address this problem, we propose GARDiff ,a Graph-Aligned Residual Diff usion framework for proba-bilistic multivariate time-series forecasting. Instead of treat-ing deterministic-derived graphs as fixed diffusion condi-tions, GARDiff progressively adapts them to residual gen-eration. Specifically, GARDiff estimates residual uncertainty to distinguish high- and low-uncertainty regions, enabling uncertainty-aware structural refinement, and further performs timestep-aware edge sparsification during reverse diffusion to evolve graph conditions from broad dependency aggregation to localized residual refinement. Extensive experiments on six real-world benchmarks demonstrate that GARDiff con-sistently improves probabilistic forecasting performance and uncertainty calibration over strong baselines. 
+
+## Introduction 
+
+Multivariate Time-Series Forecasting (MTSF) plays a criti-cal role in various real-world applications, including energy management (Nowotarski and Weron 2018; Deb et al. 2017; Xue and Salim 2023), traffic planning (Shu, Cai, and Xiong 2021; An et al. 2025; Li et al. 2025b), weather monitor-ing (Gong et al. 2024; Angryk et al. 2020; Karevan and Suykens 2020), urban mobility (Li et al. 2024a; Qu et al. 2022; Yang et al. 2025; Zhang et al. 2023, 2025), and fi-nance (Wiese et al. 2020; Zhu et al. 2024). Recently, diffusion models have demonstrated strong potential for probabilistic time-series forecasting due to their capability of modeling complex conditional distributions. However, effective prob-abilistic forecasting for multivariate time series requires not 
+
+Copyright © 2027, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. History Existing          
+
+> Diffusion Forecaster
+> model 𝐀(𝐀 | 𝐀)
+> History Decoupled Future 𝐀
+> Point Forecaster
+> 𝐀 𝐀 Residual Diffusion
+> 𝐀 + 𝐀 Structural Prior model Deterministic Pattern model Uncertainty Pattern
+> 0.0 0.2 0.4 0.6 0.8
+> ETTm1 ETTm2 Weather Cosine (μ=0.59) Jaccard (μ=0.38) Retention (μ=0.54) 0.50 0.58 0.69 0.28 0.38 0.48 0.43 0.54 0.64
+> Mismatch
+> deterministic-derived graph Residual-derived graph
+> (a) Existing vs. Decoupled Diffusion Paradigm (b) Structural Mismatch
+> w/o intermediate Structural Prior as condition Deterministic + Uncertainty entangled
+
+✗✗
+
+> 𝐀
+
+✓✓✓
+
+Figure 1: (a) Comparison between existing diffusion fore-casting and the decoupled forecasting paradigm. Decoupling deterministic and uncertainty modeling enables the deter-ministic stage to provide structural priors for uncertainty-aware residual diffusion. (b) Quantitative evidence of struc-tural mismatch between deterministic-derived and residual-derived graphs. only modeling temporal uncertainty but also capturing de-pendencies among variables. Existing graph-conditioned dif-fusion methods (Wen et al. 2023; Liu et al. 2023a; Lin et al. 2025) address this challenge by incorporating graph struc-tures as additional priors, yet they typically rely on prede-fined physical graphs, which are unavailable in many general multivariate time-series scenarios. Recent decoupled diffusion forecasting frameworks (Li et al. 2025a) provide a new perspective by separating fore-casting into a deterministic prediction stage and a resid-arXiv:2609.37694v1 [cs.LG] 29 Sep 2026 ual generation stage. As illustrated in Figure 1(a), this de-composition naturally enables the construction of depen-dency graphs from deterministic forecasting representations to guide residual diffusion. However, a fundamental question remains: can deterministic-derived structures be directly transferred to residual generation? The deterministic and residual stages optimize different objectives and may capture distinct dependency patterns, making such direct transfer po-tentially unreliable. To investigate this issue, we compare deterministic-derived graphs with residual-derived graphs constructed us-ing the same graph generation strategy. As shown in Fig-ure 1(b), deterministic-derived graphs preserve meaningful global dependency patterns, evidenced by their moderate co-sine similarity with residual-derived graphs. However, their substantially lower Jaccard similarity and edge retention ratio reveal significant edge-level inconsistencies between the two stages. This indicates that although deterministic graphs pro-vide valuable structural priors, directly reusing them as fixed conditions may introduce inaccurate or redundant dependen-cies during residual diffusion. Such structural mismatch is consistently observed across datasets with diverse temporal dynamics, revealing a previously overlooked graph transfer problem in decoupled diffusion forecasting. This motivates a new problem: deterministic-to-residual structural alignment, which aims to adaptively solve the structural mismatch be-tween deterministic forecasting and residual generation while preserving the useful global dependency priors encoded by deterministic-derived graphs. To address this challenge, structural transfer should be treated as an adaptive alignment process rather than a di-rect graph reuse strategy. This is because deterministic-to-residual structural mismatch is neither spatially uniform nor temporally static, but varies across residual regions and evolves along the reverse diffusion trajectory. On the one hand, residual uncertainty indicates where richer structural guidance is needed: highly uncertain regions require richer dependency exploration, whereas low-uncertainty regions can benefit from suppressing redundant connections. On the other hand, the reverse diffusion process imposes timestep-dependent structural demands, where early denoising steps favor broader dependency aggregation and later steps re-quire more localized residual refinement. Therefore, effective residual diffusion calls for an alignment mechanism that iden-tifies uncertainty-dependent regions and dynamically adjusts graph edges along denoising timesteps. Motivated by these observations, we propose GARDiff ,a Graph-Aligned Residual Diff usion framework for prob-abilistic multivariate time-series forecasting. Instead of us-ing deterministic-derived graphs as fixed diffusion condi-tions, GARDiff treats them as global structural priors and progressively refines them for residual generation. Specifi-cally, GARDiff first constructs a deterministic dependency graph from intermediate forecasting representations. It then estimates residual uncertainty to distinguish high- and low-uncertainty regions, enabling uncertainty-aware structural refinement. Finally, GARDiff performs timestep-aware edge sparsification during reverse diffusion, allowing the graph condition to evolve from broad dependency aggregation to localized residual refinement. Extensive experiments demon-strate that GARDiff consistently improves probabilistic fore-casting performance across multiple benchmarks. Our main contributions are summarized as follows: 
+
+• We identify and empirically analyze a previously over-looked structural transfer problem in decoupled diffusion forecasting, showing that deterministic-derived graphs provide useful priors but exhibit significant misalignment with residual dependency structures. 
+
+• We propose GARDiff, a graph-aligned residual diffu-sion framework that couples uncertainty-aware region se-lection with timestep-aware edge sparsification to align deterministic-derived graph with residual diffusion. 
+
+• Extensive experiments on six real-world benchmarks demonstrate that GARDiff consistently outperforms strong baselines in probabilistic forecasting and uncer-tainty calibration. 
+
+## Related Work 
+
+Diffusion-Based Time-Series Forecasting 
+
+Diffusion probabilistic models (Ho, Jain, and Abbeel 2020) have recently shown strong potential for probabilistic time-series forecasting by modeling complex conditional distri-butions through iterative denoising. Representative meth-ods adapt diffusion models to sequential forecasting from different perspectives. TimeGrad (Rasul et al. 2021) per-forms autoregressive denoising conditioned on historical ob-servations, while CSDI (Tashiro et al. 2021) adopts a non-autoregressive Transformer backbone for conditional time-series generation. Subsequent studies further improve tem-poral representation learning and denoising architectures for forecasting (Alcaraz and Strodthoff 2022; Li et al. 2024b). Most existing diffusion-based forecasters directly model the future trajectory as a unified stochastic distribution, which entangles predictable temporal patterns with uncertain resid-ual variations. Recent decoupled diffusion frameworks (Li et al. 2025a) alleviate this issue by separating determinis-tic prediction from residual generation. However, they typ-ically use deterministic outputs only as conditioning sig-nals, leaving the dependency structures learned in the deter-ministic stage underexplored. In contrast, GARDiff extracts deterministic-derived dependency graphs and further studies how such structures should be aligned with residual diffusion. 
+
+Graph-Conditioned Diffusion Models 
+
+Graph-conditioned diffusion models incorporate graph topology into the denoising process to enhance structured dependency modeling. In spatio-temporal forecasting, Diff-STG (Wen et al. 2023) introduces graph-guided spatial ag-gregation into diffusion forecasting, PriSTI (Liu et al. 2023a) extracts coarse spatiotemporal dependencies from observed values as a global context prior and incorporates geographic relationships into the diffusion-based imputation process, and SpecSTG (Lin et al. 2025) extends graph-conditioned diffusion to the spectral domain. These methods demonstrate the effectiveness of graph priors when reliable topology is available. Nevertheless, existing graph-conditioned diffusion meth-ods are less suitable for general MTSF. They mainly rely on predefined physical graphs, which are unavailable in many non-spatial scenarios, and usually keep the graph condition fixed throughout reverse diffusion. This static design over-looks the evolving structural demands of denoising, where early steps favor broader dependency aggregation while later steps require more localized residual refinement. Different from prior methods, GARDiff derives graphs from determin-istic forecasting representations and adaptively refines them through uncertainty-aware region selection and timestep-aware edge sparsification. 
+
+## Method 
+
+Overview 
+
+Given historical observations X1: H ∈ RC×H and predic-tion target Y1: L ∈ RC×L, GARDiff follows a decoupled forecasting formulation: 
+
+Y1: L = ˆY + R, (1) where ˆY = fθ (X1: H ) is the deterministic prediction and 
+
+R = Y1: L − ˆY is the residual. The deterministic stage cap-tures predictable temporal patterns, while the diffusion model is responsible for generating stochastic residuals. Different from prior decoupled diffusion methods that mainly use de-terministic predictions as conditioning signals, GARDiff fur-ther exploits the structural information learned in the deter-ministic stage. Specifically, we first construct a deterministic dependency graph G0 from intermediate forecasting repre-sentations. Since G0 is optimized for point prediction rather than residual generation, directly reusing it as a fixed graph condition may introduce residual-irrelevant dependencies. We therefore formulate graph conditioning as an alignment problem: 
+
+G(t) = F (G0, U, t ), (2) where U denotes patch-level residual uncertainty and t is the reverse diffusion timestep. The aligned graph G(t) is then used to condition the residual denoising process: 
+
+pϕ(R | Henc , G(t)), (3) where Henc denotes deterministic forecasting representa-tions. 
+
+Deterministic Forecasting and Graph Construction 
+
+The deterministic forecasting stage serves two purposes: pro-ducing the point forecast and extracting a transferable struc-tural prior for residual diffusion. Rather than treating deter-ministic forecasting solely as a prediction module, we exploit its intermediate representations to model inter-variable de-pendencies that capture the global dependency backbone of the input series. 
+
+Patch Embedding. Given an input multivariate time series 
+
+X ∈ RC×H , we divide each variable into non-overlapping patches of length p and project them into a latent space, 
+
+Xp = Embedding(Patching( X)) ∈ RN ×D , (4) where N = C × n, n = ⌈H/p ⌉, and D denotes the embed-ding dimension. Patch-level representations provide stable units for both dependency modeling and deterministic fore-casting. 
+
+Deterministic Graph Construction. To obtain a robust structural prior, we first calibrate patch representations with a global context anchor: 
+
+Xg = Xp + LN(MLP ([ Xp∥μ])) , (5) where μ is the mean feature over all patches. Pairwise affinities are then computed by 
+
+A = GELU  Xg W1(Xg W2)⊤ , (6) followed by Top-K sparsification to retain dominant depen-dencies. To further suppress noisy structural patterns, we em-ploy a structure-gated mechanism that adaptively reweights candidate dependency structures, yielding the deterministic-derived graph 
+
+G0 = A ⊙ Mdyn , (7) where Mdyn denotes the dynamic structural mask. 
+
+Graph-guided Point Forecasting. The graph G0 is used to enhance deterministic forecasting representations: 
+
+H = GraphEncoder( Xg , G 0), ˆY = Proj( H), (8) The detailed implementation of the graph encoder and struc-ture gate is provided in the Appendix D.1 . Although G0
+
+captures stable global inter-variable dependencies, it is opti-mized for deterministic prediction rather than residual gen-eration. Consequently, directly using G0 as the structural condition for residual diffusion introduces structural bias, motivating the unified graph alignment module described next. 
+
+Unified Graph Alignment Module 
+
+Motivation: Refine Rather Than Rebuild. As shown in Figure 1(b), the deterministic-derived graph G0 preserves a transferable global backbone but differs from the residual-derived graph in fine-grained topology. Thus, G0 is neither fully reliable nor entirely invalid. Discarding it would lose useful structural priors, whereas directly reusing it would introduce residual-incompatible dependencies. We therefore formulate graph conditioning as a constrained refinement problem :
+
+G(t) = F (G0, U, t ), (9) where U denotes patch-level residual uncertainty and t is the reverse diffusion timestep. 
+
+Residual Uncertainty Estimation. Graph alignment re-quires a patch-level uncertainty signal indicating where resid-ual variations are insufficiently explained by the deterministic structure. Under the decoupled formulation Y = ˆY + R, the residual R = Y − ˆY represents the stochastic component left for diffusion modeling. Therefore, its magnitude provides a natural proxy for local forecasting difficulty: larger residu-als indicate regions where more candidate correction paths should be preserved. Historical MTS 𝑿 𝟏∶ 𝑯  
+
+> 𝑮 𝟎
+> 𝑯 𝒆𝒏𝒄 & % 𝒀
+
+# + %𝒀 %𝑹 𝑺               
+
+> (A) Deterministic Forecasting and Graph Construction (B) Unified Graph Alignment Module
+> Uncertainty-aware Regional Alignment
+> 1 2 3 4 56789
+> 𝜏
+> 𝝉 = 𝝁 𝑼 + 𝜶𝝈 𝑼
+> Timestep-aware Topology Alignment
+> 𝑴 𝒑"#$
+> 𝐾 %&'
+> 𝐾 %()
+> 𝒕
+> 𝐾(𝒕)
+> 𝟎 𝑻
+> 𝑴 𝒔𝒑𝒂𝒓 𝑴 (𝒕)
+> Input 𝑮 𝟎
+> Unified Edge Refinement Masked Softmax
+> 𝑮 𝟎 𝑮 (𝒕)
+> 𝑮 (𝒕)
+> 𝑮 (𝒕) = 𝑭(𝑮 𝟎 , 𝑼, 𝒕): 𝐀𝐥𝐢𝐠𝐧 𝐆 𝟎 by uncertainty and denoising step
+> 𝑮 (𝒕)
+> 7𝑹 𝑺
+> Align Deterministic Graph Construction
+> μ
+> affinity 𝐴
+> Top-𝐊
+> + Gate
+> 𝑴 𝒅𝒚𝒏
+
+# ·         
+
+> 𝑿 𝒈
+> Graph prior 𝑮 𝟎
+> 𝐗 𝐠 ,𝑮 𝟎
+> Graph-guided Point Forecasting
+> Graph Encoder 7𝒀 Proj.
+> 𝑯 𝒆𝒏𝒄
+> (C) Graph-Conditioned Residual Diffusion Forecasting
+> 𝑹 = 𝒀 − 7 𝒀 Noisy 𝑹 9
+> GraphAtten PatchDN
+> 𝑯 𝒆𝒏𝒄
+> 𝑹 𝑻 𝑹 9··· 7𝑹 𝒔
+> Deterministic Forecasting and Graph Construction Module Unified Graph Alignment Module Graph-Conditioned Residual Diffusion Forecasting
+> Sample
+> Output 𝒀 𝒑𝒓𝒆𝒅 𝑺
+
+Figure 2: Overview of GARDiff. The deterministic forecasting module extracts representations and constructs a structural prior graph. The graph alignment module refines the prior using residual uncertainty and diffusion timestep. The graph-conditioned diffusion module then performs residual generation with dynamic structural guidance. During training, the true residual is directly accessible. During inference, we estimate residual magnitude with a lightweight proxy network: 
+
+˜R = MLP( ˆY) ∈ RC×L. (10) The proxy is not required to predict the exact residual value, but only to recover the relative residual magnitude used to distinguish high- and low-uncertainty patches, which is sub-stantially simpler than modeling the full residual distribution. In both training and inference, patch-level uncertainty is computed by reshaping the residual magnitude into patches and aggregating over each patch: 
+
+U = Mean(Patching( R)) ∈ RN , (11) where R denotes the absolute value of R during training and 
+
+˜R during inference, and Ui represents the uncertainty of patch i.
+
+Uncertainty-aware Regional Alignment. To align G0
+
+with residual dependency patterns, we first identify high-and low-uncertainty patches to determine where structural information should be preserved or selectively refined. High-uncertainty patches indicate regions where residual depen-dencies are less reliably explained by the deterministic back-bone. Therefore, aggressively pruning edges in these regions may prematurely remove useful residual-correction paths. In contrast, low-uncertainty patches are better explained by the deterministic model, where redundant connections can be safely suppressed to encourage selective refinement. We do not assume that all edges connected to a high-uncertainty patch are equally important. Instead, high uncertainty indi-cates a higher risk of removing useful residual-correction paths. We identify high-uncertainty patches via a dynamic ασ 
+
+criterion: 
+
+τ = μ(U) + α · σ(U), (12) where μ(·) and σ(·) denote the mean and standard devi-ation over all patches, and α is a tunable coefficient. Un-like fixed thresholds, this data-adaptive criterion accommo-dates varying uncertainty distributions across datasets and instances. Patches satisfying Ui > τ are designated as high-uncertainty, for which candidate edges are preserved via an uncertainty-preserving mask: 
+
+M ij  
+
+> pres
+
+= 1 [Ui > τ ] , (13) 
+
+Timestep-aware Topology Alignment. We dynamically adjust the edge sparsity level along the reverse diffusion tra-jectory through a Top-K scheduling strategy. In the early reverse diffusion stages (large t), the denoising network op-erates under high noise levels and benefits from higher-connectivity graph interactions to recover coarse global structure; in later stages (small t), the signal is nearly clean and localized refinement is preferred, making redundant edges harmful rather than helpful. We capture this progression via a continuous Top-K
+
+scheduling strategy with cosine annealing: 
+
+K(t) = Kmin + 12 (Kmax − Kmin )
+
+
+
+1 − cos 
+
+
+
+π tT
+
+ 
+
+,
+
+(14) where T is the total number of diffusion steps, Kmax and 
+
+Kmin control the connectivity range and t denotes reverse diffusion step. This yields K(T ) = Kmax at the start of re-verse diffusion and K(0) = Kmin at convergence, enabling a smooth transition aligned with progressive denoising ob-jectives. Furthermore, when t ≥ ηT (where η is an early-stage threshold), the graph enters a maximum-connectivity regime within the candidate graph regime to maximally sup-port coarse structure recovery in the noisiest denoising stages. The Top-K sparse mask for low-uncertainty regions is: 
+
+Mspar = TopK( G0, K (t)) . (15) 
+
+Unified Edge Refinement. The two masks serve com-plementary roles: M pres preserves uncertainty-sensitive candidate connectivity irrespective of diffusion progress, while M spar enforces timestep-appropriate sparsity in low-uncertainty regions. We unify them via logical disjunction, ensuring any edge flagged by either criterion is retained: 
+
+M (t) = Mpres ∨ Mspar . (16) Edges not selected by either mask are suppressed by set-ting their logits to −∞ before normalization. The aligned adjacency matrix is obtained via masked softmax: 
+
+G(t) = MaskedSoftmax( G0 ⊙ M (t)). (17) Through this unified refinement, G(t) simultaneously achieves structural alignment with residual dependency pat-terns and temporal alignment with the evolving objectives of reverse diffusion, providing adaptive structural conditioning for residual diffusion. 
+
+Graph-Conditioned Residual Diffusion 
+
+Given the deterministic prediction ˆY, we model the predic-tion residual 
+
+R = Y − ˆY (18) using a conditional denoising diffusion process. Rather than learning residual dynamics independently, the diffusion model is conditioned on the aligned graph G(t), allowing residual generation to exploit dynamically refined structural dependencies throughout reverse diffusion. 
+
+Forward Diffusion. Following the standard DDPM for-mulation, Gaussian noise is gradually added to the clean residual: 
+
+q(Rt|R) = N  √¯αtR, (1 − ¯αt)I , (19) where ¯αt = Qti=1 αi. The complete forward and reverse diffusion formulation follows the standard DDPM framework and is omitted for brevity. 
+
+Graph-Conditioned Denoising. Unlike existing graph-conditioned diffusion models that employ a fixed graph dur-ing denoising, our structural condition is dynamically up-dated at every reverse diffusion step through the graph align-ment module: 
+
+G(t) = F (G0, U, t ). (20) Consequently, the denoising network receives a timestep-aware structural condition whose connectivity evolves to-gether with the reverse diffusion process, providing dense global interactions in early denoising stages and progres-sively sparse local refinement as diffusion converges. 
+
+Graph-Guided Feature Refinement. Before entering the denoising backbone, noisy residual patches Rt ∈ RN ×P are projected into latent representations with timestep embed-dings, 
+
+E = Linear( Rt) + TimeEmb( t), (21) and refined through a graph-gated multi-head attention mod-ule conditioned on G(t):
+
+E′ = GraphAttn( E, G(t)). (22) Specifically, the graph is used to modulate self-attention scores through a learnable gating mechanism, enabling struc-tural dependencies to guide feature interaction while preserv-ing the flexibility of Transformer attention. The refined fea-tures are added back to the noisy residual through a residual connection before denoising. 
+
+PatchDN Backbone. The graph-enhanced features are then processed by the PatchDN (Li et al. 2025a) denois-ing backbone to predict either the injected noise or the clean residual, depending on the adopted diffusion parameteriza-tion: 
+
+ˆϵϕ or ˆRϕ = PatchDN( E′, t, Henc ), (23) where Henc denotes deterministic forecasting representa-tions used as conditional context. PatchDN adopts a standard Transformer architecture with adaptive layer normalization, while the proposed graph-conditioned attention provides dy-namic structural guidance throughout reverse diffusion. After 
+
+T reverse diffusion steps, the denoised residual ˆR is added to the deterministic forecast to obtain the final prediction: 
+
+Y(s) 
+
+> pred
+
+= ˆY + ˆR(s), s = 1 , . . . , S, (24) where s denotes the sampling index and S is the total num-ber of samples. At inference time, multiple residual samples 
+
+{ ˆR(s)}Ss=1 are generated to form {Y(s)
+
+> pred
+
+}Ss=1 , which approx-imates the predictive distribution. 
+
+Optimization Objective. GARDiff is trained with a joint objective that combines residual diffusion learning, deter-ministic forecasting, uncertainty estimation, and structural regularization: 
+
+L = Ldiff + λ1Lpoint + λ2Lunc + λ3Lgate . (25) Here, Ldiff optimizes residual denoising, Lpoint supervises the deterministic forecast, Lunc trains the residual uncer-tainty estimator, and Lgate regularizes the learned graph structure. Details are provided in Appendix E .Model ETTm1 ETTm2 Weather Solar ECL Traffic 
+
+CRPS CRPS sum CRPS CRPS sum CRPS CRPS sum CRPS CRPS sum CRPS CRPS sum CRPS CRPS sum 
+
+TimeDiff 0.490 2.195 0.320 1.597 0.302 2.625 0.700 2.408 0.735 1.966 0.766 1.885 TMDM 0.380 1.665 0.298 1.412 0.244 1.915 0.355 1.534 0.438 1.573 0.453 1.587 NsDiff 0.394 1.878 0.315 1.564 0.230 1.971 0.273 0.951 0.285 0.874 0.319 0.864 D3U 0.283 0.801 0.247 0.114 0.208 0.248 0.174 0.604 0.202 0.665 0.224 0.786 Ours 0.273 0.744 0.234 0.093 0.199 0.220 0.166 0.463 0.191 0.459 0.212 0.459 
+
+Table 1: Probabilistic forecasting performance. All results are reported with input length H=96 and averaged over three forecasting horizons ( L ∈ { 96 , 192 , 336 }). Best results are highlighted in bold . See Table 6 for full results. 
+
+Model ETTm1 ETTm2 Weather Solar ECL Traffic 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE 
+
+Point Forecasting Models 
+
+PatchTST 0.359 0.381 0.247 0.304 0.227 0.258 0.242 0.275 0.177 0.263 0.455 0.287 TimesNet 0.386 0.404 0.254 0.307 0.225 0.263 0.251 0.272 0.186 0.288 0.613 0.325 iTransformer 0.381 0.397 0.252 0.312 0.227 0.257 0.231 0.257 0.164 0.256 0.411 0.276 TimeBridge 0.360 0.375 0.244 0.307 0.221 0.248 0.220 0.230 0.155 0.256 0.411 0.273 TimeFilter 0.355 0.381 0.242 0.305 0.226 0.258 0.226 0.254 0.167 0.262 0.396 0.261 Probabilistic Forecasting Models 
+
+TimeDiff 0.573 0.503 0.274 0.332 0.259 0.315 0.901 0.714 0.824 0.749 0.762 0.519 TMDM 0.564 0.502 0.361 0.373 0.287 0.303 0.276 0.309 0.219 0.330 0.625 0.374 NsDiff 0.561 0.489 0.452 0.425 0.255 0.290 0.307 0.329 0.197 0.305 0.497 0.358 D3U 0.360 0.385 0.247 0.315 0.226 0.278 0.223 0.267 0.179 0.269 0.527 0.297 Ours 0.345 0.375 0.239 0.303 0.222 0.264 0.215 0.242 0.161 0.255 0.419 0.278 Table 2: Deterministic forecasting performance. All results are reported with input length H=96 and averaged over three forecasting horizons ( L ∈ { 96 , 192 , 336 }). Best results are highlighted in bold . See Table 7 for full results. 
+
+## Experiments 
+
+We evaluate GARDiff on six real-world datasets, focusing on predictive performance and the validity of the proposed structural and uncertainty-aware mechanisms. 
+
+RQ1: How does GARDiff perform in probabilistic forecast-ing compared with state-of-the-art diffusion-based methods? 
+
+RQ2: Does the proposed framework improve deterministic forecasting accuracy? 
+
+RQ3: What is the contribution of graph conditioning, topol-ogy refinement, and timestep-aware pruning? 
+
+RQ4: Does the learned uncertainty reliably reflect residual magnitude and support residual-aware graph alignment? 
+
+RQ5: How sensitive is GARDiff to key hyperparameters? 
+
+Experimental Setup 
+
+Datasets. We evaluate GARDiff on six widely used multi-variate time series datasets: ETTm1, ETTm2, Weather, Solar-Energy (Solar), Electricity (ECL), and Traffic. These datasets cover diverse temporal dynamics including strong seasonal-ity and complex inter-variable dependencies. 
+
+Baselines. We compare GARDiff with representative methods from both deterministic and probabilistic forecast-ing methods. (1) Deterministic methods: PatchTST (Nie et al. 2023), TimesNet (Wu et al. 2022), iTransformer (Liu et al. 2023b), TimeBridge (Liu et al. 2024), TimeFilter (Hu et al. 2025). (2) Probabilistic methods: TimeDiff (Shen and Kwok 2023), TMDM (Li et al. 2024b), NsDiff (Ye, Xu, and Gui 2025), D3U (Li et al. 2025a). 
+
+Evaluation Metrics. For probabilistic forecasting, we use CRPS and CRPS sum . For deterministic forecasting, we report MSE and MAE. Lower values indicate better performance. 
+
+Implementation Details. We adopt a diffusion process with T = 100 steps and a linear noise schedule with 
+
+β1 = 10 −4 and βT = 0 .02 . For the uncertainty-aware graph alignment module, we set α = 2 .0, and use a continuous Top-K scheduling strategy with Kmin = 4 , Kmax = 32 ,and η = 0 .75 . During inference, we approximate predictive distributions using 100 diffusion samples. All experiments are implemented in PyTorch (Paszke et al. 2019) and con-ducted on an NVIDIA GeForce RTX 4090 GPU with 24GB memory. Details are described in Appendix F.3 .0.340 0.346 0.352 0.358  
+
+> MSE
+> 0.345 0.355 0.351 0.353
+> ETTm1
+> 0.219 0.227 0.235 0.243
+> 0.222 0.236 0.229 0.229
+> Weather
+> 0.73 0.75 0.77 0.79
+> CRPS sum
+> 0.744 0.780 0.754 0.772
+> ETTm1
+> 0.21 0.24 0.27 0.30
+> 0.220 0.285 0.255 0.229
+> Weather
+> Full w/o Graph w/o Graph Align Fixed pruning
+
+Figure 3: Ablation study on ETTm1 and Weather. The look-back horizon H is 96. See Table 8 for full results. 
+
+Dataset Setting MSE MAE CRPS CRPS sum 
+
+ETTm1 Pred. Unc. 0.345 0.375 0.273 0.744 
+
+Oracle Res. 0.346 0.375 0.272 0.751 Weather Pred. Unc. 0.222 0.268 0.202 0.220 
+
+Oracle Res. 0.222 0.268 0.202 0.220 
+
+Table 3: Performance comparison between predicted uncer-tainty and oracle residuals. Results are reported with input length H=96 and averaged over three forecasting horizons (L ∈ { 96 , 192 , 336 }). See Table 9 for full results. 
+
+Overall Results 
+
+Probabilistic Forecasting Performance (RQ1). Table 1 reports probabilistic forecasting performance in terms of CRPS and CRPS sum . GARDiff consistently outperforms all competing methods across all six benchmarks. Compared with the strongest diffusion baseline D3U (Li et al. 2025a), GARDiff achieves up to 5.5% lower CRPS and 41.6% 
+
+lower CRPS sum . Such consistent gains suggest that adaptive graph conditioning provides informative structural guidance for residual diffusion and improves distributional calibration across diverse temporal patterns. 
+
+Deterministic Forecasting Performance (RQ2). Table 2 presents deterministic forecasting results. GARDiff achieves competitive deterministic performance across most bench-marks, particularly ETTm1, ETTm2, and Solar. Compared with strong baselines including TimeFilter and PatchTST, GARDiff yields consistent improvements in both MSE and MAE. These results indicate that the learned structural rep-resentations are beneficial not only for residual generation but also for deterministic point forecasting. 
+
+Ablation Study (RQ3) 
+
+Three ablated variants are designed to verify the contribu-tion of each core module: -w/o Graph discards graph condi-tioning and uses temporal representations only; -w/o Graph Align directly employs the deterministic graph as a fixed con-0.5 1.0 1.5 2.0 2.5             
+
+> α
+> 0.304 0.306 0.308 0.310 0.312 MSE
+> ETTm1
+> 124816
+> kmin
+> 0.304 0.306 0.308 0.310 MSE
+> ETTm1
+> 0.5 1.0 1.5 2.0 2.5
+> α
+> 0.168 0.170 0.172 0.174 0.176 MSE
+> Weather
+> 124816
+> kmin
+> 0.168 0.170 0.172 0.174 MSE
+> Weather
+
+Figure 4: Parameter Sensitivity on ETTm1 and Weather. dition without alignment; -Fixed Pruning applies constant top-8 sparsity across all denoising steps, removing timestep adaptation. Figure 3 shows consistent performance degradation of all variants on both ETTm1 and Weather datasets. The drop of -w/o Graph confirms the necessity of graph guidance for capturing inter-variable dependencies. The degradation of -w/o Graph Align indicates that unrefined deterministic graphs bring suboptimal topology to residual diffusion. The decline of -Fixed Pruning further demonstrates that static sparsity fails to adapt to evolving denoising objectives. 
+
+Uncertainty Quality Analysis (RQ4) 
+
+We first evaluate the alignment between estimated uncer-tainty and oracle residuals via the Exact Matching Rate (EMR), which quantifies the share of patches consistently classified into high/low-uncertainty groups by both criteria. Our estimator achieves EMR of 0.92 on ETTm1 and 0.94 on Weather, verifying its ability to reliably capture local fore-casting difficulty. We further compare downstream forecasting performance using predicted uncertainty versus oracle residuals in Ta-ble 3. The two settings yield highly consistent results across all metrics on both datasets. For instance, on 96-step ETTm1, CRPS reaches 0.254 with predicted uncertainty versus 0.250 with oracle residuals. This confirms that the proposed uncer-tainty proxy acts as a reliable surrogate for oracle residuals without degrading performance. 
+
+Parameter Sensitivity Analysis (RQ5) 
+
+We evaluate the sensitivity of GARDiff to α and Kmin , which control uncertainty-aware graph construction and sparsity. As shown in Figure 4, the model is stable across a wide range of both parameters, with best performance at mod-erate values. Too small or too large values of α and Kmin 
+
+both degrade performance due to over-dense or over-sparse structures. Overall, GARDiff is robust to hyperparameter variations. Conclusion 
+
+In this work, we proposed GARDiff, a Graph-Aligned Resid-ual Diffusion framework for probabilistic multivariate time-series forecasting. Motivated by the structural mismatch between deterministic forecasting and residual generation, GARDiff treats deterministic-derived graphs as global struc-tural priors rather than fixed diffusion conditions. It pro-gressively aligns these priors with residual diffusion through uncertainty-aware regional alignment and timestep-aware topology refinement. The former preserves richer candidate dependencies in high-uncertainty regions, while the latter dynamically adjusts graph sparsity along the reverse denois-ing trajectory, enabling a transition from broad dependency aggregation to localized residual refinement. Extensive ex-periments on six real-world benchmarks demonstrate that GARDiff consistently improves probabilistic forecasting per-formance and uncertainty calibration over strong baselines. 
+
+## References 
+
+Alcaraz, J. M. L.; and Strodthoff, N. 2022. Diffusion-based time series imputation and forecasting with structured state space models. arXiv preprint arXiv:2208.09399 .An, Y.; Li, Z.; Li, X.; Liu, W.; Yang, X.; Sun, H.; Chen, M.; Zheng, Y.; and Gong, Y. 2025. Spatio-Temporal Multi-variate Probabilistic Modeling for Traffic Prediction. IEEE Transactions on Knowledge and Data Engineering .Angryk, R. A.; Martens, P. C.; Aydin, B.; Kempton, D.; Mahajan, S. S.; Basodi, S.; Ahmadzadeh, A.; Cai, X.; Fi-lali Boubrahimi, S.; Hamdi, S. M.; et al. 2020. Multivariate time series dataset for space weather data analytics. Scientific data , 7(1): 227. Deb, C.; Zhang, F.; Yang, J.; Lee, S. E.; and Shah, K. W. 2017. A review on time series forecasting techniques for building energy consumption. Renewable and Sustainable Energy Reviews , 74: 902–924. Gong, Y.; He, T.; Chen, M.; Wang, B.; Nie, L.; and Yin, Y. 2024. Spatio-temporal enhanced contrastive and contex-tual learning for weather forecasting. IEEE Transactions on Knowledge and Data Engineering , 36(8): 4260–4274. Ho, J.; Jain, A.; and Abbeel, P. 2020. Denoising diffusion probabilistic models. Advances in neural information pro-cessing systems , 33: 6840–6851. Hu, Y.; Zhang, G.; Liu, P.; Lan, D.; Li, N.; Cheng, D.; Dai, T.; Xia, S.-T.; and Pan, S. 2025. TimeFilter: Patch-specific spatial-temporal graph filtration for time series forecasting. 
+
+arXiv preprint arXiv:2501.13041 .Karevan, Z.; and Suykens, J. A. 2020. Transductive LSTM for time-series prediction: An application to weather fore-casting. Neural Networks , 125: 1–9. Li, Q.; Zhang, Z.; Yao, L.; Li, Z.; Zhong, T.; and Zhang, Y. 2025a. Diffusion-based decoupled deterministic and un-certain framework for probabilistic multivariate time series forecasting. In The Thirteenth International Conference on Learning Representations .Li, X.; Gong, Y.; Liu, W.; Yin, Y.; Zheng, Y.; and Nie, L. 2024a. Dual-track spatio-temporal learning for urban flow prediction with adaptive normalization. Artificial Intelli-gence , 328: 104065. Li, X.; Zhang, Y.; Long, G.; Hu, Y.; Lu, W.; Chen, M.; Zhang, C.; and Gong, Y. 2025b. Adaptive Traffic Forecasting on Daily Basis: A Spatio-Temporal Context Learning Approach. 
+
+IEEE Transactions on Knowledge and Data Engineering .Li, Y.; Chen, W.; Hu, X.; Chen, B.; Sun, B.; and Zhou, M. 2024b. Transformer-modulated diffusion models for proba-bilistic multivariate time series forecasting. In The Twelfth International Conference on Learning Representations .Lin, L.; Shi, D.; Han, A.; and Gao, J. 2025. Specstg: A fast spectral diffusion framework for probabilistic spatio-temporal traffic forecasting. In 2025 International Joint Con-ference on Neural Networks (IJCNN) , 1–10. IEEE. Liu, M.; Huang, H.; Feng, H.; Sun, L.; Du, B.; and Fu, Y. 2023a. Pristi: A conditional diffusion framework for spa-tiotemporal imputation. In 2023 IEEE 39th International Conference on Data Engineering (ICDE) , 1927–1939. IEEE. Liu, P.; Wu, B.; Hu, Y.; Li, N.; Dai, T.; Bao, J.; and Xia, S.-t. 2024. Timebridge: Non-stationarity matters for long-term time series forecasting. arXiv preprint arXiv:2410.04442 .Liu, Y.; Hu, T.; Zhang, H.; Wu, H.; Wang, S.; Ma, L.; and Long, M. 2023b. itransformer: Inverted transformers are effective for time series forecasting. arXiv preprint arXiv:2310.06625 .Nie, Y.; Nguyen, N. H.; Sinthong, P.; and Kalagnanam, J. 2023. A Time Series is Worth 64 Words: Long-term Fore-casting with Transformers. In The Eleventh International Conference on Learning Representations .Nowotarski, J.; and Weron, R. 2018. Recent advances in electricity price forecasting: A review of probabilistic fore-casting. Renewable and Sustainable Energy Reviews , 81: 1548–1568. Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.; Chanan, G.; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.; et al. 2019. Pytorch: An imperative style, high-performance deep learning library. Advances in neural information pro-cessing systems , 32. Qu, H.; Gong, Y.; Chen, M.; Zhang, J.; Zheng, Y.; and Yin, Y. 2022. Forecasting fine-grained urban flows via spatio-temporal contrastive self-supervision. IEEE Transactions on Knowledge and Data Engineering , 35(8): 8008–8023. Rasul, K.; Seward, C.; Schuster, I.; and Vollgraf, R. 2021. Autoregressive denoising diffusion models for multivariate probabilistic time series forecasting. In International confer-ence on machine learning , 8857–8868. PMLR. Shen, L.; and Kwok, J. 2023. Non-autoregressive conditional diffusion models for time series prediction. In International Conference on Machine Learning , 31016–31029. PMLR. Shu, W.; Cai, K.; and Xiong, N. N. 2021. A short-term traffic flow prediction model based on an improved gate recurrent unit neural network. IEEE Transactions on Intelligent Trans-portation Systems , 23(9): 16654–16665. Tashiro, Y.; Song, J.; Song, Y.; and Ermon, S. 2021. Csdi: Conditional score-based diffusion models for probabilistic time series imputation. Advances in neural information pro-cessing systems , 34: 24804–24816. Wen, H.; Lin, Y.; Xia, Y.; Wan, H.; Wen, Q.; Zimmermann, R.; and Liang, Y. 2023. Diffstg: Probabilistic spatio-temporal graph forecasting with denoising diffusion models. In Pro-ceedings of the 31st ACM international conference on ad-vances in geographic information systems , 1–12. Wiese, M.; Knobloch, R.; Korn, R.; and Kretschmer, P. 2020. Quant GANs: deep generation of financial time series. Quan-titative Finance , 20(9): 1419–1440. Wu, H.; Hu, T.; Liu, Y.; Zhou, H.; Wang, J.; and Long, M. 2022. Timesnet: Temporal 2d-variation modeling for general time series analysis. arXiv preprint arXiv:2210.02186 .Xue, H.; and Salim, F. D. 2023. Utilizing language models for energy load forecasting. In Proceedings of the 10th ACM International Conference on Systems for Energy-Efficient Buildings, Cities, and Transportation , 224–227. Yang, M.; Li, X.; Xu, B.; Nie, X.; Zhao, M.; Zhang, C.; Zheng, Y.; and Gong, Y. 2025. STDA: Spatio-Temporal Deviation Alignment Learning for Cross-city Fine-grained Urban Flow Inference. IEEE Transactions on Knowledge and Data Engineering .Ye, W.; Xu, Z.; and Gui, N. 2025. Non-stationary Diffusion For Probabilistic Time Series Forecasting. arXiv preprint arXiv:2505.04278 .Zhang, X.; Cao, M.; Gong, Y.; Wu, X.; Dong, X.; Guo, Y.; Zhao, L.; and Zhang, C. 2025. Enhancing urban flow pre-diction via mutual reinforcement with multi-scale regional information. Neural Networks , 182: 106900. Zhang, X.; Gong, Y.; Zhang, X.; Wu, X.; Zhang, C.; and Dong, X. 2023. Mask-and contrast-enhanced spatio-temporal learning for urban flow prediction. In Proceedings of the 32nd ACM international conference on information and knowledge management , 3298–3307. Zhu, P.; Li, Y.; Hu, Y.; Liu, Q.; Cheng, D.; and Liang, Y. 2024. Lsr-igru: Stock trend prediction based on long short-term relationships and improved gru. In Proceedings of the 33rd ACM International Conference on Information and Knowledge Management , 5135–5142.

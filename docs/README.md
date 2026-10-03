@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-02</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 33 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>21</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-02 23:42:47 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-03 22:19:58 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,10 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 33 篇推荐（精读 21 篇，速读 12 篇）</p>
-<p>精读：《Latent Inference-Time Guidance of Time Series Foundation Models》（10.0/10）, 《DiffPTS: Rethinking Diffusion ELBO for Probabilistic Time Series Forecasting》（9.0/10）</p>
-<p>速读：《Neuralized Multi-Wavelet Decomposition for Time Series Classification and Forecasting》（8.0/10）, 《ViSTA: A Simple Bridge Extends Visual Alignment to Clinical Time-Series Understanding in Multimodal LLMs》（8.0/10）, 《Model-Agnostic Online Certificate-Driven Calibration for Time Series Forecasting Under Distribution Shift》（8.0/10）</p>
-<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+<p>今日筛选19篇、精读7篇、速读12篇，重点聚焦Web Agent个性化评测、时间序列预测与LLM智能体基准。</p>
+<p>最值得看两篇9分精读：AdaptArena评估Web Agent测试时个性化，JudgeCast用经验驱动协变量判断做时间序列预测。</p>
+<p>普通读者可先读这两篇精读，再按兴趣浏览速读中的足球管理、网络攻击持久化和WinoTS时间序列工作。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -74,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">21 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Latent Inference-Time Guidance of Time Series Foundation Models">Latent Inference-Time Guidance of Time Series Foundation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DiffPTS: Rethinking Diffusion ELBO for Probabilistic Time Series Forecasting">DiffPTS: Rethinking Diffusion ELBO for Probabilistic Time Series Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="AgentHop: A Diagnostic Benchmark for Agentic Multi-Hop Scientific Question Answering">AgentHop: A Diagnostic Benchmark for Agentic Multi-Hop Scientific Question Answering</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AdaptArena: Evaluating Test-Time Personalization of Web Agents">AdaptArena: Evaluating Test-Time Personalization of Web Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="JudgeCast: Time Series Forecasting with Experience-Informed Covariate Judgements">JudgeCast: Time Series Forecasting with Experience-Informed Covariate Judgements</span></li><li><span class="dpr-home-dashboard-paper-title" title="Loss-Guided Pretraining Data Selection for Time-Series Foundation Models">Loss-Guided Pretraining Data Selection for Time-Series Foundation Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>17</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>5</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -90,9 +89,9 @@
     <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Neuralized Multi-Wavelet Decomposition for Time Series Classification and Forecasting">Neuralized Multi-Wavelet Decomposition for Time Series Classification and Forecasting</span></li><li><span class="dpr-home-dashboard-paper-title" title="ViSTA: A Simple Bridge Extends Visual Alignment to Clinical Time-Series Understanding in Multimodal LLMs">ViSTA: A Simple Bridge Extends Visual Alignment to Clinical Time-Series Understanding in Multimodal LLMs</span></li><li><span class="dpr-home-dashboard-paper-title" title="Model-Agnostic Online Certificate-Driven Calibration for Time Series Forecasting Under Distribution Shift">Model-Agnostic Online Certificate-Driven Calibration for Time Series Forecasting Under Distribution Shift</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="FromPitch2Board: Benchmarking LLM Agents in Long-Horizon Football Management">FromPitch2Board: Benchmarking LLM Agents in Long-Horizon Football Management</span></li><li><span class="dpr-home-dashboard-paper-title" title="CyberPersistBench: Evaluating LLM-Based Cyber Attackers on Installation and Persistence">CyberPersistBench: Evaluating LLM-Based Cyber Attackers on Installation and Persistence</span></li><li><span class="dpr-home-dashboard-paper-title" title="WinoTS: Wavelet-based Self-Distillation for Time Series Models">WinoTS: Wavelet-based Self-Distillation for Time Series Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">time-series <strong>7</strong></span><span class="dpr-home-dashboard-tag">agent-bench <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">agent-bench <strong>8</strong></span><span class="dpr-home-dashboard-tag">time-series <strong>4</strong></span></div>
 </section>
 </div>
 

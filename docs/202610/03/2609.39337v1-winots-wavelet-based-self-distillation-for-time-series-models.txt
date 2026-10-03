@@ -1,0 +1,897 @@
+Title: WinoTS: Wavelet-based Self-Distillation for Time Series Models
+
+URL Source: https://arxiv.org/pdf/2609.39337v1
+
+Published Time: Thu, 01 Oct 2026 01:19:03 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# WinoTS: Wavelet-based Self-Distillation for Time Series Models 
+
+Noam Major Kathy Razmadze Yoli Shavit 
+
+Bar-Ilan University, Ramat-Gan, Israel 
+
+Abstract 
+
+Self-supervised pre-training of time series models is currently dominated by next-token prediction and reconstruction objectives. In continuous-valued domains, these paradigms often waste model capacity on high-frequency, point-wise noise at the expense of learning invariant structure. While invariance-based self-distillation has proven highly effective in computer vision, its application to temporal data remains largely underexplored. Effectively adapting such methods to time series requires carefully designed augmentations: spatial operations like cropping can shift the timing of repeating cycles or distort the signal, while basic jittering may provide limited variation. We introduce Wavelet-based self-distillation for time series (WinoTS), an invariance-based pre-training paradigm designed specifically for temporal signals. At its core, WinoTS leverages time-frequency augmenta-tions to construct multi-scale structural views without distorting underlying signal dynamics. Across extensive evaluations, WinoTS outperforms state-of-the-art base-lines in long-term forecasting, cross-domain zero-shot transfer, and unsupervised anomaly detection. Notably, linear probing on frozen WinoTS representations frequently surpasses fully supervised models trained from scratch. Systematic ablations demonstrate that WinoTS is a flexible, architecture-agnostic framework yielding gains across time series backbones, and establish that time-frequency trans-formations provide a principled alternative to vision-style spatial augmentations. 
+
+1 Introduction 
+
+Self-supervised learning (SSL) has become the primary driver for learning general-purpose represen-tations across modalities [Devlin et al., 2019, Chen et al., 2020, Caron et al., 2021, Bommasani et al., 2021]. In computer vision, joint-embedding self-distillation frameworks such as DINO [Caron et al., 2021] construct semantic representations by enforcing consistency across augmented views using a momentum teacher. These methods operate on the principle of semantic invariance: a sample’s core structure should remain recognizable across label-preserving transformations. However, the efficacy of self-distillation depends on identifying augmentations that induce meaningful invariance without destroying structural integrity. Currently, self-supervised pre-training for time series remains heavily dominated by generative paradigms, specifically Next Token Prediction (NTP) Ansari et al. [2024], Das et al. [2024] and Masked Auto Encoding (MAE) Nie et al. [2023], Dong et al. [2024]. In continuous-valued domains, however, these objectives often force models to dedicate significant capacity to predicting high-frequency, point-wise noise rather than capturing underlying structural invariants. While joint-embedding frameworks based on semantic invariance offer a compelling alternative, their application to temporal data remains largely underexplored. A central challenge in extending invariance-based self-supervision to time series lies in the design of effective data augmentations. In computer vision, operations such as localized cropping or color jitter alter surface appearance while reliably preserving object identity. Applying analogous transformations 
+
+> Preprint. arXiv:2609.39337v1 [cs.LG] 30 Sep 2026
+
+to temporal sequences, however, can disrupt fundamental signal properties. For example, cropping a segment from a multi-cycle sequence, such as an electrocardiogram (ECG) heartbeat or an industrial sensor trace, can truncate recurring seasonal patterns, distort global trends, or shift phase alignment. Conversely, basic point-wise operations like Gaussian noise or minor jittering alter individual values without inducing meaningful structural variation, which may yield a weak self-supervisory signal. Effective adaptation therefore requires augmentation strategies that create semantic variation while explicitly preserving the structural and temporal integrity of the underlying signal. To bridge this gap, we introduce Wavelet-based self-distillation for time series (W INO TS), an invariance-based pre-training paradigm designed specifically for continuous temporal signals. WINO TS leverages the Discrete Wavelet Transform (DWT) to establish a principled augmenta-tion mechanism localized simultaneously in time and frequency. Given an input window, W INO TS decomposes each channel into multi-resolution approximation and detail components to construct asymmetric, full-length views without altering sequence length or discarding temporal context. Specifically, low-frequency approximation coefficients (capturing macro trends and seasonality) remain intact across views, while high-frequency detail subspaces are asymmetrically perturbed: "easy" views smooth these details via soft-thresholding, whereas "hard" views corrupt them with controlled noise. The student network is then optimized to match the teacher’s centered and sharpened output distribution across augmented view pairs through a standard DINO projection head. To avoid overfitting to the boundary behaviors or phase characteristics of a single basis, W INO TS stochastically samples wavelet functions across the Daubechies, Symlets, and Coiflets families Daubechies [1988, 1992]. We evaluate W INO TS through a comprehensive suite of experiments spanning 13 standard forecast-ing benchmarks, 12 cross-domain transfer scenarios, and 5 multivariate anomaly detection datasets. Across these tasks, W INO TS enhances downstream representation quality, achieving the top average rank on in-domain forecasting and outperforming direct supervised baselines as well as specialized SSL models like TimeSiam Dong et al. [2024] and TS2Vec Yue et al. [2022]. Under linear prob-ing, frozen W INO TS features demonstrate strong linear separability, frequently surpassing models trained end-to-end from scratch. Furthermore, controlled ablations confirm that wavelet-based view generation provides a principled alternative to aggressive vision primitives (e.g., cropping), delivers competitive performance relative to generative objectives such as MAE and NTP, and yields error reductions across diverse backbone architectures. In summary, our key contributions are: • We introduce W INO TS, an invariance-based self-distillation paradigm tailored for continu-ous temporal signals that addresses the limitations of generative pre-training by optimizing for structural invariants rather than point-wise noise prediction. • We propose a multi-resolution wavelet view generator leveraging the Discrete Wavelet Transform (DWT) that preserves low-frequency trend and seasonal components while asymmetrically perturbing high-frequency detail coefficients via soft-thresholding and noise corruption, constructing context-preserving view pairs for self-distillation. • We demonstrate across 13 forecasting benchmarks, 12 cross-domain transfer tasks, and 5 multivariate anomaly detection datasets that W INO TS achieves superior performance over state-of-the-art baselines. Controlled ablations confirm that wavelet-based view generation provides a principled alternative to vision primitives, rivals generative objectives, and delivers gains across diverse time series backbones. 
+
+2 Related Work 
+
+Generative vs. Latent-Alignment Pre-training for Time Series Models. Self-supervised pre-training for temporal data broadly falls into two primary paradigms: generative modeling and latent alignment. Generative approaches learn representations by predicting, denoising, or recon-structing raw temporal signals in the target data domain. These include masked autoencoders Nie et al. [2023], autoregressive next-token prediction Ansari et al. [2024], Das et al. [2024], diffu-sion frameworks Wang et al. [2025], and past-to-present target-domain reconstruction via Siamese networks Dong et al. [2024]. Although effective for forecasting, these point-level objectives force models to dedicate significant capacity to predicting fine-grained numerical values and high-frequency 2noise at the expense of capturing broader invariant structure Major et al. [2026]. Conversely, latent-alignment paradigms directly optimize representation space by enforcing consistency across different views of the same signal without signal-space decoders. Early work relied primarily on contrastive learning and Siamese instance matching Oord et al. [2018], Yue et al. [2022], whereas recent advances have embraced non-contrastive self-distillation and momentum teacher–student objectives inspired by DINO Pieper et al. [2023], Zhao et al. [2024], Moakher et al. [2026]. However, existing latent-alignment approaches predominantly rely on basic spatial masking or cropping, and their empirical validation remains largely constrained to narrow benchmark sets or single architectural backbones. 
+
+Time-Series Augmentations for Latent Alignment. The representation quality of latent-alignment frameworks depends fundamentally on the choice of view generation. Existing methods predomi-nantly rely on spatial or time-domain transformations, such as cropping, temporal jittering, or channel masking Yue et al. [2022], Moakher et al. [2026]. However, these vision-inspired operations can severely disrupt temporal dynamics: aggressive cropping removes essential seasonal and macro-trend context, while point-wise noise degrades high-frequency phase and amplitude relationships. Recent studies have highlighted this trade-off, analyzing the precision–invariance spectrum under standard-ized benchmarks Major et al. [2026]. Rather than applying spatial or heuristic transformations in the time domain, W INO TS introduces a principled wavelet-based view generation framework that operates natively across time and frequency, constructing multi-scale views that induce invariance while strictly preserving signal dynamics. 
+
+3 Method 
+
+We present W INO TS, a self-supervised pre-training framework that adapts joint-embedding self-distillation to temporal data via multi-resolution time-frequency view generation. Instead of ma-nipulating time-domain samples directly, W INO TS maps input sequences into wavelet coefficient space via the Discrete Wavelet Transform (DWT), constructing asymmetric, full-length views that preserve macroscopic trend and seasonal context while selectively perturbing high-frequency details. In the following subsections, we formalize the wavelet-based view generation mechanism, detail the asymmetric teacher–student self-distillation objective, and describe our stochastic basis sampling scheme. 
+
+3.1 Background 
+
+We first provide the necessary mathematical background on self-distillation and multi-resolution signal representations required to ground our framework. 
+
+Self-Distillation with No Labels (DINO). Originally introduced in computer vision, DINO Caron et al. [2021] serves as a general joint-embedding framework for learning semantic representations without negative pairs or labels. The framework consists of two networks sharing identical structural topologies: a student network gθs,ϕ s optimized via gradient descent, and a teacher network gθt,ϕ t
+
+whose parameters are updated as an exponential moving average (EMA) of the student weights. Each network is parameterized as the composition of an encoder backbone fθ and a non-linear projection head hϕ:
+
+gθ,ϕ = hϕ ◦ fθ . (1) Given two different augmented views of an input sample, denoted xs and xt, the student and teacher process them to produce output logits zs = gθs,ϕ s (xs) and zt = gθt,ϕ t (xt). These logits are converted into probability distributions using a softmax operator. The student’s predictive distribution is parameterized by a temperature hyperparameter τs:
+
+P (i) 
+
+> s
+
+(zs) = exp( z(i) 
+
+> s
+
+/τ s)
+
+P 
+
+> j
+
+exp( z(j) 
+
+> s
+
+/τ s) . (2) To prevent representation collapse across channels, the teacher’s target distribution is centered by a running mean vector c and sharpened by a distinct target temperature τt < τ s:
+
+P (i) 
+
+> t
+
+(zt) = exp(( z(i) 
+
+> t
+
+− c(i))/τ t)
+
+P 
+
+> j
+
+exp(( z(j) 
+
+> t
+
+− c(j))/τ t) . (3) 3Multi-Resolution DWT Asymmetric View Construction Self-Distillation Framework                       
+
+> X∈RT×CJ-level DWT
+> Wwe,Wwh
+> Basis Pool P
+> we, w h∼ U (P)
+> {dj}Jj=1
+> {aJ}
+> Shrinkage
+> ητ(dj,k )Gaussian Noise
+> dj+εj
+> IDWT
+> W−1
+> we
+> Xeasy
+> IDWT
+> W−1
+> whXhard
+> {aJ}
+> Soft Shrinkage Multi-Scale Noise
+> Teacher Enc. fθt
+> Proj. hϕtzt
+> Student Enc. fθs
+> Proj. hϕszs
+> EMA EMA
+> sg (Pt(zt))
+> Ps(zs)
+> LWINO −TS
+
+Figure 1: Architectural pipeline of W INO TS. The wavelet generator produces Q easy and V hard views. The teacher processes only easy views, while the student processes both. Each teacher easy view is matched to all student views except its identical easy counterpart; every hard view is matched to all teacher views. The framework is optimized by minimizing the cross-entropy loss between the teacher’s centered and sharpened target distribution and the student’s distribution: 
+
+LDINO = − X
+
+> i
+
+P (i) 
+
+> t
+
+(zt) log P (i) 
+
+> s
+
+(zs). (4) Gradients are backpropagated strictly through the student network. After each optimization step, the teacher’s parameters are updated via a momentum schedule: θt ← λθ t + (1 − λ)θs and ϕt ←
+
+λϕ t + (1 − λ)ϕs.
+
+Discrete Wavelet Decomposition. The Discrete Wavelet Transform (DWT) provides a standard mathematical framework for analyzing non-stationary signals across multiple resolutions simul-taneously. Formally, let x ∈ RT denote a single-channel temporal sequence. A J-level DWT parameterized by a chosen wavelet basis w recursively decomposes the signal into a low-frequency approximation band and multiple high-frequency detail bands. This decomposition is achieved by applying a low-pass filter h and a high-pass filter g, followed by dyadic downsampling at each scale: 
+
+aj = ( h ⋆ a j−1) ↓ 2,dj = ( g ⋆ a j−1) ↓ 2, j = 1 , . . . , J, (5) where a0 = x. This forward projection maps the raw signal into an orthogonal wavelet space 
+
+Wwx = ( aJ , d J , . . . , d 1). For an orthonormal basis, the original signal can be perfectly recovered via the inverse reconstruction formula: 
+
+x = X
+
+> k
+
+aJ,k ϕJ,k +
+
+> J
+
+X
+
+> j=1
+
+X
+
+> k
+
+dj,k ψj,k , (6) where ϕJ,k and ψj,k represent the scaling and wavelet functions, respectively. The first term yields the coarse approximation projection PVJ x, while the second term captures multi-scale localized temporal fluctuations in the orthogonal complement space V ⊥ 
+
+> J
+
+.
+
+3.2 WINO TS: Self-Distillation with Wavelet-based View Construction 
+
+WINO TS adapts the general DINO framework to time series by introducing a novel view-generation strategy natively tailored to the temporal domain. Instead of relying on spatial or spatial-spectral approximations, our framework exploits the time-frequency locality of the DWT to construct asym-metric, full-length temporal views (Fig. 1). 
+
+Easy View Generation. WINO TS constructs Q easy views E(X) = {Xeasy  
+
+> q
+
+}Qq=1 by applying non-linear soft-thresholding to the high-frequency detail bands while leaving each view’s low-frequency approximation coefficients unchanged. For a given easy view, the modified coefficients are reconstructed in the time domain using the inverse discrete wavelet transform (IDWT), W−1 
+
+> w
+
+:
+
+xeasy = W−1
+
+> w
+
+ aJ , η τJ (dJ ), . . . , η τ1 (d1). (7) 4Here, the approximation component aJ remains unchanged, while the detail shrinkage operator ητ is defined independently for each band using its maximum absolute coefficient: 
+
+ητ (d) = sign( d) max( |d| − τ, 0) , τj = ρ max  
+
+> k
+
+|dj,k |. (8) This operation sets detail coefficients below τj to zero and attenuates larger coefficients, retaining dominant localized fluctuations without discarding the entire high-pass subspace. The relationship between this operator and classical wavelet shrinkage is discussed in the Supplementary Material, and sensitivity to the shrinkage parameter is evaluated in Table A13. 
+
+Hard View Generation. WINO TS further generates V hard views {Xhard  
+
+> v
+
+}Vv=1 . A hard view is constructed by injecting controlled Gaussian noise into the multi-scale detail bands while keeping the approximation coefficients aJ unchanged, followed by IDWT reconstruction: 
+
+xhard = W−1
+
+> w
+
+ aJ , d J + εJ , . . . , d 1 + ε1
+
+, εj,k ∼ N (0 , s 2). (9) For a multivariate hard view, the perturbation scale is sampled independently for each channel. Specifically, for hard view v and channel c,
+
+sv,c ∼ U (smin , s max ), εv,j,k,c ∼ N (0 , s 2
+
+> v,c
+
+). (10) The sampled scale sv,c is shared across all detail levels of channel c within that hard view. The effect of the perturbation design is further analyzed through the augmentation and transform ablations in Tables A10 and A12. 
+
+Multi-Resolution Basis Randomization. A single wavelet basis introduces specific mathematical artifacts rooted in its unique phase alignment, compact support limits, and boundary behaviors. To prevent the model from overfitting to these basis-specific traits, W INO TS samples distinct wavelet bases independently for the teacher and student views from an orthogonal pool P:
+
+weasy , w hard i .i.d.
+
+∼ U(P), (11) where the pool consists of six compactly supported wavelets spanning three distinct mathematical fam-ilies: P = {sym4 , sym6 , sym8 , db4 , db6 , coif2 }. These families introduce diverse signal processing properties into the augmentation pipeline. Daubechies ( db ) wavelets provide a minimum-phase asymmetric design, Symlets ( sym ) optimize for near-symmetric phase behavior to minimize phase distortion, and Coiflets ( coif ) balance symmetry by enforcing vanishing moment constraints on both the scaling and wavelet functions. The properties of the sampled wavelet families are summarized in Supplementary Table A1. The impact of alternative wavelet families, decomposition depths, and transform variants is evaluated in Supplementary Tables A12–A15. 
+
+Architecture-Agnostic Integration. For a multivariate input window X ∈ RT ×C , W INO TS applies the wavelet transform channel-wise. Within a single view, all channels share the same sampled wavelet basis w. For each hard view v, however, every channel c independently samples a perturbation scale sv,c ∼ U (smin , s max ) shared across its detail levels, along with an independent noise realization εv,j,k,c ∼ N (0 , s 2
+
+> v,c
+
+). This design preserves cross-channel view coordination while preventing artificial high-frequency co-dependence. Crucially, because view generation operates in the wavelet coefficient domain prior to full-length reconstruction, the sequence length T remains strictly invariant across all views. This makes W INO TS natively model-agnostic: any time series backbone fθ designed for uniform sequence lengths can be seamlessly embedded without modifying its structural parameters or positional encodings (empirically demonstrated across backbone families in Supplementary Table A9). 
+
+The W INO TS Objective. For an input window X, let E(X) = {Xeasy  
+
+> q
+
+}Qq=1 and H(X) = 
+
+{Xhard  
+
+> v
+
+}Vv=1 denote the sets of Q easy views and V hard views, respectively. The momentum teacher processes exclusively easy views from E(X), whereas the student network processes views from both E(X) and H(X).Let P easy  
+
+> t,q
+
+denote the teacher’s target distribution for easy view q, and let P easy  
+
+> s,u
+
+and P hard  
+
+> s,v
+
+denote the student’s output distributions for easy view u and hard view v. Following standard cross-view self-distillation, valid easy-teacher/easy-student pairs exclude identical view realizations: 
+
+Iee = {(q, u ) : 1 ≤ q, u ≤ Q, q ̸ = u} , (12) 5whereas all easy-teacher/hard-student pairs are valid: 
+
+Ieh = {(q, v ) : 1 ≤ q ≤ Q, 1 ≤ v ≤ V } . (13) The W INO TS objective minimizes cross-entropy across all valid view combinations: 
+
+LWINO TS = 1
+
+|I ee | + |I eh |
+
+" X
+
+(q,u )∈I ee 
+
+H sg P easy 
+
+t,q 
+
+ , P easy 
+
+s,u 
+
+
+
++ X
+
+(q,v )∈I eh 
+
+H sg P easy 
+
+t,q 
+
+ , P hard 
+
+s,v 
+
+ #
+
+,
+
+(14) where sg[ ·] denotes the stop-gradient operator. Here, |I ee | = Q(Q − 1) and |I eh | = QV , yielding an average over Q(Q + V − 1) valid pair combinations (alternative pairing configurations are evaluated in Supplementary Table A16). Crucially, because wavelet bases weasy and whard are sampled independently per view pair, the teacher and student evaluate input representations across distinct time-frequency coordinate frames. This basis mismatch introduces subtle phase and boundary shifts across shared low-frequency bands, forcing the encoder to learn representations invariant to coordinate choices and cross-basis phase leakage. We detail the projection head specifications, teacher momentum schedules, and complete hyperparameter setups in Supplementary Tables A1 and A2. Table 1: Average in-domain forecasting over horizons {96 , 192 , 336 , 720 } with context length 336 (lower is better). Red and blue indicate best and second-best results. W INO TS uses full fine-tuning; WINO TS-LP freezes the backbone and trains only the forecasting head. TimeSiam and TS2Vec are self-supervised; the remaining baselines are supervised.                                                                                                                                                                                                                                                                                                                                                                                             
+
+> Ours Self-Supervised Supervised Dataset WINO TS WINO TS-LP TimeSiam TS2Vec TimeMixer TimeBase SparseTSF PatchTST DLinear iTransformer FEDformer TimesNet Autoformer (ours) (ours) Dong et al. [2024] Yue et al. [2022] Wang et al. [2024] Huang et al. [2025] Lin et al. [2024] Nie et al. [2023] Zeng et al. [2023] Liu et al. [2023] Zhou et al. [2022] Wu et al. [2023] Wu et al. [2021] MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.411 0.423 0.416 0.423 0.426 0.443 0.817 0.669 0.436 0.444 0.409 0.415 0.423 0.430 0.437 0.438 0.465 0.469 0.448 0.446 0.484 0.490 0.471 0.465 0.568 0.518 ETTh2 0.347 0.386 0.347 0.385 0.362 0.402 1.957 1.108 0.349 0.391 0.358 0.399 0.372 0.406 0.380 0.407 0.458 0.462 0.379 0.397 0.419 0.460 0.408 0.405 0.526 0.505 ETTm1 0.346 0.379 0.362 0.386 0.348 0.384 0.670 0.583 0.362 0.388 0.367 0.386 0.368 0.394 0.393 0.401 0.377 0.396 0.408 0.410 0.441 0.459 0.403 0.412 0.665 0.545 ETTm2 0.250 0.308 0.252 0.308 0.260 0.321 0.912 0.676 0.261 0.321 0.260 0.317 0.264 0.320 0.282 0.327 0.317 0.371 0.291 0.334 0.329 0.377 0.296 0.332 0.356 0.401 Weather 0.224 0.262 0.238 0.272 0.228 0.264 1.021 0.727 0.226 0.265 0.254 0.290 0.235 0.277 0.266 0.284 0.249 0.300 0.261 0.281 0.311 0.363 0.259 0.287 0.331 0.373 Electricity 0.163 0.254 0.167 0.260 0.158 0.249 0.373 0.451 0.163 0.255 0.176 0.261 0.166 0.257 0.365 0.299 0.173 0.275 0.183 0.274 0.256 0.360 0.201 0.298 0.321 0.392 Exchange 0.377 0.407 0.397 0.419 0.412 0.431 0.831 0.639 0.458 0.454 0.450 0.461 0.440 0.458 0.365 0.405 0.317 0.414 0.358 0.404 0.825 0.675 0.424 0.449 0.793 0.656 Solar 0.204 0.258 0.260 0.315 0.213 0.273 0.274 0.365 0.213 0.277 0.292 0.307 0.196 0.246 0.270 0.304 0.258 0.319 0.272 0.300 0.310 0.402 0.274 0.294 0.740 0.631 Traffic 0.411 0.276 0.420 0.282 0.407 0.280 0.938 0.545 0.430 0.310 0.447 0.293 0.415 0.267 0.471 0.304 0.451 0.320 0.479 0.326 0.640 0.391 0.638 0.335 0.745 0.445 AQShunyi 0.678 0.503 0.684 0.502 0.680 0.504 0.672 0.515 0.686 0.504 0.705 0.518 0.695 0.518 0.775 0.529 0.695 0.527 0.780 0.528 0.799 0.562 0.754 0.525 0.799 0.563 AQWan 0.776 0.494 0.784 0.496 0.778 0.495 0.765 0.509 0.784 0.497 0.811 0.511 0.795 0.509 0.873 0.517 0.798 0.520 0.883 0.519 0.814 0.526 0.846 0.511 0.870 0.552 CzeLan 0.223 0.262 0.230 0.267 0.232 0.287 0.333 0.413 0.230 0.282 0.274 0.325 0.238 0.286 0.266 0.299 0.354 0.385 0.267 0.295 0.333 0.386 0.307 0.325 0.655 0.580 PM2.5 0.418 0.420 0.421 0.421 0.419 0.426 0.428 0.478 0.424 0.429 0.445 0.450 0.423 0.450 0.426 0.426 0.423 0.467 0.428 0.427 0.455 0.493 0.438 0.434 0.475 0.471
+
+4 Experimental Setup 
+
+Datasets and evaluation protocols. We evaluate forecasting on 13 benchmarks: ETTh1, ETTh2, ETTm1, ETTm2 1, Weather 2, Electricity 3, Traffic 4, Exchange and Solar Energy [Lai et al., 2018], AQShunyi and AQWan [Zhang et al., 2017], CzeLan [Poyatos et al., 2020], and PM2.5. We report MSE and MAE averaged over horizons {96 , 192 , 336 , 720 }. For anomaly detection, we follow the TSLib evaluation protocol and report point-adjusted precision, recall, and F1; complete detector and evaluation details are provided in the supplementary material. WINO TS is evaluated under two downstream adaptation protocols: by default, W INO TS employs full fine-tuning, where all model parameters are updated end-to-end on the downstream task. To evaluate representation quality, we also test under linear probing (denoted by W INO TS-LP), where the pre-trained backbone remains frozen and only a task-specific head is optimized. We compare our framework against eleven state-of-the-art baselines for forecasting and seven baselines for anomaly detection. Unless specified otherwise, all methods use their optimal default backbone architecture 
+
+1https://github.com/zhouhaoyi/ETDataset 
+
+2https://www.bgc-jena.mpg.de/wetter 
+
+3https://archive.ics.uci.edu/ml/datasets 
+
+4https://pems.dot.ca.gov/ 
+
+6(when applicable), optimizer configuration, and total number of optimization steps. For W INO TS, this budget is divided between self-supervised pre-training and downstream adaptation, whereas supervised baselines use their default optimal optimization budget entirely for supervised training. Unless otherwise stated, W INO TS utilizes in-domain self-supervised pre-training, optimizing on the unlabeled training split of the downstream dataset prior to task-specific adaptation. For cross-domain zero-shot transfer, pre-training and task configuration are performed strictly on the source dataset, and the model is evaluated directly on the target dataset without any target-domain parameter updates. 
+
+Implementation Details. WINO TS pre-trains a TimeMixer backbone using symmetric DWT boundary extension, decomposition depth J=3 , shrinkage ratio ρ=0 .6, and the wavelet pool listed in Supplementary Table A1. For its longest filter ( sym8 , L=16 ), this depth satisfies T ≥ 2J (L − 1) = 120 . Each input yields Q=1 easy view and V =1 hard view. Both views are forwarded through the student, but the same-index easy–easy pair is excluded; hence Iee = ∅, and the reported loss reduces to H(sg[ P easy  
+
+> t
+
+], P hard  
+
+> s
+
+). Alternative pairing rules and view counts are evaluated in Supplementary Tables A16 and A18. Inputs are standardized channel-wise using training-split statistics. For each hard view, the noise scale is sampled independently per channel from U(0 .2, 0.5) and shared across that channel’s detail levels. The DINO head is a three-layer MLP with hidden width 2048 , a 256 -dimensional ℓ2-normalized bottleneck, and a weight-normalized output layer with K=1024 ; the choice of K is evaluated in Supplementary Table A4. We use τs=0 .1, τt=0 .04 , center momentum 0.9, and a cosine teacher-EMA schedule from 0.9996 to 1.0. After pre-training, the projection head is discarded and the EMA teacher backbone is used for downstream adaptation. Complete pre-training optimization and architecture settings are reported in Supplementary Table A2; the wavelet pool and projection output-dimension study are provided in Supplementary Tables A1 and A4. 
+
+Architectural and Design Ablations. To isolate the factors driving performance, we evaluate core design choices in Section 5, including view generation primitives, loss objectives, and encoder backbones. Comprehensive supplementary evaluations, covering synthetic pre-training, backbone transferability, wavelet family choices, view pairing rules, and seed robustness, are detailed in Supplementary Tables A6 and A9–A17. 
+
+5 Results and Discussion 
+
+We systematically evaluate W INO TS across three primary downstream tasks: in-domain forecasting, cross-domain zero-shot transfer, and unsupervised anomaly detection. Through extensive empirical comparisons, we demonstrate that wavelet-based self-distillation consistently outperforms supervised baselines, generalizes across diverse backbone architectures, and offers clear advantages over both spatial edits and generative pre-training objectives. 
+
+5.1 In-Domain Forecasting, Linear Separability, and Backbone Generalization 
+
+Table 1 reports in-domain forecasting performance across 13 standard benchmarks (complete per-horizon results are provided in Supplementary Table A5). We evaluate two downstream protocols using our pre-trained TimeMixer backbone: W INO TS (full end-to-end fine-tuning) and W INO TS-LP (linear probing over the frozen pre-trained backbone). All baseline methods, including the supervised TimeMixer baseline, are fully trained end-to-end from scratch. W INO TS consistently improves upon its supervised TimeMixer counterpart, achieving the top average rank across all evaluated methods. Compared directly against supervised TimeMixer, W INO TS yields clear error reductions on 12 datasets by MSE and all 13 by MAE, indicating that wavelet-based self-distillation captures structural regularities that complement the backbone’s native inductive bias. While specialized architectures retain localized advantages on specific benchmarks—such as DLinear on Exchange or SparseTSF on Solar—W INO TS delivers the most consistent gains across the benchmark suite, ranking among the top two performing methods on 12 out of 13 datasets. To isolate representation quality from fine-tuning dynamics, we evaluate the frozen backbone under WINO TS-LP, where only a lightweight linear forecasting head is trained. W INO TS-LP outperforms fully supervised TimeMixer on 7 datasets by MSE and 10 by MAE, demonstrating that pre-training extracts highly separable, informative temporal features without requiring full weight updates. 7To assess whether these gains generalize beyond TimeMixer, Table 2 compares W INO TS against identical backbones trained from scratch under their default optimal supervised configurations. Across five datasets, W INO TS consistently reduces both MSE and MAE for all tested MLP, Transformer, and TCN-based backbones, confirming that its benefits are broadly model-agnostic. A detailed per-dataset breakdown for each backbone family is provided in Supplementary Table A9. Table 2: Relative MSE/MAE reduction of W INO TS fine-tuning compared to training the same backbone architectures from scratch under their optimal supervised configurations. Results are averaged across five datasets (ETTh1, ETTh2, ETTm1, ETTm2, Weather) and four forecasting horizons ( H ∈ { 96 , 192 , 336 , 720 }). Positive values indicate performance gains. 
+
+Backbone Family Encoder Backbone Avg. MSE / MAE Reduction (%) MLP TimeMixer +3.2% / +2.7% 
+
+Transformer PatchTST +3.5% / +2.4% iTransformer +2.6% / +2.9% 
+
+TCN TS2Vec +58.0% / +44.0% 
+
+Table 3: Cross-domain zero-shot forecasting transfer on ETT datasets (lower is better). Best and second-best results are highlighted in red and blue, respectively. Each source →target row denotes pre-training on the source dataset followed by direct evaluation on the target dataset, without target-domain parameter updates.                                                                                                                                                                                                                                                                                
+
+> Transfer WINO TS WINO TS-LP TimeMixer TimeBase SparseTSF PatchTST Autoformer FEDformer iTransformer TimesNet
+> (Ours) (Ours) Wang et al. [2024] Huang et al. [2025] Lin et al. [2024] Nie et al. [2023] Wu et al. [2021] Zhou et al. [2022] Liu et al. [2023] Wu et al. [2023] MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 →ETTh2 0.3496 0.3888 0.3520 0.3902 0.3778 0.4000 0.3560 0.3991 0.3729 0.4075 0.3790 0.4020 0.4721 0.4810 0.4573 0.4696 0.3752 0.3991 0.4229 0.4307 ETTh1 →ETTm1 0.7027 0.5461 0.7032 0.5457 0.7866 0.5738 0.7420 0.5647 0.8111 0.5644 0.8000 0.5890 0.7730 0.5870 0.7627 0.5802 0.8307 0.5851 0.9413 0.6222 ETTh1 →ETTm2 0.2951 0.3481 0.2955 0.3482 0.3143 0.3559 0.3060 0.3611 0.3096 0.3616 0.3140 0.3570 0.3650 0.4070 0.3532 0.3902 0.3216 0.3632 0.3524 0.3837 ETTh2 →ETTh1 0.4473 0.4512 0.4513 0.4536 0.6379 0.5457 0.4150 0.4156 0.5039 0.4739 0.6410 0.5490 0.7140 0.5820 0.6856 0.5760 0.6673 0.5676 0.8393 0.6436 ETTh2 →ETTm1 0.7586 0.5666 0.7675 0.5676 0.8627 0.5956 0.7620 0.5709 1.4956 0.6973 0.9680 0.6170 0.7300 0.5730 0.7273 0.5720 0.9493 0.6235 1.3997 0.7322 ETTh2 →ETTm2 0.2955 0.3495 0.2956 0.3504 0.3311 0.3708 0.3101 0.3649 0.3267 0.3759 0.3280 0.3680 0.3490 0.3840 0.3293 0.3718 0.3291 0.3689 0.3803 0.4030 ETTm1 →ETTh1 0.5392 0.4945 0.5281 0.4919 0.7253 0.5786 0.6320 0.5417 0.5546 0.5066 0.6210 0.5390 0.9560 0.6590 1.057 0.704 0.7165 0.5676 1.0033 0.6814 ETTm1 →ETTh2 0.3908 0.4208 0.3976 0.4236 0.4412 0.4407 0.3820 0.4191 0.4049 0.4257 0.4380 0.4380 0.4660 0.4730 0.4517 0.4605 0.4572 0.4499 0.5039 0.4820 ETTm1 →ETTm2 0.2697 0.3216 0.2724 0.3228 0.2994 0.3353 0.2760 0.3302 0.2746 0.3264 0.2970 0.3340 0.3655 0.4072 0.323 0.366 0.2991 0.3341 0.3332 0.3648 ETTm2 →ETTh1 0.5011 0.4842 0.4844 0.4733 0.7596 0.6059 0.7560 0.5918 0.6203 0.5419 0.6360 0.5590 0.7150 0.5770 1.265 0.743 0.8905 0.6348 1.0088 0.6678 ETTm2 →ETTh2 0.3632 0.3972 0.3660 0.3988 0.4185 0.4322 0.3870 0.4197 0.3926 0.4138 0.4060 0.4210 0.4231 0.4363 0.429 0.445 0.4337 0.4441 0.4712 0.4595 ETTm2 →ETTm1 0.4791 0.4552 0.4318 0.4301 0.5936 0.5067 0.5500 0.4880 1.0778 0.6149 0.6060 0.5110 0.7200 0.5653 0.720 0.565 0.6440 0.5193 0.8046 0.5813
+
+5.2 Cross-Domain Zero-Shot Forecasting Transfer 
+
+To test whether W INO TS captures transferable temporal representations we further evaluate cross-domain forecasting transfer on the ETT benchmarks. In this setting, models are pre-trained on a source dataset and evaluated directly on an unseen target dataset without any target-domain fine-tuning. As shown in Table 3, W INO TS exhibits particularly strong cross-domain transfer within the ETT benchmark family, achieving the best MSE on nine of the twelve source →target pairs and the best MAE on ten, and the top average rank among all evaluated methods (1.42 by MSE and 1.17 by MAE). Relative to its direct TimeMixer base, W INO TS yields an average relative improvement of 16.4% in MSE and 8.7% in MAE, outperforming it across all transfer pairs. 
+
+5.3 Unsupervised Anomaly Detection 
+
+We further evaluate W INO TS representations on five standard multivariate anomaly-detection datasets under the TSLib evaluation protocol (Table 4). Among the evaluated methods, W INO TS achieves the highest point-adjusted F1 on all five benchmarks. These results indicate that the multi-scale representations learned by W INO TS transfer effectively to reconstruction-based anomaly detection. In particular, representations learned by matching detail-perturbed student views to denoised teacher targets appear well suited to modeling regular temporal structure and identifying deviations through reconstruction error. 
+
+6 Ablation Studies 
+
+In this section, we conduct systematic ablation experiments to isolate the impact of core framework design choices. Unless specified otherwise, all ablation models are pre-trained on the source dataset 8Table 4: Anomaly detection results. We report point-adjusted precision (P), recall (R), and F1-score (%). Best and second-best results are shown in red and blue, respectively.                                                                                                                                                         
+
+> Dataset WINO TS iTransformer DLinear Autoformer TimesNet FEDformer Crossformer Reformer (Ours) Liu et al. [2023] Zeng et al. [2023] Wu et al. [2021] Wu et al. [2023] Zhou et al. [2022] Zhang and Yan [2023] [Kitaev et al., 2020] PRF1 PRF1 PRF1 PRF1 PRF1 PRF1 PRF1 PRF1 SMD 84.04 77.34 80.55 68.22 63.79 65.93 70.13 69.34 69.73 67.91 41.63 51.62 79.28 54.20 64.39 60.86 52.23 56.22 62.99 62.32 62.65 64.03 61.56 62.77 MSL 88.47 69.39 77.78 53.62 13.79 21.94 69.45 25.38 37.18 82.14 41.25 54.92 62.38 19.03 29.17 81.72 39.34 53.11 77.20 27.22 40.25 78.22 35.51 48.85 SMAP 92.36 64.56 76.00 57.84 8.45 14.75 69.09 14.14 23.47 73.57 20.13 31.61 68.28 13.39 22.38 70.91 16.94 27.35 70.42 16.24 26.39 77.41 22.56 34.94 SWaT 34.72 8.59 13.78 6.67 1.34 2.23 5.96 1.19 1.98 9.83 1.95 3.26 4.17 0.84 1.39 10.07 2.00 3.34 28.92 7.37 11.75 9.76 1.93 3.23 PSM 99.33 86.51 92.48 93.38 30.87 46.40 96.79 42.52 59.08 98.65 14.01 24.53 81.76 31.17 45.14 98.05 14.66 25.51 93.49 34.85 50.77 91.50 24.71 38.92
+
+and evaluated downstream under the frozen linear probing (W INO TS-LP) protocol across four standard forecasting horizons ( H ∈ { 96 , 192 , 336 , 720 }). 
+
+Augmentation Strategy. To examine the role of our wavelet-based view generation, we substitute our proposed wavelet augmentations with augmentations commonly used in vision self-distillation, including noise jitter, cropping, and their combinations (Table 5, visualized in Supplementary Figure A1). Overall, preserving full temporal length and phase integrity yields consistently better linear probing performance. Specifically, cropping combined with jitter (jitter+crop and gaussian+crop) leads to noticeable performance degradation across most benchmarks, particularly on ETTm1 (MSE 0.438 vs. 0.364 )and Weather (MSE 0.303 vs. 0.238 ). While simple time-domain noise (jitter) preserves sequence length and achieves competitive results on specific streams, our wavelet-domain view generation provides superior performance on four out of six datasets, with notable margins on ETTm1 and Weather. This suggests that modulating coefficients in the wavelet domain provides an effective mechanism for augmenting temporal data while keeping overall sequence continuity and long-term structure intact. Table 5: Wavelet versus vision-like augmentations. We compare wavelet-based augmentations to jitter and cropping. Best results in red, second-best in blue. 
+
+wavelets jitter jitter+crop gaussian+crop 
+
+Dataset MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.417 0.426 0.422 0.426 0.424 0.428 ETTh2 0.347 0.385 0.349 0.387 0.349 0.388 0.360 0.392 ETTm1 0.364 0.386 0.397 0.414 0.438 0.443 0.398 0.418 ETTm2 0.252 0.308 0.247 0.308 0.253 0.312 0.274 0.328 Weather 0.238 0.273 0.242 0.278 0.303 0.320 0.263 0.294 Electricity 0.167 0.260 0.165 0.257 0.165 0.257 0.165 0.256 
+
+Pre-training Objective. We analyze the impact of the pre-training objective by contrasting the invariance-based joint-embedding distillation of W INO TS against a hybrid formulation as well as generative and reconstruction-based alternatives (Table 6). Specifically, we evaluate: (i) our invariance-based approach (ii) a multi-task hybrid objective (Invariance-based + MAE), (iii) MAE, (iv) NTP, and (v) a joint-embedding predictive architecture (JEPA) Assran et al. [2023]. The results demonstrate that incorporating a localized reconstruction target in (invariance-based+MAE) provides no systematic improvement over pure self-distillation and occasionally de-grades downstream performance. Furthermore, purely generative and reconstruction-based objectives (MAE and NTP) trail behind the invariance-based objective of W INO TS on the majority of bench-marks. While NTP exhibits localized advantages on specific datasets (such as ETTm1 and Weather) where its autoregressive forecasting bias aligns closely with the downstream task, it fails to match the overall consistency of W INO TS. 
+
+7 Conclusion 
+
+WINO TS demonstrates that wavelet-domain joint-embedding distillation offers a flexible, model-agnostic paradigm for self-supervised time-series learning, shifting the focus from point-wise recon-struction to multi-scale structural invariants. 9Table 6: Ablation of W INO TS’s objective (Invariance-based self distillation). In-domain forecasting MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }. Lower is better; best in red, second-best in blue.                                                               
+
+> Dataset Invariance-based (Ours) Invariance-based+MAE MAE NTP JEPA
+> MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.418 0.424 0.465 0.465 0.428 0.435 0.442 0.447 ETTh2 0.347 0.385 0.355 0.389 0.449 0.457 0.407 0.427 0.390 0.426 ETTm1 0.364 0.386 0.370 0.388 0.349 0.387 0.346 0.381 0.375 0.393 ETTm2 0.252 0.308 0.258 0.313 0.294 0.344 0.263 0.320 0.274 0.332 Weather 0.238 0.273 0.241 0.274 0.266 0.294 0.226 0.265 0.229 0.266
+
+Limitations & Future Work. While our global joint-embedding objective excels at capturing stable multi-scale patterns, it can be outperformed on highly volatile streams by specialized autoregressive priors (e.g., NTP) that explicitly optimize step-by-step local transitions. Future work will explore adaptive, learnable wavelet bases and extend joint-embedding distillation to scale-free, multi-modal temporal systems. 
+
+References 
+
+Abdul Fatir Ansari, Lorenzo Stella, Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebastian Pineda Arango, Shubham Kapoor, et al. Chronos: Learning the language of time series. Transactions on Machine Learning Research ,2024. Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and Nicolas Ballas. Self-supervised learning from images with a joint-embedding predictive architecture. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 15619–15629, 2023. Rishi Bommasani, Drew A Hudson, Ehsan Adeli, Russ Altman, Simran Arora, Sydney von Arx, Michael S Bernstein, Jeannette Bohg, Antoine Bosselut, Emma Brunskill, et al. On the opportuni-ties and risks of foundation models. arXiv preprint arXiv:2108.07258 , 2021. Mathilde Caron, Hugo Touvron, Ishan Misra, Hervé Jégou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 9650–9660, 2021. Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geoffrey Hinton. A simple framework for contrastive learning of visual representations. In International conference on machine learning ,pages 1597–1607. PmLR, 2020. Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting. In Forty-first International Conference on Machine Learning , 2024. Ingrid Daubechies. Orthonormal bases of compactly supported wavelets. Communications on pure and applied mathematics , 41(7):909–996, 1988. Ingrid Daubechies. Ten Lectures on Wavelets , volume 61 of CBMS-NSF Regional Conference Series in Applied Mathematics . Society for Industrial and Applied Mathematics, Philadelphia, PA, 1992. ISBN 978-0-89871-274-2. Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers) , pages 4171–4186, 2019. Jiaxiang Dong, Haixu Wu, Yuxuan Wang, Yun-Zhong Qiu, Li Zhang, Jianmin Wang, and Mingsheng Long. Timesiam: A pre-training framework for siamese time-series modeling. In International Conference on Machine Learning (ICML) , 2024. 10 David L. Donoho and Iain M. Johnstone. Ideal spatial adaptation by wavelet shrinkage. Biometrika ,81(3):425–455, 1994. doi: 10.1093/biomet/81.3.425. Qihe Huang, Zhengyang Zhou, Kuo Yang, Zhongchao Yi, Xu Wang, and Yang Wang. Timebase: The power of minimalism in efficient long-term time series forecasting. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 26227–26246. PMLR, 2025. Nikita Kitaev, Łukasz Kaiser, and Anselm Levskaya. Reformer: The efficient transformer. In 
+
+International Conference on Learning Representations (ICLR) , 2020. Guokun Lai, Wei-Cheng Chang, Yiming Yang, and Hanxiao Liu. Modeling long- and short-term temporal patterns with deep neural networks. In The 41st International ACM SIGIR Conference on Research & Development in Information Retrieval , pages 95–104, 2018. Shengsheng Lin, Weiwei Lin, Wentai Wu, Haojun Chen, and Junjie Yang. Sparsetsf: Modeling long-term time series forecasting with 1k parameters. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research ,pages 30211–30226. PMLR, 2024. Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. itransformer: Inverted transformers are effective for time series forecasting. In The Twelfth International Conference on Learning Representations , 2023. Noam Major et al. Quantifying the pre-training dividend: Generative versus latent self-supervised learning for time series foundation models. arXiv preprint arXiv:2605.19462 , 2026. Konstantin Mishchenko and Aaron Defazio. Prodigy: An expeditiously adaptive parameter-free learner. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 35779–35804. PMLR, 2024. URL 
+
+https://proceedings.mlr.press/v235/mishchenko24a.html .Yessin Moakher et al. Utica: Multi-objective self-distllation foundation model pretraining for time series classification. arXiv preprint arXiv:2603.01348 , 2026. Yuqi Nie, Nam H Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In International Conference on Learning Representations (ICLR) , 2023. Aaron van den Oord et al. Representation learning with contrastive predictive coding. In arXiv preprint arXiv:1807.03748 , 2018. Felix Pieper, Konstantin Ditschuneit, Martin Genzel, Alexandra Lindt, and Johannes S. Otterbach. Self-distilled representation learning for time series, 2023. Rafael Poyatos, Víctor Granda, Víctor Flo, Mark A. Adams, Balázs Adorján, David Aguadé, Marcos P. M. Aidar, Scott Allen, M. Susana Alvarado-Barrientos, Kristina J. Anderson-Teixeira, et al. Global transpiration data from sap flow measurements: the SAPFLUXNET database. Earth System Science Data Discussions , 2020:1–57, 2020. Daoyu Wang, Mingyue Cheng, Zhiding Liu, and Qi Liu. Timedart: A diffusion autoregressive transformer for self-supervised time series representation. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research ,pages 62627–62651. PMLR, 2025. Shiyu Wang, Haixu Wu, Xiaoming Shi, Tengge Hu, Huakun Luo, Lintao Ma, James Y Zhang, and Jun Zhou. Timemixer: Decomposable multiscale mixing for time series forecasting. In International Conference on Learning Representations (ICLR) , 2024. Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. Autoformer: Decomposition transform-ers with auto-correlation for long-term series forecasting. In Advances in Neural Information Processing Systems , volume 34, pages 22419–22430, 2021. 11 Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. Timesnet: Temporal 2d-variation modeling for general time series analysis. In International Conference on Learning Representations , 2023. Zhihan Yue, Haoyue Liu, Yan Zhou, Huan Yu, and Wenwu Sun. Ts2vec: Towards universal representation of time series. In AAAI Conference on Artificial Intelligence , 2022. Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. Are transformers effective for time series forecasting? In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 11121–11128, 2023. Shuyi Zhang, Bin Guo, Anlan Dong, Jing He, Ziping Xu, and Song Xi Chen. Cautionary tales on air-quality improvement in Beijing. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 473(2205):20170457, 2017. Yunhao Zhang and Junchi Yan. Crossformer: Transformer utilizing cross-dimension dependency for multivariate time series forecasting. In The eleventh international conference on learning representations , 2023. Shubao Zhao, Ming Jin, Zhaoxiang Hou, Chengyi Yang, Zengxiang Li, Qingsong Wen, and Yi Wang. Himtm: Hierarchical multi-scale masked time series modeling with self-distillation for long-term forecasting. In Proceedings of the 33rd ACM International Conference on Information and Knowledge Management , pages 3352–3362, 2024. Tian Zhou, Ziqing Ma, Qingsong Wen, Xue Wang, Liang Sun, and Rong Jin. Fedformer: Frequency enhanced decomposed transformer for long-term series forecasting. In International conference on machine learning , pages 27268–27286. PMLR, 2022. 12 Appendix 
+
+This appendix provides additional methodological details, implementation specifications, and ex-tended experimental results supporting the main paper. We first expand the WINO-TS methodology, including the teacher–student optimization, wavelet view construction, signal-processing interpreta-tion, and architectural implementation details omitted from the main text. We then present extended experimental protocols, optimization and reproducibility settings, detailed per-horizon forecasting results, additional evaluations on synthetic pre-training and classification, and comprehensive ablation studies covering the pre-training objective, augmentation strategy, wavelet design choices, backbone generalization, view pairing, and robustness to random initialization. Together, these materials provide sufficient detail to reproduce and further analyze the proposed framework. 
+
+A Additional Method Details 
+
+The main paper defines the WINO-TS wavelet views and self-distillation objective. This section records additional teacher-update, signal-processing, architectural, and implementation details that are useful for reproducing and interpreting the method. 
+
+A.1 Teacher–Student Optimization and Cross-View Objective 
+
+At the beginning of pre-training, the teacher parameters are initialized from the student parameters. Gradients are applied only to the student. After each student update, the teacher backbone and projection head are updated by exponential moving average (EMA): 
+
+θt ← λθ t + (1 − λ)θs, ϕt ← λϕ t + (1 − λ)ϕs. (15) The momentum coefficient follows a cosine schedule from λ0 = 0 .9996 to 1.0 over pre-training. The teacher center is an EMA of the batch mean of the teacher logits. For a batch of B samples and 
+
+Q easy teacher views per sample, let 
+
+zt = 1
+
+BQ 
+
+> B
+
+X
+
+> b=1
+> Q
+
+X
+
+> q=1
+
+zqt,b . (16) The center is updated as 
+
+c ← mcc + (1 − mc)zt, mc = 0 .9. (17) The student temperature is fixed at τs = 0 .1. The teacher temperature is scheduled from 0.06 to its final value τt = 0 .04 over the first five pre-training epochs. During pre-training, WINO-TS attaches a three-layer DINO projection MLP to the backbone. The hid-den layers have width 2048 and use GELU activations, and the MLP terminates in a 256 -dimensional bottleneck. The bottleneck is ℓ2-normalized and passed through a weight-normalized linear output layer of dimension K = 1024 . The projection head is discarded after pre-training, and the EMA teacher backbone is transferred to the downstream task. For an input window X, the wavelet view generator constructs Q easy views 
+
+E(X) = Xeasy  
+
+> q
+> Qq=1
+
+(18) and V hard views 
+
+H(X) = Xhard  
+
+> v
+> Vv=1
+
+. (19) The teacher processes only the easy views, whereas the student processes both the easy and hard views. The same easy-view realizations are therefore forwarded through both networks, while the hard views are forwarded only through the student. Let P easy  
+
+> t,q
+
+denote the teacher distribution for easy view q, and let P easy  
+
+> s,u
+
+and P hard  
+
+> s,v
+
+denote the corresponding student distributions. The valid easy-teacher/easy-student pairs are 
+
+Iee = {(q, u ) : 1 ≤ q, u ≤ Q, q ̸ = u} , (20) and all easy-teacher/hard-student pairs are valid: 
+
+Ieh = {(q, v ) : 1 ≤ q ≤ Q, 1 ≤ v ≤ V } . (21) 13 The objective is 
+
+LWINO = 1
+
+|I ee | + |I eh |
+
+" X
+
+> (q,u )∈I ee
+
+H sg P easy 
+
+> t,q
+
+ , P easy 
+
+> s,u
+
+
+
++ X
+
+> (q,v )∈I eh
+
+H sg P easy 
+
+> t,q
+
+ , P hard 
+
+> s,v
+
+ #
+
+.
+
+(22) Consequently, both student view types contribute directly to optimization. Each easy student view is supervised by the teacher outputs from the other easy-view realizations, while every hard student view is supervised by all easy teacher outputs. Only the teacher–student pair corresponding to the identical easy-view index is excluded. 
+
+A.2 Multiresolution Interpretation 
+
+For an orthonormal wavelet basis, a J-level discrete wavelet transform decomposes a single-channel signal into an approximation space VJ and its multi-scale orthogonal complement: 
+
+x = X
+
+> k
+
+aJ,k ϕJ,k 
+
+| {z } 
+
+> PVJx
+
++
+
+> J
+
+X
+
+> j=1
+
+X
+
+> k
+
+dj,k ψj,k 
+
+| {z } 
+
+> ∈V⊥
+> J
+
+. (23) The approximation coefficients encode coarse temporal structure, whereas dj,k describes localized variation at a temporal scale on the order of 2j around location 2j k. Unlike Fourier atoms, which have global temporal support, wavelet atoms are localized in both time and scale. This makes the representation suitable for non-stationary signals whose local frequency content changes over time. A wavelet with N vanishing moments annihilates polynomials of degree below N :
+
+ψ ⊥ { 1, t, . . . , t N −1}. (24) Equivalently, the corresponding scaling filter contains an N -fold zero at ω = π:
+
+H(ω) = 
+
+ 1 + e−iω 
+
+2
+
+N
+
+Q(e−iω ), (25) 
+
+H(ω) = 1
+
+√2
+
+X
+
+> k
+
+hke−ikω . (26) with the orthonormal perfect-reconstruction condition 
+
+|H(ω)|2 + |H(ω + π)|2 = 1 . (27) The number of vanishing moments therefore controls how strongly low-order trends are suppressed by the detail filters and affects the sparsity of wavelet coefficients on smooth signals. The critically sampled DWT is not shift-invariant: a small temporal shift can alter coefficient alignment across levels. WINO-TS treats this basis sensitivity as an additional source of view diversity rather than attempting to remove it. At the default depth J = 3 , the approximation emphasizes temporal structure at scales longer than roughly 2J+1 samples, while the detail bands retain progressively finer local fluctuations. 
+
+Why full-length temporal views. DINO-style learning depends strongly on the augmentation family. Image transformations such as multi-crop, color jitter, and blur generally alter nuisance factors while retaining object identity, but they do not have direct semantic analogues for ordered temporal signals. Random cropping can remove the context needed to identify trend, seasonality, or regime; time warping can distort phase relationships; and unrestricted amplitude jitter or additive noise can erase discriminative local structure. WINO-TS therefore realizes view diversity through localized wavelet coefficients while reconstructing every view at the original length. 14 Figure A1: Qualitative comparison of wavelet-domain and vision-style view generation on a standard-ized periodic input window. The left panel shows the original input signal. In the middle panel, the WINO-TS easy teacher view, produced through wavelet-detail soft thresholding, and the hard student view, produced through wavelet-detail perturbation, retain the dominant period, temporal ordering, and full sequence support. Their differences are concentrated primarily in localized amplitude and high-frequency fluctuations. In the right panel, a representative vision-style augmentation pipeline based on temporal cropping, contrast modification, jitter, and additive noise alters the support and point-wise alignment of the two views, making their periodic correspondence less direct. The example illustrates the intended inductive bias of WINO-TS: preserving coarse temporal organization and global context while varying localized fine-scale content. It is provided as a qualitative sanity check rather than as general evidence of semantic preservation. 
+
+Qualitative visualization of temporal-structure preservation. Figure A1 illustrates the difference between the proposed wavelet-domain view generator and a representative vision-style augmentation pipeline. Under WINO-TS, the easy teacher and hard student views remain temporally aligned and preserve the dominant periodic structure of the original window, despite differing in their localized high-frequency content. This produces a non-trivial self-distillation task without removing temporal context or changing the sequence support. In contrast, cropping and unstructured time-domain perturbations can alter support, alignment, and phase correspondence between teacher and student views. The visualization therefore illustrates why full-length, frequency-localized perturbations provide a more natural invariance mechanism for periodic temporal signals. 
+
+A.3 Easy View and Its Relation to Classical Wavelet Shrinkage 
+
+For a selected wavelet basis, the easy view preserves the approximation coefficients and applies soft-threshold shrinkage independently to each detail band: 
+
+xeasy = W−1 
+
+> w
+
+(aJ , η τJ (dJ ), . . . , η τ1 (d1)) , (28) where 
+
+ητ (d) = sign( d) max( |d| − τ, 0) , τj = ρ max  
+
+> k
+
+|dj,k |. (29) Equivalently, 
+
+xeasy = PVJ x + X
+
+> j,k
+
+ητj (dj,k )ψj,k . (30) The easy view is therefore not a pure low-pass projection: it retains attenuated versions of dominant detail coefficients while suppressing weak transients. This operation is inspired by classical wavelet shrinkage Donoho and Johnstone [1994], but it does not use the Donoho–Johnstone noise-calibrated threshold. WINO-TS instead uses a per-band threshold scaled by the largest absolute coefficient in that band. This avoids estimating a separate observation-noise model for every dataset and adapts the threshold to the dynamic range of each level. Soft-thresholding is nonlinear and generally not idempotent: 
+
+ητ (ητ (d)) ̸ = ητ (d). (31) Accordingly, it does not project directly onto VJ . The default ρ = 0 .6 applies strong but partial shrinkage. When ρ ≥ 1, every detail coefficient is mapped to zero and the construction reaches the hard low-pass limit PVJ x.15 A.4 Hard View and Standardized Perturbation Scale 
+
+The hard view preserves the approximation coefficients and injects Gaussian perturbations into all detail levels: 
+
+xhard = W−1 
+
+> w
+
+(aJ , d J + εJ , . . . , d 1 + ε1) , (32) (33) 
+
+sv,c ∼ U (0 .2, 0.5) , εv,j,k,c ∼ N (0 , s 2
+
+> v,c
+
+). (34) For each hard view v, a scale sv,c is sampled independently for every channel c and shared across all detail levels of that channel. The construction can also be written as 
+
+xhard = x + W−1 
+
+> w
+
+MHP ε, (35) where MHP selects the high-pass detail coefficients. Inputs are standardized channel-wise using statistics computed only from the training split before the wavelet transform is applied. The perturbation scale s is therefore expressed in standardized signal units. For multivariate inputs, the same wavelet basis is shared across channels within a view, but each channel receives an independent realization of ε. This preserves a coordinated view-level transform without imposing artificial high-frequency co-dependence between variables. 
+
+A.5 Boundary Handling, Full-Length Reconstruction, and Admissible Depth 
+
+Finite windows require an extension rule at their boundaries. WINO-TS uses symmetric boundary extension. The ideal decomposition into PVJ x and V ⊥ 
+
+> J
+
+therefore holds exactly in the interior, with boundary-dependent coefficients confined to a region whose order scales as O(2 J L) per side for a filter of length L. This is an order statement rather than an exact count, because the affected region depends on the implementation and wavelet support. When the same basis is used for two views, their unmodified approximation coefficients agree up to the boundary convention. Under the default independent basis sampling, the easy and hard views instead preserve comparable low-frequency bands; their approximation coefficients need not be identical. The decomposition depth must be compatible with the input length and filter support. The admissible depth satisfies 
+
+J ≤
+
+
+
+log 2
+
+ TL − 1
+
+ 
+
+. (36) For the longest filter in the default pool, sym8 with L = 16 , the default depth J = 3 requires 
+
+T ≥ 23(L − 1) = 120 . (37) All views are reconstructed to the original length T , so the augmentation does not require changes to a backbone’s positional encoding, patch layout, or input-shape parameters. 
+
+A.6 Wavelet Pool and Basis Diversity 
+
+weasy , w hard i .i.d.
+
+∼ U(P), (38) 
+
+P = {sym4 , sym6 , sym8 , db4 , db6 , coif2 }. (39) The pool varies support length, smoothness, vanishing moments, and phase behavior. Daubechies wavelets are compactly supported and minimum phase; Symlets reduce phase asymmetry; and Coiflets impose moment constraints on both the scaling and wavelet functions. Independent sampling prevents the encoder from binding its representation to one basis and introduces mild cross-basis phase and boundary variation while retaining comparable coarse temporal content. 16 Table A1: The WINO-TS wavelet pool P. VM denotes the number of vanishing moments of the wavelet function ψ, and L denotes filter length in samples.                                
+
+> Wavelet Family VM LPrimary property
+> sym4 Symlet 48Reduced phase asymmetry sym6 Symlet 612 Reduced phase asymmetry sym8 Symlet 816 Reduced phase asymmetry db4 Daubechies 48Minimum-phase design db6 Daubechies 612 Minimum-phase design coif2 Coiflet 412 Moment constraints on ϕand ψ
+
+A.7 Model-Agnostic Transfer 
+
+At the objective level, WINO-TS requires only a backbone that maps a full-length time-series window to a representation accepted by the projection head. The backbone may be an MLP, Transformer, or temporal convolutional network. After pre-training, the projection head is removed and the EMA teacher backbone is used for downstream adaptation. Two forecasting adaptation modes are considered. In linear probing, the backbone is frozen and only a task-specific forecasting head is optimized. In full fine-tuning, the backbone and task head are optimized jointly. Classification uses full fine-tuning: the pretrained backbone is unfrozen and optimized jointly with the classification head. In zero-shot cross-domain forecasting, pre-training and task adaptation are performed only on the source dataset, followed by direct target evaluation without target-domain parameter updates. 
+
+B Additional Positioning and Related Work 
+
+WINO-TS is a pre-training and view-construction method rather than a new supervised forecasting architecture. It is therefore complementary to backbones such as PatchTST, iTransformer, and TimeMixer: the DINO projection head is attached only during pre-training and is removed before downstream adaptation. A related controlled study examined the pre-training dividend in time-series foundation models Major et al. [2026]. It compared generative objectives, including masked reconstruction, next-token prediction, and diffusion, with latent-alignment objectives, including JEPA, Le-JEPA, and DINO, under a shared evaluation protocol, and identified a task-dependent precision–invariance trade-off. WINO-TS addresses a different question: it develops the DINO direction into a dedicated time-series pre-training recipe based on wavelet-domain view construction, basis-family sampling, and full-length multivariate adaptation, and evaluates the resulting representations across forecasting, transfer, anomaly detection, and classification. Recent time-series self-distillation methods also use non-contrastive teacher–student learning, but differ in how they define the prediction task. TimeSiam uses past/current subseries and masked past-to-current reconstruction. Self-Distilled Representation Learning for Time Series follows a data2vec-style latent-prediction objective from masked inputs. HiMTM combines hierarchical masked time-series modeling with self-distillation, and UTICA adapts DINOv2-style training to time-series classification. WINO-TS instead constructs full-length views in the wavelet domain and varies localized detail coefficients through shrinkage, perturbation, and basis sampling rather than cropping, subseries selection, or reconstruction-only targets. 
+
+C Extended Experimental Protocols 
+
+C.1 Pre-Training and Adaptation 
+
+For in-domain forecasting, the backbone is first pre-trained on the unlabeled training split of the same dataset. The projection head is then discarded and the EMA teacher backbone is adapted using either full fine-tuning or linear probing. For cross-domain zero-shot forecasting, pre-training and task adaptation are performed strictly on the source dataset. The resulting source model is evaluated directly on the target dataset without target-domain fine-tuning or other target-domain parameter updates. 17 Table A2: WINO-TS pre-training hyperparameters.                                                  
+
+> Hyperparameter Value
+> Optimizer AdamW Base learning rate 5×10 −4(linear batch scaling, /256 )LR schedule 3-epoch warmup →cosine to 1×10 −6
+> Weight decay cosine 0.04 →0.1
+> Gradient clipping max-norm 3.0
+> Epochs 80
+> Batch size (per GPU) 128
+> Precision FP32 EMA teacher momentum cosine 0.9996 →1.0
+> Teacher temperature warmup 0.06 →0.04 (5epochs) Student temperature 0.1
+> Freeze last layer 1epoch Easy (teacher) views 1
+> Hard (student) views 1
+> Input window / patch 336
+> Prototypes ( K)1024
+> Backbone TimeMixer, 4layers, dmodel =128 ,
+> dff =256 , dropout 0.1
+> Attention pooling multi-head attention, dmodel =128 ,
+> 4heads, dropout 0.0
+
+For classification, a classification head is attached to the WINO-TS-pretrained backbone, and the complete model is fine-tuned end-to-end with supervision. Both the pretrained backbone and the classification head are updated. Forecasting results use MSE and MAE, averaged over horizons 
+
+{96 , 192 , 336 , 720 } unless a table states otherwise. Classification results use accuracy. 
+
+C.2 Dataset Naming 
+
+The main paper reports results on the standard long-term forecasting benchmarks ETTh1, ETTh2, ETTm1, ETTm2, Weather, Electricity, Exchange, Solar, and Traffic. The appendix adds further datasets for a broader robustness evaluation. For readability, we use the following short names throughout: AirQuality-Shunyi and AirQuality-Wan (also written AQShunyi and AQWan), PM2.5, JapaneseVowels, and SelfRegulationSCP1/2. “Solar Energy” is abbreviated to Solar; CzeLan keeps the capitalization of the main tables. All other forecasting names match the main experimental tables. 
+
+D Optimization and Reproducibility 
+
+For completeness, we report the optimization and compute configuration used for pre-training and downstream evaluation. All runs use seed 42 unless a table explicitly reports multiple seeds. 
+
+D.1 Self-Supervised Pre-Training 
+
+The WINO-TS self-distillation objective is optimized with AdamW. The base learning rate is 5×10 −4
+
+and is scaled linearly with the effective batch size, 
+
+ηeff = ηbase 
+
+BN GPU 
+
+256 . (40) The learning rate is warmed up linearly over the first three epochs and then decayed to 1 × 10 −6
+
+with a cosine schedule. Weight decay follows a cosine schedule from 0.04 to 0.1, and gradients are clipped to a maximum norm of 3.0. The EMA teacher momentum is cosine-annealed from 0.9996 
+
+to 1.0. The teacher temperature is scheduled from 0.06 to 0.04 over the first five epochs, while the student temperature remains fixed at 0.1. The final prototype layer is frozen during the first epoch to stabilize early training. Pre-training runs for 80 epochs in full precision (FP32) with a per-GPU batch size of 128. Each input contains 336 time steps, and the projection head outputs K = 1024 prototypes. 18 D.2 Forecasting 
+
+Downstream forecasting uses Adam with a one-cycle learning-rate schedule comprising a 30% warm-up phase followed by cosine decay, together with weight decay 1 × 10 −4. We report two adaptation protocols. In linear probing, the backbone is frozen and only the forecasting head is trained. In full fine-tuning, the backbone is unfrozen and the encoder and head use a shared learning rate. The learning rate is 2 × 10 −5 for linear probing and 1 × 10 −4 for full fine-tuning. A subset of fine-tuning runs instead uses the learning-rate-free Prodigy [Mishchenko and Defazio, 2024] optimizer with 
+
+dcoef ∈ { 0.5, 1.0}.Fine-tuning runs for approximately 20 epochs with early stopping on a held-out validation split; the checkpoint with the best validation performance is retained. The default forecasting batch size is 128 and is reduced for the highest-channel datasets to fit in memory: 32 for PM2.5, 16 for Electricity, and 8 for Traffic. Head dropout is selected from {0.0, 0.1}. The same optimization configuration is used for horizons {96 , 192 , 336 , 720 }.
+
+D.3 Anomaly Detection 
+
+The anomaly detector consists of a WINO-TS-pretrained encoder followed by a linear reconstruction decoder. The encoder and decoder are jointly fine-tuned, using normal windows from the training split. The detector is optimized with Adam for 10 epochs using a learning rate of 1 × 10 −3 and a mean-squared reconstruction loss over non-overlapping windows of length 100, represented as 10 patches of length 10. Given an input X and its reconstruction bX, the anomaly score at timestamp t is the channel-averaged squared reconstruction error: 
+
+et = 1
+
+C Xt − bXt
+
+> 22
+
+. (41) Following the TSLib evaluation protocol, the decision threshold is computed from the combined training and unlabeled test reconstruction scores: 
+
+γd = Q1−rd/100 
+
+ Ed 
+
+> train
+
+∪ E d
+
+> test
+
+ , (42) where Ed 
+
+> train
+
+and Ed 
+
+> test
+
+denote the timestamp-level reconstruction-energy distributions for dataset d.We use rSMD = 0 .5 and rd = 1 .0 for MSL, SMAP, SWaT, and PSM, corresponding to the 99 .5th and 
+
+99 th percentiles, respectively. These dataset-specific anomaly ratios are predefined by the evaluation configuration and are not estimated from the empirical test anomaly rate. Test labels are not used to determine the threshold. A test timestamp is initially classified as anomalous when etest  
+
+> t
+
+> γ d. We then apply the standard segment-level point-adjustment procedure before computing precision, recall, and F1. All methods in the anomaly comparison use the same scoring, thresholding, and point-adjustment procedure. 
+
+D.4 Classification 
+
+Classification uses full end-to-end fine-tuning. A linear classification head is attached to the pretrained backbone, and both the backbone and classification head are jointly optimized with Adam at learning rate 1 × 10 −3 for 20 epochs using batch size 16 on fixed-length windows. 
+
+D.5 Hardware and Software 
+
+All experiments run on a server with 8× NVIDIA RTX PRO 6000 Blackwell Server Edition GPUs with 96 GB of memory per GPU. Each dataset–model run uses one GPU; no multi-GPU training is used. The software stack is Python 3.9.25 and PyTorch 2.8.0 with CUDA 12.8 and cuDNN 9.10. Pre-training cost scales with the number of channels. On one GPU, an epoch takes approximately 24 s for ETTh1 (7 channels) and approximately 26 min for Electricity (321 channels); a complete ETT pre-training run takes approximately 32 min. Downstream fine-tuning takes approximately 10–15 min on smaller datasets and up to a few hours on the largest datasets. 19 Table A3: Forecasting (MSE/MAE, avg. over horizons {96 , 192 , 336 , 720 }) with synthetic pre-training. Ours (FT) = best fine-tuned DINO config per dataset; Ours (LP) and survey Major et al. [2026] are linear-probe. Each MSE/MAE pair is from a single run. Lower is better.                                     
+
+> Ours (synth, FT) Ours (synth, LP) Survey (synth, LP) Dataset MSE MAE MSE MAE MSE MAE ETTh1 0.417 0.425 0.521 0.489 0.438 0.446 ETTh2 0.365 0.402 0.410 0.428 0.362 0.401 ETTm1 0.351 0.378 0.361 0.389 0.357 0.384 ETTm2 0.250 0.310 0.259 0.319 0.253 0.311 Weather 0.227 0.261 0.242 0.276 0.235 0.272
+
+Table A4: Effect of the DINO head output dimension K (out_dim) on in-domain forecasting (linear probe, context 336, MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }). Ours uses K=1024 ;best per row in bold .                                                  
+
+> K=512 K=1024
+> (Ours)
+> K=2048 K=8192
+> Dataset MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.430 0.431 0.416 0.423 0.431 0.433 0.435 0.434 ETTh2 0.369 0.395 0.347 0.385 0.377 0.399 0.378 0.400 ETTm1 0.364 0.387 0.364 0.386 0.359 0.383 0.357 0.384 ETTm2 0.248 0.311 0.252 0.308 0.248 0.310 0.249 0.309 Weather 0.238 0.273 0.238 0.273 0.269 0.298 0.241 0.275
+
+E Extended Forecasting Results 
+
+E.1 Complete In-Domain Averages 
+
+The complete in-domain forecasting comparison over all 13 datasets is already reported in the main paper in Table 1. That table includes WINO-TS under full fine-tuning and linear probing, the self-supervised TimeSiam and TS2Vec baselines, and all supervised forecasting baselines, with MSE and MAE averaged over horizons {96 , 192 , 336 , 720 }. We refer to the main-paper table rather than reproducing the same large table in the appendix. 
+
+E.2 Horizon-wise Forecasting Results 
+
+Table A5 provides the complete per-horizon breakdown for all 13 in-domain forecasting benchmarks. It reports horizons {96 , 192 , 336 , 720 } under the same input context length of 336 and includes both WINO-TS adaptation protocols, the self-supervised baselines, and all supervised baselines used in the main comparison. Using the displayed values and counting ties, at least one WINO-TS adaptation protocol ranks among the two lowest-error methods in 40 of the 52 dataset–horizon rows by MSE and 47 of 52 by MAE; it attains the best displayed value in 28 rows by MSE and 31 rows by MAE. The strongest results are concentrated on the ETT benchmarks, Weather, CzeLan, and many of the shorter-horizon air-quality settings. The full breakdown also exposes meaningful exceptions: TimeSiam is strongest on several Electricity horizons, SparseTSF leads Solar and much of Traffic, DLinear and iTransformer lead Exchange at horizon 720, and non-WINO baselines are strongest on some long-horizon AQShunyi and AQWan settings. Thus, the horizon-averaged gains are not driven by one prediction length, but the preferred adaptation protocol and strongest competing inductive bias remain dataset- and horizon-dependent. 
+
+F Synthetic Pre-Training 
+
+We investigate whether WINO-TS can learn transferable temporal representations when the real, in-domain unlabeled pre-training split is replaced with a synthetic time-series corpus. This setting tests whether wavelet-based self-distillation can capture reusable multi-scale temporal primitives 20 Table A5: In-domain forecasting performance per prediction length {96 , 192 , 336 , 720 } (lower is better). All methods use the same input context length of 336. Best and second-best per row are shown in red and blue. Ours : WINO-TS (full fine-tune) and WINO-TS-LP (frozen backbone, trained head). Self-supervised : TimeSiam and TS2Vec. Supervised : end-to-end baselines. 
+
+Ours Self-Supervised Supervised Dataset H WINO-TS WINO-TS-LP TimeSiam TS2Vec TimeMixer TimeBase SparseTSF PatchTST DLinear iTransformer FEDformer TimesNet Autoformer (Ours) (Ours) Dong et al. [2024] Yue et al. [2022] Wang et al. [2024] Huang et al. [2025] Lin et al. [2024] Nie et al. [2023] Zeng et al. [2023] Liu et al. [2023] Zhou et al. [2022] Wu et al. [2023] Wu et al. [2021] MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 96 0.369 0.394 0.374 0.396 0.376 0.405 0.647 0.578 0.379 0.402 0.370 0.385 0.374 0.394 0.385 0.401 0.380 0.402 0.385 0.403 0.388 0.430 0.402 0.422 0.501 0.475 192 0.405 0.413 0.410 0.417 0.414 0.429 0.739 0.628 0.426 0.433 0.401 0.406 0.419 0.422 0.427 0.427 0.412 0.422 0.440 0.436 0.463 0.475 0.472 0.467 0.526 0.495 336 0.425 0.430 0.429 0.429 0.439 0.450 0.852 0.688 0.431 0.439 0.418 0.417 0.432 0.431 0.465 0.450 0.496 0.490 0.479 0.459 0.492 0.488 0.513 0.484 0.595 0.543 720 0.447 0.456 0.446 0.459 0.474 0.488 1.031 0.783 0.509 0.502 0.446 0.449 0.467 0.471 0.471 0.476 0.573 0.561 0.487 0.484 0.592 0.566 0.498 0.488 0.652 0.560 ETTh2 96 0.271 0.331 0.270 0.330 0.303 0.358 0.934 0.758 0.288 0.346 0.301 0.353 0.315 0.361 0.291 0.342 0.309 0.373 0.302 0.350 0.408 0.452 0.323 0.366 0.383 0.425 192 0.355 0.382 0.342 0.376 0.362 0.395 1.971 1.099 0.361 0.393 0.350 0.386 0.372 0.398 0.371 0.396 0.395 0.426 0.379 0.397 0.400 0.449 0.419 0.416 0.409 0.451 336 0.368 0.403 0.370 0.403 0.371 0.411 2.214 1.187 0.339 0.387 0.362 0.405 0.381 0.413 0.428 0.436 0.437 0.458 0.423 0.432 0.387 0.438 0.450 0.445 0.408 0.471 720 0.396 0.429 0.403 0.433 0.412 0.443 2.708 1.387 0.406 0.438 0.417 0.454 0.418 0.452 0.431 0.453 0.692 0.591 0.424 0.444 0.481 0.503 0.441 0.454 0.905 0.673 ETTm1 96 0.291 0.343 0.293 0.346 0.290 0.347 0.609 0.542 0.299 0.350 0.315 0.356 0.308 0.357 0.329 0.367 0.308 0.350 0.347 0.378 0.385 0.432 0.337 0.377 0.703 0.558 192 0.325 0.367 0.341 0.376 0.328 0.370 0.629 0.556 0.344 0.380 0.340 0.369 0.338 0.376 0.376 0.390 0.347 0.375 0.384 0.394 0.425 0.446 0.383 0.398 0.595 0.522 336 0.356 0.386 0.378 0.397 0.357 0.390 0.682 0.592 0.373 0.394 0.382 0.395 0.388 0.408 0.405 0.407 0.390 0.402 0.420 0.417 0.434 0.454 0.415 0.420 0.690 0.555 720 0.412 0.419 0.424 0.419 0.416 0.428 0.760 0.642 0.434 0.428 0.431 0.423 0.439 0.436 0.464 0.442 0.465 0.456 0.483 0.453 0.519 0.504 0.477 0.453 0.671 0.556 ETTm2 96 0.161 0.247 0.161 0.247 0.171 0.262 0.339 0.418 0.172 0.264 0.169 0.259 0.170 0.254 0.178 0.259 0.201 0.297 0.183 0.266 0.262 0.344 0.190 0.266 0.287 0.358 192 0.216 0.285 0.214 0.286 0.227 0.301 0.503 0.524 0.227 0.300 0.223 0.294 0.230 0.295 0.244 0.306 0.251 0.329 0.253 0.313 0.297 0.357 0.248 0.304 0.331 0.392 336 0.266 0.319 0.263 0.320 0.279 0.336 0.821 0.687 0.281 0.335 0.276 0.328 0.282 0.337 0.305 0.343 0.367 0.402 0.313 0.349 0.334 0.379 0.334 0.356 0.353 0.396 720 0.355 0.380 0.351 0.378 0.364 0.386 1.983 1.074 0.365 0.388 0.372 0.386 0.373 0.392 0.402 0.401 0.451 0.459 0.414 0.406 0.425 0.430 0.412 0.404 0.452 0.457 Weather 96 0.146 0.197 0.160 0.209 0.148 0.197 0.745 0.607 0.149 0.200 0.187 0.242 0.158 0.214 0.181 0.221 0.180 0.239 0.174 0.214 0.238 0.313 0.167 0.217 0.275 0.346 192 0.189 0.240 0.204 0.249 0.195 0.241 0.770 0.626 0.191 0.241 0.223 0.268 0.203 0.257 0.231 0.263 0.222 0.281 0.227 0.261 0.281 0.342 0.232 0.272 0.293 0.342 336 0.241 0.278 0.254 0.288 0.245 0.282 1.078 0.759 0.243 0.282 0.270 0.301 0.251 0.292 0.288 0.303 0.265 0.317 0.283 0.300 0.335 0.381 0.277 0.303 0.340 0.379 720 0.318 0.332 0.324 0.337 0.326 0.337 1.492 0.916 0.321 0.338 0.337 0.347 0.326 0.344 0.363 0.350 0.327 0.362 0.360 0.350 0.391 0.418 0.361 0.355 0.416 0.425 Electricity 96 0.132 0.225 0.135 0.230 0.127 0.220 0.361 0.443 0.131 0.226 0.150 0.243 0.138 0.230 0.189 0.281 0.147 0.248 0.150 0.245 0.215 0.329 0.169 0.272 0.224 0.337 192 0.148 0.240 0.151 0.244 0.145 0.237 0.363 0.445 0.150 0.243 0.162 0.253 0.152 0.244 0.194 0.285 0.160 0.261 0.164 0.257 0.228 0.343 0.183 0.284 0.430 0.433 336 0.165 0.258 0.167 0.260 0.162 0.254 0.371 0.451 0.170 0.262 0.177 0.268 0.167 0.260 0.210 0.299 0.177 0.280 0.180 0.275 0.290 0.385 0.204 0.304 0.258 0.361 720 0.206 0.293 0.206 0.293 0.197 0.286 0.398 0.467 0.202 0.294 0.216 0.300 0.206 0.293 0.250 0.331 0.211 0.310 0.238 0.321 0.292 0.385 0.248 0.331 0.374 0.439 Exchange 96 0.084 0.202 0.087 0.206 0.093 0.218 0.186 0.315 0.106 0.231 0.113 0.239 0.110 0.242 0.085 0.203 0.127 0.259 0.087 0.208 0.363 0.452 0.115 0.244 0.360 0.451 192 0.178 0.301 0.192 0.309 0.211 0.331 0.380 0.447 0.200 0.325 0.223 0.344 0.217 0.339 0.179 0.301 0.186 0.323 0.177 0.301 0.594 0.588 0.216 0.334 0.472 0.520 336 0.324 0.411 0.360 0.433 0.365 0.440 1.506 0.915 0.379 0.444 0.385 0.457 0.392 0.470 0.331 0.417 0.372 0.463 0.325 0.413 0.824 0.704 0.394 0.462 0.729 0.660 720 0.921 0.715 0.951 0.728 0.980 0.736 1.251 0.878 1.145 0.819 1.080 0.806 1.040 0.783 0.865 0.700 0.586 0.610 0.845 0.695 1.520 0.958 0.972 0.756 1.610 0.994 Solar 96 0.192 0.253 0.232 0.309 0.196 0.252 0.244 0.357 0.189 0.260 0.260 0.277 0.184 0.235 0.233 0.282 0.225 0.298 0.237 0.280 0.285 0.377 0.231 0.279 0.725 0.592 192 0.203 0.256 0.265 0.326 0.211 0.273 0.259 0.354 0.228 0.281 0.284 0.292 0.198 0.248 0.277 0.306 0.254 0.315 0.263 0.293 0.275 0.370 0.271 0.297 0.703 0.627 336 0.209 0.259 0.274 0.320 0.216 0.274 0.290 0.371 0.214 0.280 0.328 0.367 0.199 0.250 0.287 0.311 0.275 0.333 0.291 0.313 0.324 0.408 0.300 0.295 0.773 0.630 720 0.212 0.265 0.269 0.305 0.230 0.291 0.303 0.377 0.221 0.286 0.294 0.294 0.204 0.251 0.285 0.316 0.278 0.332 0.297 0.314 0.357 0.452 0.294 0.306 0.759 0.674 Traffic 96 0.384 0.263 0.396 0.271 0.382 0.269 0.933 0.544 0.403 0.299 0.424 0.281 0.379 0.250 0.451 0.295 0.424 0.307 0.508 0.355 0.591 0.363 0.600 0.314 0.677 0.407 192 0.405 0.271 0.410 0.276 0.398 0.274 0.924 0.540 0.422 0.310 0.436 0.285 0.400 0.257 0.458 0.297 0.442 0.314 0.451 0.308 0.637 0.392 0.630 0.326 0.786 0.456 336 0.415 0.278 0.423 0.283 0.409 0.279 0.938 0.544 0.432 0.306 0.450 0.295 0.417 0.270 0.469 0.301 0.456 0.323 0.466 0.313 0.672 0.414 0.640 0.341 0.714 0.439 720 0.442 0.293 0.450 0.297 0.439 0.297 0.956 0.550 0.464 0.325 0.478 0.309 0.463 0.285 0.506 0.321 0.482 0.336 0.490 0.326 0.658 0.394 0.681 0.360 0.806 0.481 AQShunyi 96 0.625 0.474 0.632 0.475 0.627 0.478 0.628 0.491 0.647 0.482 0.669 0.501 0.667 0.504 0.717 0.504 0.652 0.511 0.719 0.502 0.674 0.515 0.722 0.505 0.738 0.542 192 0.663 0.494 0.667 0.493 0.666 0.498 0.665 0.514 0.676 0.499 0.689 0.510 0.686 0.513 0.771 0.524 0.678 0.512 0.775 0.522 0.703 0.523 0.760 0.523 0.754 0.551 336 0.683 0.506 0.685 0.506 0.686 0.506 0.684 0.524 0.690 0.508 0.705 0.519 0.700 0.517 0.786 0.534 0.703 0.538 0.789 0.533 0.721 0.536 0.752 0.525 0.745 0.542 720 0.742 0.537 0.739 0.532 0.741 0.533 0.710 0.531 0.732 0.529 0.758 0.544 0.730 0.538 0.828 0.554 0.746 0.547 0.835 0.554 0.772 0.566 0.783 0.545 0.961 0.615 AQWan 96 0.713 0.465 0.719 0.466 0.716 0.467 0.721 0.487 0.730 0.475 0.765 0.493 0.757 0.495 0.798 0.489 0.745 0.504 0.811 0.492 0.757 0.502 0.795 0.489 0.826 0.537 192 0.753 0.485 0.762 0.486 0.757 0.486 0.754 0.506 0.770 0.490 0.789 0.502 0.779 0.504 0.867 0.513 0.779 0.505 0.877 0.514 0.787 0.512 0.840 0.505 0.827 0.540 336 0.782 0.499 0.788 0.500 0.781 0.498 0.775 0.516 0.785 0.499 0.807 0.510 0.799 0.508 0.885 0.524 0.804 0.530 0.889 0.522 0.818 0.529 0.851 0.513 0.846 0.542 720 0.856 0.529 0.868 0.533 0.857 0.529 0.811 0.527 0.850 0.523 0.882 0.540 0.843 0.531 0.944 0.544 0.865 0.541 0.954 0.547 0.895 0.559 0.898 0.536 0.983 0.591 CzeLan 96 0.174 0.221 0.176 0.223 0.183 0.247 0.289 0.375 0.189 0.250 0.239 0.308 0.191 0.249 0.212 0.259 0.207 0.288 0.212 0.257 0.294 0.360 0.220 0.273 0.584 0.542 192 0.206 0.246 0.208 0.247 0.213 0.271 0.309 0.391 0.216 0.263 0.248 0.302 0.220 0.271 0.243 0.282 0.334 0.382 0.243 0.278 0.305 0.367 0.270 0.308 0.641 0.590 336 0.235 0.272 0.240 0.275 0.243 0.298 0.343 0.422 0.243 0.283 0.282 0.332 0.248 0.293 0.276 0.306 0.319 0.371 0.275 0.301 0.317 0.377 0.263 0.301 0.703 0.583 720 0.279 0.308 0.294 0.319 0.289 0.333 0.391 0.463 0.274 0.331 0.327 0.361 0.294 0.332 0.336 0.349 0.555 0.499 0.339 0.346 0.415 0.440 0.475 0.417 0.692 0.603 PM2.5 96 0.424 0.423 0.425 0.423 0.422 0.426 0.450 0.475 0.433 0.430 0.448 0.447 0.437 0.442 0.433 0.428 0.426 0.452 0.435 0.431 0.453 0.453 0.459 0.445 0.479 0.467 192 0.426 0.423 0.430 0.424 0.426 0.431 0.438 0.474 0.427 0.429 0.449 0.455 0.430 0.442 0.434 0.430 0.424 0.452 0.436 0.429 0.457 0.448 0.448 0.440 0.463 0.462 336 0.421 0.420 0.428 0.421 0.423 0.425 0.418 0.470 0.427 0.426 0.447 0.452 0.417 0.447 0.427 0.425 0.417 0.461 0.433 0.426 0.450 0.459 0.437 0.429 0.464 0.449 720 0.402 0.416 0.402 0.414 0.404 0.424 0.405 0.491 0.409 0.429 0.436 0.448 0.410 0.470 0.410 0.423 0.426 0.504 0.411 0.422 0.461 0.493 0.408 0.424 0.493 0.507 
+
+without relying exclusively on the statistics of the downstream dataset. Table A6 compares in-domain WINO-TS fine-tuning with two synthetic pre-training variants. Synthetic WINO-TS pre-training remains competitive with in-domain pre-training on several bench-marks, showing that the framework can learn useful temporal structure from generated data. Its performance is nevertheless less consistent, with the largest degradation occurring on Exchange. This result suggests that generic synthetic temporal primitives do not fully capture all domain-specific dynamics, making real in-domain data the more reliable default. The Synthetic DINO+MAE variant improves over in-domain WINO-TS-FT on five of the nine datasets by MSE and ties or improves on six by MAE. However, this comparison changes both the pre-training corpus and the objective. It should therefore be interpreted as a joint data-source/objective ablation rather than as evidence for the effect of synthetic data alone. Overall, the results identify synthetic pre-training as a promising scaling direction, while also showing that its effectiveness depends on the match between the generated temporal structure and the downstream domain. 21 Table A6: Effect of the pre-training data source and objective. Each entry reports MSE/MAE; lower is better. Best values for each dataset and metric are shown in bold .                                                            
+
+> In-domain WINO-TS-FT Synthetic WINO-TS-FT Synthetic DINO+MAE Dataset MSE MAE MSE MAE MSE MAE ETTh1 0.411 0.423 0.417 0.425 0.418 0.423
+> ETTh2 0.347 0.386 0.365 0.402 0.359 0.404 ETTm1 0.346 0.379 0.350 0.378 0.345 0.377
+> ETTm2 0.250 0.308 0.250 0.309 0.249 0.308
+> Weather 0.224 0.262 0.226 0.261 0.227 0.261
+> Electricity 0.163 0.254 0.164 0.256 0.164 0.256 Exchange 0.377 0.407 0.843 0.540 0.469 0.469 Solar 0.204 0.258 0.238 0.277 0.199 0.252
+> Traffic 0.411 0.276 0.423 0.283 0.414 0.278 Synthetic WINO-TS-FT changes only the pre-training corpus, whereas Synthetic DINO+MAE changes both the pre-training corpus and the pre-training objective.
+
+Table A7: Classification datasets and reported sample counts. 
+
+Dataset Reported samples 
+
+EthanolConcentration 261 SpokenArabicDigits 6599 FaceDetection 5890 JapaneseVowels 270 SelfRegulationSCP1 268 SelfRegulationSCP2 200 UWave 120 Heartbeat 204 Handwriting 150 
+
+G Extended Classification Results 
+
+Classification fine-tunes the full WINO-TS-pretrained backbone jointly with a supervised classifica-tion head. Table A7 presents the dataset metadata, and Table A8 reports the results. WINO-TS exceeds iTransformer on five of the nine datasets, including SpokenArabicDigits, FaceDe-tection, UWave, EthanolConcentration, and Heartbeat, where class identity may be associated with robust multi-scale morphology. Its weaker performance on JapaneseVowels, SelfRegulationSCP1/2, and especially Handwriting is consistent with the interpretation that some classification tasks depend on fine local detail that can be attenuated by the easy-view shrinkage. This is an interpretation of the observed pattern rather than a direct causal measurement. 
+
+H Additional Ablation Details 
+
+The following ablations supplement the objective, backbone, and vision-augmentation analyses reported in the main paper. The vision-like augmentation comparison remains in Table 5 of the main paper and is not duplicated here. Unless stated otherwise, each entry is MSE/MAE averaged over forecasting horizons 
+
+{96 , 192 , 336 , 720 }, and lower values are better. Because the tables correspond to separate con-trolled runs, each should be interpreted as a within-table comparison rather than by comparing small numerical differences across different ablation tables. 
+
+H.1 Backbone Ablation 
+
+The backbone ablation evaluates whether WINO-TS depends on the TimeMixer encoder or whether the wavelet self-distillation recipe can be used with other backbone families. The DINO objective and full wavelet-augmentation pool are held fixed, and only the encoder is changed. Table A9 summarizes the results. Among the currently reported entries, TimeMixer gives the strongest overall performance across the evaluated forecasting datasets, while PatchTST remains competitive on several benchmarks. 22 Table A8: Classification accuracy after full end-to-end fine-tuning initialized from a WINO-TS-pretrained backbone. Both the backbone and classification head are updated. Higher is better; best results are in bold .                     
+
+> Dataset WINO-TS iTransformer
+> (Ours) Liu et al. [2023] EthanolConcentration 0.2970 0.2810 SpokenArabicDigits 0.9900 0.9827 FaceDetection 0.6700 0.6592 JapaneseVowels 0.9570 0.9811
+> SelfRegulationSCP1 0.8770 0.9113
+> SelfRegulationSCP2 0.5000 0.5611
+> UWave 0.8594 0.8531 Heartbeat 0.7805 0.7463 Handwriting 0.0376 0.2565
+
+Table A9: Backbone ablation for WINO-TS (DINO pre-training, full augmentation family). In-domain forecasting using linear probe, with MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }. The DINO objective and augmentation are held fixed — all backbones use the full wavelet-augmentation family (pool {sym4, sym6, sym8, db4, db6, coif2 }) — while only the encoder backbone is swapped. Lower is better; best in red, second-best in blue.                                               
+
+> Dataset TimeMixer(MLP) PatchTST iTransformer TS2Vec(TCN)
+> Wang et al. [2024] Nie et al. [2023] Liu et al. [2023] Yue et al. [2022] MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.422 0.432 0.656 0.558 0.541 0.505 ETTh2 0.347 0.385 0.357 0.392 0.427 0.447 0.388 0.423 ETTm1 0.364 0.386 0.370 0.388 0.427 0.423 0.431 0.432 ETTm2 0.252 0.308 0.252 0.309 0.290 0.344 0.286 0.341 Weather 0.238 0.272 0.240 0.274 0.269 0.303 0.288 0.305 Electricity 0.167 0.260 0.170 0.263 0.334 0.419 0.236 0.336
+
+This supports the interpretation of WINO-TS as a transferable pre-training recipe while also showing that the choice of encoder remains consequential. 
+
+H.2 Multi-View Ablation 
+
+We additionally evaluate a multi-view variant of WINO-TS with Q=2 easy views and V ∈ { 2, 4, 6}
+
+hard views per window, following the pipeline and hyperparameters of the default configuration. The wavelet basis, noise scale, and noise realization are sampled independently for each view. With 
+
+Q=2 , the easy–easy matching term Iee in Eq. (16) is active. As reported in Table A18, these configurations underperform the default Q=1 , V =1 setting across the evaluated datasets despite their higher per-window cost, and we therefore adopt the single-view-pair default throughout the paper. 
+
+H.3 Objective-Ablation Definitions 
+
+The main-paper objective ablation compares the default WINO-TS loss with a hybrid masked-reconstruction objective and three non-default pre-training objectives. The default WINO-TS model uses only the DINO-style cross-view self-distillation loss. WINO-TS+MAE uses 
+
+Lhybrid = ϕLDINO + (1 − ϕ)LMAE , ϕ = 0 .6, (43) where LMAE reconstructs masked patches against the raw signal. Under this convention, pure WINO-TS corresponds to ϕ = 1 .The MAE baseline uses masked reconstruction without a teacher. NTP uses autoregressive next-token prediction, and JEPA predicts a target latent representation rather than reconstructing raw observations. The backbone and wavelet augmentation are held fixed for the WINO-TS and WINO-TS+MAE comparison. 23 Table A10: Augmentation-family ablation for WINO-TS with linear probe on the DINO objective. Each cell reports MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }. Lower is better; best results are in bold .                                      
+
+> Daub. Zero-out Full pool Dataset MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.415 0.422 0.416 0.423 ETTh2 0.347 0.385 0.348 0.387 0.347 0.385
+> ETTm1 0.363 0.386 0.359 0.385 0.364 0.386 ETTm2 0.253 0.308 0.257 0.312 0.252 0.308
+> Weather 0.237 0.272 0.238 0.273 0.238 0.273 Daub.: Daubechies-only pool. Zero-out: finest-scale coefficient zeroing. Full pool: default WINO-TS pool.
+
+Table A11: Pre-training objective ablation (WINO-TS, TimeMixer backbone, full augmentation pool, Linear probe). In-domain forecasting MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }.
+
+DINO : pure self-distillation — the student matches the teacher’s centered/sharpened prototype distribution across augmented views, with no reconstruction ( ϕ=1 ). DINO+MAE : adds a masked-autoencoding term in which the student reconstructs masked patches against the raw signal, blended as ϕ DINO + (1 −ϕ) MAE ( ϕ=0 .6). MAE , NTP and JEPA are non-distillation baselines: pure masked autoencoding (reconstruct masked patches, no teacher) , next-token prediction (autoregressive forecasting-style pre-training) and joint-embedding predictive architecture respectively. Lower is better; best in red, second-best in blue.                                                                
+
+> Dataset WINO-TS WINO-TS+MAE MAE NTP JEPA
+> MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.418 0.424 0.465 0.465 0.428 0.435 0.442 0.447 ETTh2 0.347 0.385 0.355 0.389 0.449 0.457 0.407 0.427 0.390 0.426 ETTm1 0.364 0.386 0.370 0.388 0.349 0.387 0.346 0.381 0.375 0.393 ETTm2 0.252 0.308 0.258 0.313 0.294 0.344 0.263 0.320 0.274 0.332 Weather 0.238 0.273 0.241 0.274 0.266 0.294 0.226 0.265 0.229 0.266
+
+H.4 Augmentation-Family Ablation 
+
+This ablation compares the default wavelet pool with a Daubechies-only pool and a hard-view variant that zeros the finest-scale coefficients. All variants retain the default asymmetric network routing: the teacher processes only easy views, whereas the student processes both easy and hard views under the same cross-view self-distillation objective. The results are depicted in Table A10 No variant dominates every dataset. Zero-out is strongest on ETTh1 and ETTm1, the Daubechies-only pool is strongest on Weather, and the full pool is strongest or tied on ETTh2 and ETTm2. The default full pool is retained because it provides phase, support, and smoothness diversity while remaining competitive across datasets. 
+
+H.5 Pre-training Objective Ablation 
+
+The objective ablation evaluates whether adding reconstruction-style auxiliary objectives improves WINO-TS. We compare the default DINO-only objective against variants that add reconstruction or masked-token auxiliary terms while keeping the backbone and wavelet augmentation fixed. The results, depicted in Table A11 show that the pure DINO objective is the most reliable choice overall. Auxiliary reconstruction-style terms introduce mixed effects, suggesting that the main gains of WINO-TS come from wavelet-domain self-distillation rather than from adding reconstruction losses. 
+
+H.6 Wavelet Pool and Transform Ablation 
+
+We next separate the effects of the sampled wavelet family and the transform. The pool com-parison fixes the decimated DWT and compares the mixed pool with {db4 , db6 , db8 } and 
+
+{sym4 , sym6 , sym8 }. The transform comparison fixes the mixed pool and replaces DWT with the stationary wavelet transform (SWT) or maximal-overlap DWT (MODWT). The results are depicted in Table A12. 24 Table A12: Wavelet augmentation ablation for WINO-TS (DINO pre-training, TimeMixer backbone, Linear probe). In-domain forecasting MSE/MAE averaged over horizons 
+
+{96 , 192 , 336 , 720 }. The first column is the default WINO-TS (DWT with the Mixed pool 
+
+{sym4,sym6,sym8,db4,db6,coif2 }) and is the shared reference. Wavelet pool fixes the DWT and sweeps the pool (db = {db4,db6,db8 }; sym = {sym4,sym6,sym8 }). Transform fixes the Mixed pool and swaps the transform (SWT / MODWT). Lower is better; best in red, second-best in blue.                                                                             
+
+> Ours Wavelet pool Transform
+> DWT/Mixed db sym SWT MODWT
+> Dataset MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.416 0.423 0.416 0.423 0.415 0.422 0.417 0.423 ETTh2 0.347 0.385 0.347 0.386 0.347 0.386 0.347 0.386 0.346 0.385 ETTm1 0.364 0.386 0.364 0.386 0.365 0.387 0.360 0.385 0.364 0.386 ETTm2 0.252 0.308 0.253 0.309 0.258 0.312 0.257 0.312 0.254 0.309 Weather 0.238 0.273 0.237 0.272 0.238 0.272 0.238 0.273 0.239 0.273 Electricity 0.167 0.260 0.165 0.256 0.166 0.257 0.165 0.257 0.166 0.258
+
+Table A13: Shrinkage-strength ( ρ) ablation for WINO-TS (DINO pre-training, TimeMixer back-bone, DWT with the Mixed pool, Linear probe). We vary the soft-threshold shrinkage ratio ρ that sets the per-level denoising threshold of the teacher’s easy view: detail coefficients below ρ · max( |detail |)
+
+are shrunk toward zero, so small ρ preserves high-frequency detail (weak invariance) while large ρ
+
+enforces aggressive low-pass smoothing (strong invariance); ρ = 0 .6 is the WINO-TS default. All other factors—transform, wavelet pool, objective, and backbone—are held fixed. Each cell reports MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }; lower is better, best per row in bold .                                                                     
+
+> Dataset ρ= 0 .2ρ= 0 .4ρ= 0 .6ρ= 0 .8ρ= 1 .0
+> MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.428 0.430 0.464 0.458 0.416 0.423 0.419 0.426 0.465 0.458 ETTh2 0.348 0.387 0.370 0.396 0.347 0.385 0.370 0.396 0.370 0.396 ETTm1 0.371 0.391 0.383 0.403 0.364 0.386 0.382 0.404 0.384 0.405 ETTm2 0.250 0.310 0.249 0.310 0.252 0.308 0.250 0.310 0.250 0.310 Weather 0.243 0.273 0.244 0.273 0.238 0.273 0.243 0.278 0.243 0.278
+
+The shift-invariant transforms do not provide a uniform advantage. SWT is strongest on ETTh1 and ETTm1, whereas the decimated DWT is strongest on ETTm2 and remains close to the best result elsewhere. The differences among the mixed, Daubechies, and Symlet pools are likewise small and dataset-dependent. These results support the standard DWT as a simple and competitive default rather than establishing it as uniformly superior. 
+
+H.7 Shrinkage-Strength Ablation 
+
+The parameter ρ controls the easy-view threshold τj = ρ max k |dj,k |. Small values keep the teacher view close to the original signal, whereas large values suppress a greater fraction of the detail coefficients. We evaluate ρ ∈ { 0.2, 0.4, 0.6, 0.8, 1.0} while holding the backbone, objective, wavelet pool, and hard-view noise range fixed. Table A13 reports the results. The ablation shows that moderate shrinkage provides the most stable performance across datasets. Weak shrinkage produces smaller gains, indicating that the teacher view remains too similar to the student input and provides a weaker invariance signal. Overly aggressive shrinkage also degrades performance on several datasets, suggesting that high-frequency detail bands contain task-relevant information that should be attenuated rather than fully removed. The default value ρ = 0 .6 achieves the best overall trade-off between denoising and detail preservation, and we use it in all main experiments. 
+
+H.8 Wavelet Depth and Wavelet Pool 
+
+We next ablate two design choices in the wavelet view generator: the decomposition depth J and the wavelet sampling strategy. The depth J determines the scale at which the signal is split into the shared low-frequency approximation and the editable detail subspace. A shallow decomposition leaves more 25 Table A14: Wavelet-depth ablation using linear probe. Each cell reports MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }. Lower is better; best results are in bold .                                         
+
+> J= 2 J= 3 J= 4
+> Dataset MSE MAE MSE MAE MSE MAE ETTh1 0.426 0.429 0.416 0.423 0.438 0.440 ETTh2 0.370 0.395 0.347 0.385 0.361 0.391 ETTm1 0.361 0.386 0.364 0.386 0.362 0.385 ETTm2 0.255 0.312 0.252 0.308 0.248 0.308 Weather 0.238 0.272 0.238 0.273 0.239 0.273
+
+Table A15: Wavelet-pool and basis-sampling ablation (Linear probe). Fixed uses a single wavelet basis for both views. Shared sampled draws one wavelet from P and uses it for both easy and hard views. Independent sampled is the WINO-TS default, drawing weasy and whard independently. Each cell reports MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }. Lower is better; best results are in bold .                                    
+
+> Fixed basis Shared sampled Independent sampled Dataset MSE MAE MSE MAE MSE MAE ETTh1 0.429 0.431 0.420 0.429 0.416 0.423
+> ETTh2 0.369 0.394 0.363 0.391 0.347 0.385
+> ETTm1 0.362 0.387 0.363 0.387 0.364 0.386
+> ETTm2 0.247 0.308 0.275 0.328 0.252 0.308
+> Weather 0.243 0.279 0.243 0.279 0.238 0.273
+
+local variation in the approximation, while a deeper decomposition makes the teacher view more aggressively coarse. We compare J ∈ { 2, 3, 4} using the same DINO objective and backbone. Table A14 shows that intermediate depth provides the most stable performance. With J = 2 , the easy and hard views remain too close in scale, weakening the self-distillation signal. With J = 4 , the approximation becomes overly coarse on several datasets, causing the teacher target to discard useful local structure. The default J = 3 provides the best overall trade-off and is used throughout the main experiments. We also evaluate the effect of wavelet-basis sampling. Specifically, we compare a fixed-basis setting, a shared-sampled setting in which the easy and hard views use the same randomly sampled wavelet, and the default independent-sampling setting in which weasy and whard are drawn independently from the wavelet pool. Table A15 shows that independent sampling is the most robust overall. Using a fixed basis performs competitively on some datasets but is less stable, suggesting that the encoder can overfit to basis-specific phase or boundary behavior. Shared sampling improves over a fixed basis by adding wavelet diversity, while independent sampling further improves robustness by introducing mild cross-basis leakage between the easy and hard views. This supports the default design of sampling the two view bases independently. 
+
+H.9 View-Pairing Ablation 
+
+The default WINO-TS configuration follows an asymmetric DINO-style view-pairing rule. The teacher processes only the easy views, whereas the student processes both easy and hard views. Every student view is matched to every easy teacher view, except that the teacher and student outputs corresponding to the identical easy-view realization are not paired. Thus, both student easy and student hard views contribute to the default objective. We compare this default rule against two alternative pairing strategies. The same-view variant additionally includes the matching easy-teacher/easy-student pairs that are excluded by the default objective. The symmetric variant allows both the teacher and student to process easy and hard views and applies cross-view matching across non-identical view pairs. Table A16 shows that the default asymmetric DINO-style pairing provides the most stable perfor-mance across the evaluated datasets. Including identical easy–easy pairs does not yield consistent gains, suggesting that direct same-view matching can weaken the desired cross-view invariance 26 Table A16: View-pairing ablation using linear probing. Default denotes the WINO-TS pairing rule: the teacher processes easy views, the student processes both easy and hard views, and every student view is matched to every teacher easy view except the identical easy-view index. Same-view 
+
+additionally includes the matching easy–easy pairs. Symmetric allows both networks to process easy and hard views. Each cell reports MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }. Lower is better; best results are in bold .                                      
+
+> Default Same-view Symmetric Dataset MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.435 0.434 0.420 0.430 ETTh2 0.347 0.385 0.363 0.391 0.364 0.392 ETTm1 0.364 0.386 0.361 0.385 0.362 0.385
+> ETTm2 0.252 0.308 0.248 0.309 0.248 0.307
+> Weather 0.238 0.273 0.242 0.279 0.239 0.275
+
+Table A17: Seed robustness of WINO-TS LP (DINO pre-training, TimeMixer backbone, linear probe). In-domain forecasting MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }, reported as mean ± std over 5 seeds ( {42 , 777 , 1773 , 2024 , 3407 }). Lower is better.                                 
+
+> Dataset MSE MAE
+> ETTh1 0.417 ±0.001 0.424 ±0.001
+> ETTh2 0.350 ±0.004 0.387 ±0.002
+> ETTm1 0.361 ±0.003 0.385 ±0.001
+> ETTm2 0.248 ±0.002 0.308 ±0.002
+> Weather 0.238 ±0.001 0.272 ±0.001
+
+pressure. The fully symmetric formulation is competitive on ETTm1 and ETTm2 but is less stable on ETTh1, ETTh2, and Weather. These results indicate that the benefit of WINO-TS depends not only on generating wavelet-domain views but also on assigning distinct roles to the two networks: the teacher produces targets only from easy views, while the student learns from both easy and hard views through non-trivial cross-view matching. 
+
+H.10 Seed Robustness 
+
+We evaluate WINO-TS-LP across five random seeds, {42 , 777 , 1773 , 2024 , 3407 }. The results are depicted in Table H.10. The standard deviations are small across the tested seeds, indicating limited run-to-run variability for the reported linear-probe setting. Table A18: Multi-view ablation with a TimeMixer backbone and linear probing. The default uses 
+
+Q=1 easy view and V =1 hard view; the alternatives use Q=2 and V ∈ { 2, 4, 6}. Each view uses an independently sampled wavelet basis and, for hard views, independently sampled noise. Results are MSE/MAE averaged over horizons {96 , 192 , 336 , 720 }; lower is better and best results are in bold .                                                      
+
+> Dataset WINO-TS
+> (Q=1 , V =1 )
+> Q=2 , V =2 Q=2 , V =4 Q=2 , V =6
+> MSE MAE MSE MAE MSE MAE MSE MAE ETTh1 0.416 0.423 0.433 0.433 0.429 0.431 0.429 0.430 ETTh2 0.347 0.385 0.363 0.391 0.362 0.391 0.362 0.390 ETTm1 0.364 0.386 0.361 0.385 0.362 0.385 0.362 0.386 ETTm2 0.252 0.308 0.247 0.308 0.248 0.309 0.247 0.308 Weather 0.238 0.273 0.240 0.276 0.239 0.275 0.239 0.275
+
+27
